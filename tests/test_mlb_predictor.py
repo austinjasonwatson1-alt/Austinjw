@@ -89,7 +89,11 @@ class FakeClient:
                                                     "airOuts": 1750}}]}]}
         if path == "standings":
             return {"records": [{"teamRecords": [
-                {"team": {"id": tid}, "records": {"splitRecords": [
+                {"team": {"id": tid}, "wins": 83, "losses": 77, "gamesPlayed": 160,
+                 "runsScored": 760 if tid == 147 else 700, "runsAllowed": 640 if tid == 147 else 700,
+                 "clinched": tid == 147, "eliminationNumber": "E" if tid == 111 else "5",
+                 "wildCardEliminationNumber": "E" if tid == 111 else "3",
+                 "records": {"splitRecords": [
                     {"type": "home", "wins": 45, "losses": 35}, {"type": "away", "wins": 38, "losses": 42}]}}
                 for tid in mp.TEAM_ABBR_BY_ID]}]}
         return None
@@ -130,7 +134,10 @@ def test_live_provider_end_to_end_with_edge_cases(model):
     assert by_pk[1].home.wrc_vs_l > 100  # NYY boosted offense, park-adjusted
     assert by_pk[2].skip_reason and "Postponed" in by_pk[2].skip_reason
     assert by_pk[3].home_sp.tbd and "no MLB data" in by_pk[3].away_sp.notes[0]
-    assert by_pk[4].park_factor == 100 and by_pk[4].notes
+    assert by_pk[4].park_factor == 100 and by_pk[4].hr_park_factor == 100 and by_pk[4].notes
+    assert by_pk[1].home.pyth_wpct > 0.5 == by_pk[1].away.pyth_wpct
+    assert by_pk[1].home.playoff_status == "clinched" and by_pk[1].away.playoff_status == "eliminated"
+    assert by_pk[1].home.record == "83-77" and by_pk[1].home.run_diff == 120
 
     df = mp.predict_slate(games, model)
     assert df.loc[df.game_pk == 2, "pick"].isna().all()
@@ -139,6 +146,7 @@ def test_live_provider_end_to_end_with_edge_cases(model):
     assert live.confidence.between(0.5, 0.99).all()
     assert (live.band_low <= live.confidence).all() and (live.confidence <= live.band_high).all()
     assert live.loc[live.game_pk == 1, "pick"].item() == "NYY"
+    assert live.loc[live.game_pk == 1, "playoff_shift"].item() == pytest.approx(0.07)
     assert "SP TBD" in live.loc[live.game_pk == 3, "reason"].item()
     table = mp.render_table(df, width=150)
     assert "POSTPONED" in table and "% Confidence" in table
@@ -181,3 +189,35 @@ def test_cli_simulate_and_csv(tmp_path, capsys):
     assert rc == 0 and out.exists()
     assert len(pd.read_csv(out)) == 15
     assert "MLB GAME PREDICTOR" in capsys.readouterr().out
+
+
+def test_pythag_regression():
+    wp, se = mp.pythag_regressed(800, 600, 162)
+    assert 0.5 < wp < 800 ** 1.85 / (800 ** 1.85 + 600 ** 1.85)
+    assert mp.pythag_regressed(0, 0, 0)[0] == 0.5
+
+
+def test_hr_prone_flyballer_penalized_more_in_hr_park():
+    calc = mp.SabermetricCalculator()
+    fly = calc.hr9_projection(0.36, 0.13, 112) - calc.hr9_projection(0.36, 0.13, 100)
+    gb = calc.hr9_projection(0.25, 0.09, 112) - calc.hr9_projection(0.25, 0.09, 100)
+    assert fly > gb > 0
+
+
+def test_playoff_shift_direction():
+    home = mp.TeamProfile(1, "AAA", "A", playoff_status="eliminated")
+    away = mp.TeamProfile(2, "BBB", "B", playoff_status="alive")
+    sp = mp.PitcherProfile.unknown("TBD")
+    g = mp.GameContext(1, None, "Scheduled", home, away, sp, sp)
+    assert mp.playoff_shift(g) == pytest.approx(-0.10)
+    assert mp.shift_prob(0.5, -0.10) < 0.5
+    home.playoff_status = "alive"
+    assert mp.playoff_shift(g) == 0.0
+
+
+def test_model_rewards_team_strength_and_hr_edge(model):
+    base = pd.DataFrame([{f: 0.0 for f in mp.FEATURES} | {"venue_split_edge": 0.07, "park_factor": 100.0}])
+    for feat, val in (("team_strength_edge", 0.08), ("sp_hr_risk_edge", 0.6)):
+        better = base.copy()
+        better[feat] = val
+        assert model.predict_proba(better)[0] > model.predict_proba(base)[0]

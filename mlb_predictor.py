@@ -113,12 +113,20 @@ class LeagueConstants:
     bullpen_prior_bf: float = 300.0
     wrc_prior_pa: float = 200.0
     split_prior_games: float = 20.0
+    pyth_prior_games: float = 50.0
+    air_rate_prior_bf: float = 150.0
+    hr_per_air_prior: float = 250.0  # air balls of league-average HR/FB added to each pitcher
 
     # Share of today's opponents that are RHP; used when a starter's hand is unknown
     rhp_share: float = 0.72
 
 
 CONST = LeagueConstants()
+
+# Late-season motivation / roster-usage adjustment, applied as a log-odds shift on top
+# of the model (the structural baseline cannot learn it). Eliminated clubs give
+# at-bats to call-ups and rest regulars; clubs that have clinched may do the same.
+PLAYOFF_LOGIT_SHIFT: Dict[str, float] = {"alive": 0.0, "clinched": -0.03, "eliminated": -0.10, "unknown": 0.0}
 
 # Approximate multi-year run park factors (100 = neutral), keyed by MLB Stats API
 # team abbreviation of the *home* club. Refresh from FanGraphs/Statcast each season.
@@ -129,6 +137,15 @@ PARK_FACTORS: Dict[str, int] = {
     "CHC": 100, "LAD": 100, "HOU": 99, "MIL": 99, "PIT": 98, "STL": 98,
     "DET": 98, "CLE": 98, "SF": 97, "MIA": 97, "TB": 97, "NYM": 96, "SD": 96,
     "SEA": 93,
+}
+
+# Approximate multi-year HOME RUN park factors (100 = neutral), same keys as above.
+HR_PARK_FACTORS: Dict[str, int] = {
+    "CIN": 123, "LAD": 118, "NYY": 117, "ATH": 112, "OAK": 112, "PHI": 113, "COL": 112,
+    "LAA": 110, "CWS": 108, "MIL": 108, "HOU": 105, "TOR": 105, "BAL": 104, "TB": 104,
+    "ATL": 102, "TEX": 101, "MIN": 98, "WSH": 98, "CHC": 97, "NYM": 97, "SD": 97,
+    "BOS": 96, "SEA": 95, "ARI": 92, "AZ": 92, "CLE": 92, "STL": 88, "DET": 88,
+    "MIA": 88, "KC": 84, "PIT": 83, "SF": 82,
 }
 
 TEAM_ABBR_BY_ID: Dict[int, str] = {
@@ -147,9 +164,11 @@ FEATURES: List[str] = [
     "platoon_wrc_edge",    # home wRC+ vs away SP hand - away wRC+ vs home SP hand
     "bullpen_siera_edge",  # away bullpen SIERA - home bullpen SIERA
     "venue_split_edge",    # home team's home W% - away team's road W%
+    "team_strength_edge",  # home Pythagorean W% - away Pythagorean W% (regressed)
+    "sp_hr_risk_edge",     # away SP projected HR/9 at this park - home SP projected HR/9
     "park_factor",         # run park factor of today's venue (context, not directional)
 ]
-MONOTONIC = [1, 1, 1, 1, 1, 1, 0]
+MONOTONIC = [1, 1, 1, 1, 1, 1, 1, 1, 0]
 
 FEATURE_LABELS = {
     "sp_siera_edge": "SP SIERA",
@@ -158,6 +177,8 @@ FEATURE_LABELS = {
     "platoon_wrc_edge": "Platoon wRC+",
     "bullpen_siera_edge": "Bullpen SIERA",
     "venue_split_edge": "Home/Road split",
+    "team_strength_edge": "Team strength (Pythag)",
+    "sp_hr_risk_edge": "SP HR risk x park",
     "park_factor": "Park factor",
 }
 
@@ -328,6 +349,19 @@ class SabermetricCalculator:
             go=bip * 0.7 * c.lg_go_share, ao=bip * 0.7 * (1 - c.lg_go_share),
         )
 
+    @property
+    def lg_air_rate(self) -> float:
+        lg = self.league_average_line()
+        return self.batted_balls(lg)[1] / lg.bf
+
+    @property
+    def bf_per_9(self) -> float:
+        return self.c.lg_bf_per_ip * 9.0
+
+    def hr9_projection(self, air_rate: float, hr_per_air: float, hr_park_factor: float) -> float:
+        """Projected HR/9 for a pitcher's air-ball rate and HR/air skill in a given park."""
+        return self.bf_per_9 * air_rate * hr_per_air * hr_park_factor / 100.0
+
     def batted_balls(self, line: PitchingLine) -> Tuple[float, float]:
         """Estimate (ground balls, air balls incl. PU and HR)."""
         bip = max(line.bf - line.k - line.bb - line.hbp - line.hr, 0.0)
@@ -406,6 +440,9 @@ class PitcherProfile:
     siera_se: float = 0.9
     xfip_se: float = 1.0
     kbb30_se: float = 5.0
+    air_rate: float = 0.303  # air balls (FB + PU + HR) per batter faced, regressed
+    hr_per_air: float = CONST.lg_hr_per_fb  # regressed HR per air ball
+    hr9_se: float = 0.35
     tbd: bool = False
     notes: List[str] = field(default_factory=list)
 
@@ -415,7 +452,8 @@ class PitcherProfile:
         return cls(
             name=name, hand="?", siera=const.lg_siera + 0.30, xfip=const.lg_xfip + 0.30,
             kbb_season=const.lg_kbb_pct - 2.0, kbb30=const.lg_kbb_pct - 2.0,
-            siera_se=0.9, xfip_se=1.0, kbb30_se=5.0, tbd=name == "TBD",
+            siera_se=0.9, xfip_se=1.0, kbb30_se=5.0, hr_per_air=const.lg_hr_per_fb * 1.05,
+            hr9_se=0.45, tbd=name == "TBD",
             notes=["SP TBD" if name == "TBD" else f"no MLB data for {short_name(name)}"],
         )
 
@@ -435,7 +473,17 @@ class TeamProfile:
     away_wpct: float = 1 - CONST.lg_home_wpct
     home_games: float = 0.0
     away_games: float = 0.0
+    pyth_wpct: float = 0.5
+    pyth_se: float = 0.06
+    wins: int = 0
+    losses: int = 0
+    run_diff: int = 0
+    playoff_status: str = "unknown"  # alive | clinched | eliminated | unknown
     notes: List[str] = field(default_factory=list)
+
+    @property
+    def record(self) -> str:
+        return f"{self.wins}-{self.losses}" if self.wins or self.losses else ""
 
     def wrc_vs(self, hand: str) -> Tuple[float, float]:
         if hand == "L":
@@ -457,6 +505,7 @@ class GameContext:
     home_sp: PitcherProfile
     away_sp: PitcherProfile
     park_factor: float = 100.0
+    hr_park_factor: float = 100.0
     venue: str = ""
     game_number: int = 1
     doubleheader: bool = False
@@ -638,7 +687,17 @@ class MLBStatsAPIProvider:
                 tid = (tr.get("team") or {}).get("id")
                 splits = {s.get("type"): s for s in (tr.get("records") or {}).get("splitRecords", [])}
                 if tid:
+                    if tr.get("clinched"):
+                        status = "clinched"
+                    elif tr.get("eliminationNumber") == "E" and tr.get("wildCardEliminationNumber") == "E":
+                        status = "eliminated"
+                    else:
+                        status = "alive"
                     out[tid] = {
+                        "wins": int(_num(tr.get("wins"))), "losses": int(_num(tr.get("losses"))),
+                        "rs": _num(tr.get("runsScored")), "ra": _num(tr.get("runsAllowed")),
+                        "gp": _num(tr.get("gamesPlayed")) or _num(tr.get("wins")) + _num(tr.get("losses")),
+                        "status": status,
                         "home_w": _num((splits.get("home") or {}).get("wins")),
                         "home_l": _num((splits.get("home") or {}).get("losses")),
                         "away_w": _num((splits.get("away") or {}).get("wins")),
@@ -723,6 +782,10 @@ class MLBStatsAPIProvider:
             team.away_games = st["away_w"] + st["away_l"]
             team.home_wpct = (st["home_w"] + self.c.lg_home_wpct * k) / (team.home_games + k)
             team.away_wpct = (st["away_w"] + (1 - self.c.lg_home_wpct) * k) / (team.away_games + k)
+            team.wins, team.losses = st["wins"], st["losses"]
+            team.run_diff = int(st["rs"] - st["ra"])
+            team.playoff_status = st["status"]
+            team.pyth_wpct, team.pyth_se = pythag_regressed(st["rs"], st["ra"], st["gp"], self.c)
         else:
             team.notes.append(f"{abbr} splits imputed")
         return team
@@ -752,9 +815,10 @@ class MLBStatsAPIProvider:
         venue = g.get("venue") or {}
         home_venue_id = teams_meta.get(home.team_id, {}).get("venue_id")
         pf = PARK_FACTORS.get(home.abbr, 100)
+        hr_pf = HR_PARK_FACTORS.get(home.abbr, 100)
         notes = []
         if home_venue_id and venue.get("id") and venue["id"] != home_venue_id:
-            pf = 100  # neutral-site / alternate venue (London, Little League Classic, ...)
+            pf = hr_pf = 100  # neutral-site / alternate venue (London, Little League Classic, ...)
             notes.append(f"alt venue: {venue.get('name', '?')}")
 
         skip = None
@@ -772,11 +836,21 @@ class MLBStatsAPIProvider:
         return GameContext(
             game_pk=int(g.get("gamePk", 0)), start_time=start, status=detailed,
             home=home, away=away, home_sp=home_sp, away_sp=away_sp, park_factor=pf,
-            venue=venue.get("name", ""), game_number=int(g.get("gameNumber", 1) or 1),
+            hr_park_factor=hr_pf, venue=venue.get("name", ""), game_number=int(g.get("gameNumber", 1) or 1),
             doubleheader=g.get("doubleHeader", "N") in ("Y", "S"), skip_reason=skip,
             home_score=home_score, away_score=away_score,
             is_final=abstract == "Final" and skip is None, notes=notes,
         )
+
+
+def pythag_regressed(rs: float, ra: float, gp: float, const: LeagueConstants = CONST) -> Tuple[float, float]:
+    """Pythagenpat W% from runs scored/allowed, regressed toward .500. Returns (wpct, se)."""
+    k = const.pyth_prior_games
+    if gp <= 0 or rs <= 0 or ra <= 0:
+        return 0.5, 0.5 / math.sqrt(k)
+    x = ((rs + ra) / gp) ** 0.287
+    raw = rs ** x / (rs ** x + ra ** x)
+    return (raw * gp + 0.5 * k) / (gp + k), 0.42 / math.sqrt(gp + k)
 
 
 def build_pitcher_profile(name: str, hand: str, season_line: PitchingLine, l30: Optional[PitchingLine],
@@ -788,6 +862,9 @@ def build_pitcher_profile(name: str, hand: str, season_line: PitchingLine, l30: 
     kbb_season = regress(season_line.k_bb_pct, bf, c.lg_kbb_pct, c.kbb_season_prior_bf)
     bf30 = l30.bf if l30 else 0.0
     kbb30 = regress(l30.k_bb_pct if l30 else None, bf30, kbb_season, c.kbb30_prior_bf)
+    _, air = calc.batted_balls(season_line)
+    air_rate = regress(air / bf, bf, calc.lg_air_rate, c.air_rate_prior_bf)
+    hr_per_air = regress(season_line.hr / air if air > 0 else None, air, c.lg_hr_per_fb, c.hr_per_air_prior)
     notes = list(notes or [])
     if bf30 == 0:
         notes.append("no L30 appearances")
@@ -797,6 +874,8 @@ def build_pitcher_profile(name: str, hand: str, season_line: PitchingLine, l30: 
         siera_se=0.85 * math.sqrt(100.0 / (bf + c.sp_prior_bf)),
         xfip_se=0.95 * math.sqrt(100.0 / (bf + c.sp_prior_bf)),
         kbb30_se=100.0 * math.sqrt(0.18 / (bf30 + c.kbb30_prior_bf)),
+        air_rate=air_rate, hr_per_air=hr_per_air,
+        hr9_se=calc.bf_per_9 * math.sqrt(0.03 / (bf + c.hr_per_air_prior)),
         notes=notes,
     )
 
@@ -819,6 +898,10 @@ class SimulatedProvider:
         base = r.normal(100, 9)
         home_g, away_g = r.integers(70, 81, size=2)
         quality = r.normal(0, 0.05)
+        games = int(home_g + away_g)
+        pyth = float(np.clip(0.5 + quality + r.normal(0, 0.03), 0.3, 0.7))
+        wins = int(round(games * float(np.clip(pyth + r.normal(0, 0.03), 0.25, 0.75))))
+        status = "eliminated" if wins / games < 0.47 else "clinched" if wins / games > 0.58 else "alive"
         return TeamProfile(
             team_id=tid, abbr=abbr, name=abbr,
             wrc_vs_l=base + r.normal(0, 8), wrc_vs_r=base + r.normal(0, 5),
@@ -827,6 +910,10 @@ class SimulatedProvider:
             home_wpct=float(np.clip(self.c.lg_home_wpct + quality + r.normal(0, 0.04), 0.3, 0.72)),
             away_wpct=float(np.clip(1 - self.c.lg_home_wpct + quality + r.normal(0, 0.04), 0.28, 0.7)),
             home_games=float(home_g), away_games=float(away_g),
+            pyth_wpct=(pyth * games + 0.5 * self.c.pyth_prior_games) / (games + self.c.pyth_prior_games),
+            pyth_se=0.42 / math.sqrt(games + self.c.pyth_prior_games),
+            wins=wins, losses=games - wins, run_diff=int(round((pyth - 0.5) * 10 * games)),
+            playoff_status=status,
         )
 
     def _pitcher(self, abbr: str, slot: int) -> PitcherProfile:
@@ -841,6 +928,8 @@ class SimulatedProvider:
             bf_season=bf, bf30=bf30,
             siera_se=0.85 * math.sqrt(100 / (bf + 150)), xfip_se=0.95 * math.sqrt(100 / (bf + 150)),
             kbb30_se=100 * math.sqrt(0.18 / (bf30 + 60)),
+            air_rate=float(r.normal(0.303, 0.03)), hr_per_air=float(r.normal(self.c.lg_hr_per_fb, 0.008)),
+            hr9_se=38.4 * math.sqrt(0.03 / (bf + 250)),
         )
 
     def get_slate(self, game_date: date) -> List[GameContext]:
@@ -856,7 +945,8 @@ class SimulatedProvider:
                 home=self._team(hid, habbr), away=self._team(aid, aabbr),
                 home_sp=self._pitcher(habbr, int(self.rng.integers(1, 6))),
                 away_sp=self._pitcher(aabbr, int(self.rng.integers(1, 6))),
-                park_factor=PARK_FACTORS.get(habbr, 100), venue=f"{habbr} home park",
+                park_factor=PARK_FACTORS.get(habbr, 100), hr_park_factor=HR_PARK_FACTORS.get(habbr, 100),
+                venue=f"{habbr} home park",
             )
             games.append(game)
         # Deliberately exercise edge cases in the simulated slate.
@@ -872,8 +962,13 @@ class SimulatedProvider:
 # ----------------------------------------------------------------------------
 
 
+_CALC = SabermetricCalculator()
+
+
 def game_features(g: GameContext) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, Any]]:
     """Return (features, feature standard errors, display metadata) for one game."""
+    home_hr9 = _CALC.hr9_projection(g.home_sp.air_rate, g.home_sp.hr_per_air, g.hr_park_factor)
+    away_hr9 = _CALC.hr9_projection(g.away_sp.air_rate, g.away_sp.hr_per_air, g.hr_park_factor)
     home_off, home_off_se = g.home.wrc_vs(g.away_sp.hand)
     away_off, away_off_se = g.away.wrc_vs(g.home_sp.hand)
     feats = {
@@ -883,6 +978,8 @@ def game_features(g: GameContext) -> Tuple[Dict[str, float], Dict[str, float], D
         "platoon_wrc_edge": home_off - away_off,
         "bullpen_siera_edge": g.away.bullpen_siera - g.home.bullpen_siera,
         "venue_split_edge": g.home.home_wpct - g.away.away_wpct,
+        "team_strength_edge": g.home.pyth_wpct - g.away.pyth_wpct,
+        "sp_hr_risk_edge": away_hr9 - home_hr9,
         "park_factor": float(g.park_factor),
     }
     ses = {
@@ -893,10 +990,12 @@ def game_features(g: GameContext) -> Tuple[Dict[str, float], Dict[str, float], D
         "bullpen_siera_edge": math.hypot(g.home.bullpen_se, g.away.bullpen_se),
         "venue_split_edge": math.hypot(0.5 / math.sqrt(g.home.home_games + CONST.split_prior_games),
                                        0.5 / math.sqrt(g.away.away_games + CONST.split_prior_games)),
+        "team_strength_edge": math.hypot(g.home.pyth_se, g.away.pyth_se),
+        "sp_hr_risk_edge": math.hypot(g.home_sp.hr9_se, g.away_sp.hr9_se),
         "park_factor": 0.0,
     }
     meta = {
-        "home_wrc": home_off, "away_wrc": away_off,
+        "home_wrc": home_off, "away_wrc": away_off, "home_hr9": home_hr9, "away_hr9": away_hr9,
         "home_faces": g.away_sp.hand, "away_faces": g.home_sp.hand,
     }
     return feats, ses, meta
@@ -923,8 +1022,34 @@ def generate_baseline_training_set(n: int = 30000, seed: int = 42,
     form = {s: norm(0, 0.30, n) for s in ("h", "a")}  # current-form deviation, visible in L30 K-BB%
     bp_true = {s: norm(const.lg_bullpen_siera, 0.30, n) for s in ("h", "a")}
     off_true = {s: norm(100, 10, n) for s in ("h", "a")}  # wRC+ vs today's starter hand
-    resid = {s: norm(0, 0.30, n) for s in ("h", "a")}  # defense/baserunning/depth, runs per game
-    pf = rng.choice(np.array(sorted(set(PARK_FACTORS.values())), dtype=float), n)
+    resid = {s: norm(0, 0.35, n) for s in ("h", "a")}  # defense/baserunning/depth, runs per game
+    parks = sorted(PARK_FACTORS)
+    idx = rng.integers(0, len(parks), n)
+    pf = np.array([PARK_FACTORS[parks[i]] for i in idx], dtype=float)
+    hr_mult = np.array([HR_PARK_FACTORS.get(parks[i], 100) for i in idx], dtype=float) / 100.0
+    games_played = rng.integers(40, 163, n).astype(float)
+
+    calc = SabermetricCalculator(const)
+    lg_air, lg_hrfb, bf9 = calc.lg_air_rate, const.lg_hr_per_fb, calc.bf_per_9
+    ref_ra9 = (5.4 * const.lg_siera + 3.6 * const.lg_bullpen_siera) / 9.0
+
+    # Home-run proneness x park: runs a starter allows beyond what SIERA (neutral park,
+    # league HR/FB) implies. ~1.4 runs per home run.
+    air_true = {s: norm(lg_air, 0.035, n) for s in ("h", "a")}
+    hrfb_true = {s: norm(lg_hrfb, 0.012, n) for s in ("h", "a")}
+    hr_extra = {s: 1.4 * bf9 * ((air_true[s] - lg_air) * lg_hrfb * (hr_mult - 1)
+                                + air_true[s] * (hrfb_true[s] - lg_hrfb) * hr_mult) for s in ("h", "a")}
+
+    # Season-long team strength (what a Pythagorean record measures): offense, whole
+    # staff and the residual defense/baserunning/depth component.
+    pyth_obs = {}
+    k = const.pyth_prior_games
+    for s in ("h", "a"):
+        season_off = off_true[s] + norm(0, 5, n)
+        rotation = norm(const.lg_siera, 0.35, n)
+        strength = 4.45 * (season_off / 100 - 1) + ref_ra9 - (0.6 * rotation + 0.4 * bp_true[s]) + resid[s]
+        raw = 0.5 + 0.1 * strength + norm(0, 1, n) * 0.42 / np.sqrt(games_played)
+        pyth_obs[s] = (raw * games_played + 0.5 * k) / (games_played + k)
 
     obs = {}
     for s in ("h", "a"):
@@ -934,12 +1059,14 @@ def generate_baseline_training_set(n: int = 30000, seed: int = 42,
         obs[f"kbb30_{s}"] = const.lg_kbb_pct - 8.0 * (cur - const.lg_siera) + norm(0, 4.5, n)
         obs[f"bp_{s}"] = bp_true[s] + norm(0, 0.18, n)
         obs[f"wrc_{s}"] = off_true[s] + norm(0, 8, n)
+        air_obs = lg_air + 0.77 * (air_true[s] - lg_air + norm(0, 0.02, n))
+        hrfb_obs = lg_hrfb + 0.44 * (hrfb_true[s] - lg_hrfb + norm(0, 0.022, n))
+        obs[f"hr9_{s}"] = bf9 * air_obs * hrfb_obs * hr_mult
     home_rec = const.lg_home_wpct + 0.10 * resid["h"] + 0.0025 * (off_true["h"] - 100) + norm(0, 0.055, n)
     away_rec = 1 - const.lg_home_wpct + 0.10 * resid["a"] + 0.0025 * (off_true["a"] - 100) + norm(0, 0.055, n)
 
-    ref_ra9 = (5.4 * const.lg_siera + 3.6 * const.lg_bullpen_siera) / 9.0
-    opp_ra_home = (5.4 * (sp_true["a"] + form["a"]) + 3.6 * bp_true["a"]) / 9.0
-    opp_ra_away = (5.4 * (sp_true["h"] + form["h"]) + 3.6 * bp_true["h"]) / 9.0
+    opp_ra_home = (5.4 * (sp_true["a"] + form["a"] + hr_extra["a"]) + 3.6 * bp_true["a"]) / 9.0
+    opp_ra_away = (5.4 * (sp_true["h"] + form["h"] + hr_extra["h"]) + 3.6 * bp_true["h"]) / 9.0
     net = resid["h"] - resid["a"]
     runs_h = 4.45 * off_true["h"] / 100 * opp_ra_home / ref_ra9 * pf / 100 * 1.04 + net / 2
     runs_a = 4.45 * off_true["a"] / 100 * opp_ra_away / ref_ra9 * pf / 100 * 0.965 - net / 2
@@ -954,6 +1081,8 @@ def generate_baseline_training_set(n: int = 30000, seed: int = 42,
         "platoon_wrc_edge": obs["wrc_h"] - obs["wrc_a"],
         "bullpen_siera_edge": obs["bp_a"] - obs["bp_h"],
         "venue_split_edge": home_rec - away_rec,
+        "team_strength_edge": pyth_obs["h"] - pyth_obs["a"],
+        "sp_hr_risk_edge": obs["hr9_a"] - obs["hr9_h"],
         "park_factor": pf,
         "home_win": (rng.random(n) < p_home).astype(int),
     })
@@ -1069,6 +1198,20 @@ def explain(g: GameContext, contribs: Dict[str, float], meta: Dict[str, Any],
         if feat == "bullpen_siera_edge":
             return (f"a {s} bullpen SIERA advantage for {W.abbr} "
                     f"({W.bullpen_siera:.2f} vs {L.bullpen_siera:.2f})")
+        if feat == "team_strength_edge":
+            def desc(t: TeamProfile) -> str:
+                rec = f"{t.record}, {t.run_diff:+d} RD" if t.record else f"{fmt_wpct(t.pyth_wpct)} Pythag"
+                return f"{t.abbr} {rec}"
+            return f"{W.abbr} is the stronger club overall ({desc(W)} vs {desc(L)})"
+        if feat == "sp_hr_risk_edge":
+            w_hr9, l_hr9 = (meta["home_hr9"], meta["away_hr9"]) if winner_home else (meta["away_hr9"], meta["home_hr9"])
+            where = f"at {g.venue}" if g.venue else "in this park"
+            return (f"{L.abbr} SP {short_name(lsp.name)} is HR-prone {where} "
+                    f"(proj. {l_hr9:.2f} HR/9 vs {w_hr9:.2f})")
+        if feat == "playoff_leverage":
+            if L.playoff_status == "eliminated":
+                return f"{W.abbr} is playing for the postseason while {L.abbr} is eliminated"
+            return f"{L.abbr} has already clinched and may rest regulars"
         if feat == "venue_split_edge":
             if winner_home:
                 return f"{W.abbr} plays {fmt_wpct(W.home_wpct)} ball at home vs {L.abbr} {fmt_wpct(L.away_wpct)} on the road"
@@ -1104,6 +1247,18 @@ def tier(prob: float) -> str:
     return "STRONG" if prob >= 0.60 else "LEAN" if prob >= 0.55 else "TOSS-UP"
 
 
+def playoff_shift(g: GameContext) -> float:
+    """Home-oriented log-odds adjustment for playoff status (only when statuses differ)."""
+    if g.home.playoff_status == g.away.playoff_status:
+        return 0.0
+    return PLAYOFF_LOGIT_SHIFT.get(g.home.playoff_status, 0.0) - PLAYOFF_LOGIT_SHIFT.get(g.away.playoff_status, 0.0)
+
+
+def shift_prob(p: float, shift: float) -> float:
+    p = min(max(p, 1e-6), 1 - 1e-6)
+    return 1.0 / (1.0 + math.exp(-(math.log(p / (1 - p)) + shift)))
+
+
 def predict_slate(games: Sequence[GameContext], model: GamePredictor, seed: int = 42) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     rows = []
@@ -1113,6 +1268,7 @@ def predict_slate(games: Sequence[GameContext], model: GamePredictor, seed: int 
             "away": g.away.abbr, "home": g.home.abbr, "game_number": g.game_number,
             "doubleheader": g.doubleheader, "away_sp": g.away_sp.name, "away_sp_hand": g.away_sp.hand,
             "home_sp": g.home_sp.name, "home_sp_hand": g.home_sp.hand, "venue": g.venue,
+            "away_record": g.away.record, "home_record": g.home.record,
             "park_factor": g.park_factor, "skip_reason": g.skip_reason,
             "home_score": g.home_score, "away_score": g.away_score, "is_final": g.is_final,
         }
@@ -1126,8 +1282,9 @@ def predict_slate(games: Sequence[GameContext], model: GamePredictor, seed: int 
             x = pd.Series(feats)
             if not np.all(np.isfinite(x.to_numpy(dtype=float))):
                 raise ValueError("non-finite features")
-            p_home = float(model.predict_proba(x.to_frame().T)[0])
-            lo, hi = model.uncertainty_band(x, ses, rng=rng)
+            shift = playoff_shift(g)
+            p_home = shift_prob(float(model.predict_proba(x.to_frame().T)[0]), shift)
+            lo, hi = (shift_prob(v, shift) for v in model.uncertainty_band(x, ses, rng=rng))
             winner_home = p_home >= 0.5
             conf = p_home if winner_home else 1 - p_home
             band = (lo, hi) if winner_home else (1 - hi, 1 - lo)
@@ -1135,7 +1292,8 @@ def predict_slate(games: Sequence[GameContext], model: GamePredictor, seed: int 
             row.update(
                 p_home=p_home, pick=g.home.abbr if winner_home else g.away.abbr,
                 confidence=conf, band_low=band[0], band_high=band[1], tier=tier(conf),
-                reason=explain(g, model.contributions(x), meta, winner_home),
+                playoff_shift=shift, home_status=g.home.playoff_status, away_status=g.away.playoff_status,
+                reason=explain(g, {**model.contributions(x), "playoff_leverage": shift}, meta, winner_home),
             )
         except Exception as exc:
             LOG.warning("Prediction failed for game %s: %s", g.game_pk, exc)
@@ -1178,6 +1336,8 @@ def render_table(df: pd.DataFrame, width: Optional[int] = None) -> str:
     for i, r in enumerate(df.itertuples(index=False), start=1):
         dh = f" G{int(r.game_number)}" if r.doubleheader else ""
         matchup = f"{r.away} @ {r.home}{dh}"
+        if _present(getattr(r, "away_record", None)) and r.away_record and r.home_record:
+            matchup += f"\n{r.away_record} @ {r.home_record}"
         when = _fmt_time(r.start_time if _present(r.start_time) else None)
         scored = bool(r.is_final) and _present(r.home_score) and _present(r.away_score)
         if scored:
@@ -1234,7 +1394,7 @@ def print_report(df: pd.DataFrame, game_date: date, source: str, model: GamePred
                    for r in graded.itertuples() if r.home_score != r.away_score)
         print(f"Completed games graded: {hits}/{len(graded)} correct")
     print("Confidence = ensemble win probability for the pick; (x-y%) = 80% band from stat sample-size "
-          "uncertainty.\nTiers: STRONG >= 60%, LEAN 55-60%, TOSS-UP < 55%. For research/entertainment only.")
+          "uncertainty.\nIncludes a small playoff-status log-odds shift (alive vs eliminated/clinched). Tiers: STRONG >= 60%, LEAN 55-60%, TOSS-UP < 55%. For research/entertainment only.")
 
 
 # ----------------------------------------------------------------------------
