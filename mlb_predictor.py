@@ -618,7 +618,7 @@ class MLBStatsAPIProvider:
                 games.append(self._build_game(g, teams_meta, pitchers, standings, offense, bullpens))
             except Exception as exc:  # one malformed game must never sink the slate
                 LOG.warning("Skipping malformed game %s: %s", g.get("gamePk"), exc)
-        return games
+        return sorted(games, key=lambda g: (g.start_time is None, g.start_time or datetime.min, g.game_pk))
 
     # -- fetchers ------------------------------------------------------------
     def _parallel(self, fn, items: Iterable) -> Dict[Any, Any]:
@@ -1218,7 +1218,9 @@ def explain(g: GameContext, contribs: Dict[str, float], meta: Dict[str, Any],
             return f"{W.abbr} travels well ({fmt_wpct(W.away_wpct)} road W%) vs {L.abbr} {fmt_wpct(L.home_wpct)} at home"
         return ""
 
-    ranked = sorted(((f, sign * c) for f, c in contribs.items() if f != "park_factor"),
+    # A TBD / no-data starter is a league-average proxy, so pitcher-specific clauses about him are noise.
+    proxy_sp = {"sp_hr_risk_edge"} if lsp.tbd or lsp.notes[:1] and lsp.notes[0].startswith("no MLB") else set()
+    ranked = sorted(((f, sign * c) for f, c in contribs.items() if f != "park_factor" and f not in proxy_sp),
                     key=lambda kv: kv[1], reverse=True)
     parts = [clause(f, c) for f, c in ranked[:max_reasons] if c > 0.03]
     if not parts:
