@@ -1,6 +1,6 @@
 {
   "date": "2026-09-29",
-  "generated_at": "2026-09-29T14:03:52+00:00",
+  "generated_at": "2026-09-29T17:25:08+00:00",
   "timezone": "America/New_York",
   "bet_types": [
     "moneyline",
@@ -31,12 +31,12 @@
               "side": "away",
               "label": "PHI",
               "point": null,
-              "fair_prob": 0.3623,
-              "best_price": "+170",
+              "fair_prob": 0.3736,
+              "best_price": "+163",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "+168",
-                "Polymarket": "+170"
+                "DraftKings": "+158",
+                "Polymarket": "+163"
               },
               "open": "+159"
             },
@@ -44,12 +44,12 @@
               "side": "home",
               "label": "ATL",
               "point": null,
-              "fair_prob": 0.6377,
-              "best_price": "-178",
+              "fair_prob": 0.6264,
+              "best_price": "-170",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-205",
-                "Polymarket": "-178"
+                "DraftKings": "-192",
+                "Polymarket": "-170"
               },
               "open": "-193"
             }
@@ -64,12 +64,12 @@
               "side": "away",
               "label": "PHI +1.5",
               "point": 1.5,
-              "fair_prob": 0.5597,
-              "best_price": "-133",
+              "fair_prob": 0.5707,
+              "best_price": "-138",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-135",
-                "Polymarket": "-133"
+                "DraftKings": "-143",
+                "Polymarket": "-138"
               },
               "open": "+1.5 -147"
             },
@@ -77,12 +77,12 @@
               "side": "home",
               "label": "ATL -1.5",
               "point": -1.5,
-              "fair_prob": 0.4403,
-              "best_price": "+127",
+              "fair_prob": 0.4293,
+              "best_price": "+133",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "+112",
-                "Polymarket": "+127"
+                "DraftKings": "+118",
+                "Polymarket": "+133"
               },
               "open": "-1.5 +122"
             }
@@ -97,12 +97,12 @@
               "side": "over",
               "label": "Over 6.5",
               "point": 6.5,
-              "fair_prob": 0.5239,
-              "best_price": "-113",
+              "fair_prob": 0.5309,
+              "best_price": "-117",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-120",
-                "Polymarket": "-113"
+                "DraftKings": "-121",
+                "Polymarket": "-117"
               },
               "open": "7 -110"
             },
@@ -110,12 +110,12 @@
               "side": "under",
               "label": "Under 6.5",
               "point": 6.5,
-              "fair_prob": 0.4761,
-              "best_price": "+108",
+              "fair_prob": 0.4691,
+              "best_price": "+113",
               "best_book": "Polymarket",
               "prices": {
                 "DraftKings": "+100",
-                "Polymarket": "+108"
+                "Polymarket": "+113"
               },
               "open": "7 -110"
             }
@@ -153,11 +153,11 @@
               "side": "away",
               "label": "CHW",
               "point": null,
-              "fair_prob": 0.4656,
+              "fair_prob": 0.4677,
               "best_price": "+113",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "+105",
+                "DraftKings": "+102",
                 "Polymarket": "+113"
               },
               "open": "+121"
@@ -166,11 +166,11 @@
               "side": "home",
               "label": "HOU",
               "point": null,
-              "fair_prob": 0.5344,
+              "fair_prob": 0.5323,
               "best_price": "-117",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-126",
+                "DraftKings": "-123",
                 "Polymarket": "-117"
               },
               "open": "-146"
@@ -186,11 +186,11 @@
               "side": "away",
               "label": "CHW +1.5",
               "point": 1.5,
-              "fair_prob": 0.6355,
+              "fair_prob": 0.6342,
               "best_price": "-178",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-199",
+                "DraftKings": "-196",
                 "Polymarket": "-178"
               },
               "open": "+1.5 -171"
@@ -199,11 +199,11 @@
               "side": "home",
               "label": "HOU -1.5",
               "point": -1.5,
-              "fair_prob": 0.3645,
+              "fair_prob": 0.3658,
               "best_price": "+170",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "+163",
+                "DraftKings": "+160",
                 "Polymarket": "+170"
               },
               "open": "-1.5 +141"
@@ -219,11 +219,11 @@
               "side": "over",
               "label": "Over 8",
               "point": 8.0,
-              "fair_prob": 0.5152,
-              "best_price": "-117",
+              "fair_prob": 0.5174,
+              "best_price": "-118",
               "best_book": "DraftKings",
               "prices": {
-                "DraftKings": "-117"
+                "DraftKings": "-118"
               },
               "open": "8 -110"
             },
@@ -231,11 +231,11 @@
               "side": "under",
               "label": "Under 8",
               "point": 8.0,
-              "fair_prob": 0.4848,
-              "best_price": "-103",
+              "fair_prob": 0.4826,
+              "best_price": "-102",
               "best_book": "DraftKings",
               "prices": {
-                "DraftKings": "-103"
+                "DraftKings": "-102"
               },
               "open": "8 -110"
             }
@@ -274,12 +274,12 @@
               "side": "away",
               "label": "FLA",
               "point": null,
-              "fair_prob": 0.4658,
-              "best_price": "+113",
+              "fair_prob": 0.4558,
+              "best_price": "+117",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "+105",
-                "Polymarket": "+113"
+                "DraftKings": "+110",
+                "Polymarket": "+117"
               },
               "open": "+110"
             },
@@ -287,12 +287,12 @@
               "side": "home",
               "label": "CAR",
               "point": null,
-              "fair_prob": 0.5342,
-              "best_price": "-117",
+              "fair_prob": 0.5442,
+              "best_price": "-122",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-125",
-                "Polymarket": "-117"
+                "DraftKings": "-130",
+                "Polymarket": "-122"
               },
               "open": "-130"
             }
@@ -340,12 +340,12 @@
               "side": "over",
               "label": "Over 6.5",
               "point": 6.5,
-              "fair_prob": 0.4658,
-              "best_price": "+113",
+              "fair_prob": 0.4592,
+              "best_price": "+117",
               "best_book": "Polymarket",
               "prices": {
                 "DraftKings": "+105",
-                "Polymarket": "+113"
+                "Polymarket": "+117"
               },
               "open": "6.5 +100"
             },
@@ -353,12 +353,12 @@
               "side": "under",
               "label": "Under 6.5",
               "point": 6.5,
-              "fair_prob": 0.5342,
-              "best_price": "-117",
+              "fair_prob": 0.5408,
+              "best_price": "-122",
               "best_book": "Polymarket",
               "prices": {
                 "DraftKings": "-125",
-                "Polymarket": "-117"
+                "Polymarket": "-122"
               },
               "open": "6.5 -120"
             }
@@ -394,11 +394,11 @@
               "side": "away",
               "label": "MTL",
               "point": null,
-              "fair_prob": 0.4975,
-              "best_price": "-102",
-              "best_book": "DraftKings",
+              "fair_prob": 0.5048,
+              "best_price": "-104",
+              "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-102",
+                "DraftKings": "-112",
                 "Polymarket": "-104"
               },
               "open": "-105"
@@ -407,11 +407,11 @@
               "side": "home",
               "label": "TOR",
               "point": null,
-              "fair_prob": 0.5025,
+              "fair_prob": 0.4952,
               "best_price": "+100",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-118",
+                "DraftKings": "-108",
                 "Polymarket": "+100"
               },
               "open": "-115"
@@ -420,32 +420,30 @@
         },
         {
           "market": "spread",
-          "line": -1.5,
-          "books": 2,
+          "line": 1.5,
+          "books": 1,
           "sides": [
             {
               "side": "away",
-              "label": "MTL +1.5",
-              "point": 1.5,
-              "fair_prob": 0.7069,
-              "best_price": "-257",
-              "best_book": "Polymarket",
+              "label": "MTL -1.5",
+              "point": -1.5,
+              "fair_prob": 0.295,
+              "best_price": "+225",
+              "best_book": "DraftKings",
               "prices": {
-                "DraftKings": "-258",
-                "Polymarket": "-257"
+                "DraftKings": "+225"
               },
               "open": "+1.5 -250"
             },
             {
               "side": "home",
-              "label": "TOR -1.5",
-              "point": -1.5,
-              "fair_prob": 0.2931,
-              "best_price": "+245",
-              "best_book": "Polymarket",
+              "label": "TOR +1.5",
+              "point": 1.5,
+              "fair_prob": 0.705,
+              "best_price": "-278",
+              "best_book": "DraftKings",
               "prices": {
-                "DraftKings": "+210",
-                "Polymarket": "+245"
+                "DraftKings": "-278"
               },
               "open": "-1.5 +205"
             }
@@ -460,11 +458,11 @@
               "side": "over",
               "label": "Over 6.5",
               "point": 6.5,
-              "fair_prob": 0.4813,
+              "fair_prob": 0.4842,
               "best_price": "+104",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "+102",
+                "DraftKings": "-102",
                 "Polymarket": "+104"
               },
               "open": "6.5 +105"
@@ -473,11 +471,11 @@
               "side": "under",
               "label": "Under 6.5",
               "point": 6.5,
-              "fair_prob": 0.5187,
+              "fair_prob": 0.5158,
               "best_price": "-108",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-122",
+                "DraftKings": "-118",
                 "Polymarket": "-108"
               },
               "open": "6.5 -125"
@@ -486,6 +484,7 @@
         }
       ],
       "alt_lines": [
+        "spread -1.5",
         "total 4.5",
         "total 5.5",
         "total 7.5"
@@ -514,11 +513,11 @@
               "side": "away",
               "label": "BOS",
               "point": null,
-              "fair_prob": 0.4415,
+              "fair_prob": 0.4444,
               "best_price": "+122",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "+120",
+                "DraftKings": "+116",
                 "Polymarket": "+122"
               },
               "open": "+118"
@@ -527,11 +526,11 @@
               "side": "home",
               "label": "NYY",
               "point": null,
-              "fair_prob": 0.5585,
+              "fair_prob": 0.5556,
               "best_price": "-127",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-145",
+                "DraftKings": "-139",
                 "Polymarket": "-127"
               },
               "open": "-142"
@@ -547,11 +546,11 @@
               "side": "away",
               "label": "BOS +1.5",
               "point": 1.5,
-              "fair_prob": 0.6388,
+              "fair_prob": 0.6402,
               "best_price": "-186",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-190",
+                "DraftKings": "-193",
                 "Polymarket": "-186"
               },
               "open": "+1.5 -185"
@@ -560,11 +559,11 @@
               "side": "home",
               "label": "NYY -1.5",
               "point": -1.5,
-              "fair_prob": 0.3612,
+              "fair_prob": 0.3598,
               "best_price": "+178",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "+156",
+                "DraftKings": "+159",
                 "Polymarket": "+178"
               },
               "open": "-1.5 +152"
@@ -573,32 +572,30 @@
         },
         {
           "market": "total",
-          "line": 6.5,
-          "books": 2,
+          "line": 6.0,
+          "books": 1,
           "sides": [
             {
               "side": "over",
-              "label": "Over 6.5",
-              "point": 6.5,
-              "fair_prob": 0.4694,
-              "best_price": "+113",
-              "best_book": "Polymarket",
+              "label": "Over 6",
+              "point": 6.0,
+              "fair_prob": 0.513,
+              "best_price": "-116",
+              "best_book": "DraftKings",
               "prices": {
-                "DraftKings": "+100",
-                "Polymarket": "+113"
+                "DraftKings": "-116"
               },
               "open": "6.5 -119"
             },
             {
               "side": "under",
-              "label": "Under 6.5",
-              "point": 6.5,
-              "fair_prob": 0.5306,
-              "best_price": "-117",
-              "best_book": "Polymarket",
+              "label": "Under 6",
+              "point": 6.0,
+              "fair_prob": 0.487,
+              "best_price": "-104",
+              "best_book": "DraftKings",
               "prices": {
-                "DraftKings": "-120",
-                "Polymarket": "-117"
+                "DraftKings": "-104"
               },
               "open": "6.5 -102"
             }
@@ -610,6 +607,7 @@
         "spread 1.5",
         "spread 2.5",
         "total 5.5",
+        "total 6.5",
         "total 7.5"
       ]
     },
@@ -636,11 +634,11 @@
               "side": "away",
               "label": "NYR",
               "point": null,
-              "fair_prob": 0.4997,
+              "fair_prob": 0.5033,
               "best_price": "-104",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-105",
+                "DraftKings": "-110",
                 "Polymarket": "-104"
               },
               "open": "+120"
@@ -649,11 +647,11 @@
               "side": "home",
               "label": "BOS",
               "point": null,
-              "fair_prob": 0.5003,
+              "fair_prob": 0.4967,
               "best_price": "+100",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-115",
+                "DraftKings": "-110",
                 "Polymarket": "+100"
               },
               "open": "-142"
@@ -702,11 +700,11 @@
               "side": "over",
               "label": "Over 5.5",
               "point": 5.5,
-              "fair_prob": 0.5442,
+              "fair_prob": 0.5471,
               "best_price": "-122",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-130",
+                "DraftKings": "-135",
                 "Polymarket": "-122"
               },
               "open": "5.5 -120"
@@ -715,11 +713,11 @@
               "side": "under",
               "label": "Under 5.5",
               "point": 5.5,
-              "fair_prob": 0.4558,
+              "fair_prob": 0.4529,
               "best_price": "+117",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "+110",
+                "DraftKings": "+114",
                 "Polymarket": "+117"
               },
               "open": "5.5 +100"
@@ -756,11 +754,11 @@
               "side": "away",
               "label": "CHC",
               "point": null,
-              "fair_prob": 0.4565,
+              "fair_prob": 0.4603,
               "best_price": "+117",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "+108",
+                "DraftKings": "+103",
                 "Polymarket": "+117"
               },
               "open": "+101"
@@ -769,11 +767,11 @@
               "side": "home",
               "label": "SD",
               "point": null,
-              "fair_prob": 0.5435,
+              "fair_prob": 0.5397,
               "best_price": "-122",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-130",
+                "DraftKings": "-124",
                 "Polymarket": "-122"
               },
               "open": "-121"
@@ -782,32 +780,32 @@
         },
         {
           "market": "spread",
-          "line": -1.5,
+          "line": 1.5,
           "books": 2,
           "sides": [
             {
               "side": "away",
-              "label": "CHC +1.5",
-              "point": 1.5,
-              "fair_prob": 0.6445,
-              "best_price": "-186",
+              "label": "CHC -1.5",
+              "point": -1.5,
+              "fair_prob": 0.3397,
+              "best_price": "+194",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-206",
-                "Polymarket": "-186"
+                "DraftKings": "+174",
+                "Polymarket": "+194"
               },
               "open": "+1.5 -199"
             },
             {
               "side": "home",
-              "label": "SD -1.5",
-              "point": -1.5,
-              "fair_prob": 0.3555,
-              "best_price": "+178",
+              "label": "SD +1.5",
+              "point": 1.5,
+              "fair_prob": 0.6603,
+              "best_price": "-203",
               "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "+168",
-                "Polymarket": "+178"
+                "DraftKings": "-213",
+                "Polymarket": "-203"
               },
               "open": "-1.5 +163"
             }
@@ -815,30 +813,32 @@
         },
         {
           "market": "total",
-          "line": 7.0,
-          "books": 1,
+          "line": 7.5,
+          "books": 2,
           "sides": [
             {
               "side": "over",
-              "label": "Over 7",
-              "point": 7.0,
-              "fair_prob": 0.5195,
-              "best_price": "-119",
-              "best_book": "DraftKings",
+              "label": "Over 7.5",
+              "point": 7.5,
+              "fair_prob": 0.4828,
+              "best_price": "+104",
+              "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-119"
+                "DraftKings": "+100",
+                "Polymarket": "+104"
               },
               "open": "7.5 -115"
             },
             {
               "side": "under",
-              "label": "Under 7",
-              "point": 7.0,
-              "fair_prob": 0.4805,
-              "best_price": "-101",
-              "best_book": "DraftKings",
+              "label": "Under 7.5",
+              "point": 7.5,
+              "fair_prob": 0.5172,
+              "best_price": "-108",
+              "best_book": "Polymarket",
               "prices": {
-                "DraftKings": "-101"
+                "DraftKings": "-120",
+                "Polymarket": "-108"
               },
               "open": "7.5 -104"
             }
@@ -846,11 +846,10 @@
         }
       ],
       "alt_lines": [
+        "spread -1.5",
         "spread -2.5",
-        "spread 1.5",
         "spread 2.5",
         "total 6.5",
-        "total 7.5",
         "total 8.5"
       ]
     },
