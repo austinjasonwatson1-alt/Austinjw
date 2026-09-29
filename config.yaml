@@ -1,0 +1,55 @@
+# betagent configuration — every threshold lives here.
+# Anything left out falls back to the defaults in betagent/config.py.
+
+timezone: America/New_York        # "today" and game times are shown in this zone
+leagues: [NFL, NCAAF, MLB, NHL]
+bet_types: [moneyline, spread, total]
+
+bankroll:
+  unit_dollars: 100               # 1 unit = $100
+  bankroll_units: 100             # Kelly sizes against this bankroll (100 units = $10,000)
+
+staking:
+  kelly_fraction: 0.25            # quarter Kelly
+  max_units_per_bet: 3.0          # hard cap on any single bet
+  round_to_units: 0.25            # stakes are rounded down to this increment
+  max_daily_units: null           # null = no daily exposure cap
+  max_bets_per_day: null          # null = no limit
+
+selection:
+  min_edge: 0.03                  # EV at the best available price must be >= 3% to be an EDGE pick
+  min_picks: 2                    # the agent never abstains: if fewer bets clear min_edge, it fills
+                                  #   the card with its best LEAN picks, up to this many
+  lean_stake_units: 0.5           # stake for LEAN picks (below the edge bar)
+
+parlays:
+  enabled: true
+  max_legs: 3
+  max_parlays: 2
+  max_units: 1.0                  # parlays are high-variance; cap them lower than singles
+
+pricing:
+  devig_method: multiplicative    # multiplicative | additive | power
+  book_weights:                   # weight of each book in the no-vig consensus price
+    pinnacle: 3.0
+    polymarket: 2.0
+    circa: 2.0
+    default: 1.0
+
+sources:
+  espn:
+    enabled: true                 # free, no key: schedule, scores, DraftKings lines incl. open
+  polymarket:
+    enabled: true                 # free, no key: the market you actually bet into
+    min_liquidity: 1000           # ignore thin markets (USD)
+    max_spread: 0.05              # ignore markets whose bid/ask spread is wider than 5 cents
+    fee_per_share: 0.0            # add Polymarket's taker fee here if one applies
+  odds_api:
+    enabled: auto                 # auto = on when ODDS_API_KEY is set in .env
+    regions: us
+    bookmakers: []                # optional list, e.g. [draftkings, fanduel, pinnacle]
+
+cache:
+  dir: data/cache
+  free_ttl_minutes: 15            # ESPN/Polymarket refresh after this long
+  paid_ttl_minutes: null          # Odds API: null = fetch once per day, reruns reuse the cache
