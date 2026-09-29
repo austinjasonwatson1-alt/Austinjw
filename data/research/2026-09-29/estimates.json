@@ -1,0 +1,165 @@
+{
+  "date": "2026-09-29",
+  "researcher": "claude-code",
+  "games": [
+    {
+      "game_id": "espn:401907965",
+      "facts": [
+        {"fact": "Braves start Chris Sale (14-9, 2.16 ERA, 0.98 WHIP, 200 K); 2.08 ERA in four starts vs Philadelphia this season.", "source": "https://www.mlb.com/news/phillies-vs-braves-nl-wild-card-series-game-1-starting-lineups-and-pitching-matchup"},
+        {"fact": "Phillies open with Jesus Luzardo (left shoulder inflammation, no start since Sept. 7, not built up), with rookie Andrew Painter following; they hope the pair covers 6-7 innings.", "source": "https://www.si.com/mlb/phillies/onsi/phillies-announce-game-1-pitching-plans-against-braves-in-nl-wild-card"},
+        {"fact": "Luis Arraez (left ankle sprain) ruled out for Philadelphia; Braves' Lane Thomas (left intercostal strain) likely unavailable.", "source": "https://www.mlb.com/news/phillies-vs-braves-nl-wild-card-series-game-1-starting-lineups-and-pitching-matchup"},
+        {"fact": "Phillies vs left-handed starters this season: .300 OBP, .680 OPS, 21-26 record; went 2-4 in their final two series.", "source": "https://www.nbcsportsphiladelphia.com/mlb/philadelphia-phillies/phillies-braves-wild-card-jesus-luzardo-questions/754145/"},
+        {"fact": "Braves ML dipped from -206 to -194 and was bet back to -205; Braves run line drew 65.5% of tickets but 94.5% of handle.", "source": "https://picksandparlays.net/free-picks/mlb/philadelphia-phillies-vs-atlanta-braves-mlb-postseason-nl-wild-card-series-1-game-1-picks-prediction-odds-and-line-movement-for-tuesday-september-29-2026"},
+        {"fact": "Atlanta forecast: sunny, dry, low-to-mid 80s at first pitch.", "source": "https://hoodline.com/2026/09/hotlanta-cools-off-tuesday-storms-set-up-sweet-weekend-break/"}
+      ],
+      "judgment": "Everything here is public and the market already has Atlanta at 64%. The piece I think is under-weighted is the Phillies' pitching: an opener coming off shoulder inflammation plus a rookie bulk arm, against Sale, who has owned this lineup, with Arraez out of an already weak lineup vs lefties. Big-money run-line action agrees. I nudge Atlanta up about 1 point and like the run line best, since a Braves win here is more likely to be comfortable than a one-run walk-off. Warm and dry doesn't change the total much.",
+      "estimates": [
+        {"market": "moneyline", "side": "home", "point": null, "prob": 0.65, "confidence": "medium",
+         "rationale": "Sale (2.08 ERA vs PHI) against a Phillies patchwork of an opener fresh off shoulder inflammation and a rookie. Philly hits lefties poorly (.680 OPS) and is without Arraez.",
+         "key_risk": "Luzardo is sharp early and Painter gets through the middle innings; a one-run game is a coin flip in the late innings."},
+        {"market": "spread", "side": "home", "point": -1.5, "prob": 0.455, "confidence": "low",
+         "rationale": "If Atlanta wins it is likely because Philly's bulk pitching leaks runs, which tends to produce margins of two or more. Heavy handle on this line points the same way.",
+         "key_risk": "Home teams can't win by more than one in a walk-off; a tight 3-2 game kills it."},
+        {"market": "total", "side": "over", "point": 6.5, "prob": 0.52, "confidence": "low",
+         "rationale": "Sale suppresses runs, but the Phillies' bullpen-heavy plan is likely to allow some. Warm, dry day game. No strong view; staying at market.",
+         "key_risk": "Sale goes seven and Philly's pen holds."}
+      ]
+    },
+    {
+      "game_id": "espn:401907896",
+      "facts": [
+        {"fact": "Both teams use bullpen games: Houston opens with AJ Blubaugh (5-3, 3.66 ERA; MLB-leading 96 relief innings); Chicago opens with Hagen Smith (1.29 ERA in 28 IP) followed by Erick Fedde (8-9, 3.83 ERA; 4.88 ERA on the road).", "source": "https://www.cbssports.com/betting/news/white-sox-vs-astros-al-wild-card-game-1-picks-surprising-chicago-could-have-a-problem-tuesday-in-houston/"},
+        {"fact": "White Sox were 36-45 on the road (worst of any playoff team); Astros were 39-42 at home and have lost four straight home playoff games.", "source": "https://www.cbssports.com/betting/news/white-sox-vs-astros-al-wild-card-game-1-picks-surprising-chicago-could-have-a-problem-tuesday-in-houston/"},
+        {"fact": "White Sox offense ranked fifth in runs and fifth in homers (211) but strikes out a lot; Colson Montgomery has 31 HR, a .197 average and a record 227 strikeouts.", "source": "https://www.cbssports.com/betting/news/white-sox-vs-astros-al-wild-card-game-1-picks-surprising-chicago-could-have-a-problem-tuesday-in-houston/"},
+        {"fact": "Blubaugh held the White Sox scoreless over four innings in three regular-season appearances.", "source": "https://www.mlb.com/news/white-sox-vs-astros-wild-card-series-starting-lineups-and-pitching-matchup"}
+      ],
+      "judgment": "The line has moved hard toward Chicago (Houston opened -146, now -117 to -126). I don't have a specific fact that explains the move, so I respect it rather than fight it. Two bullpen games at an indoor park with a power-heavy White Sox lineup make me lean slightly over, but only slightly.",
+      "estimates": [
+        {"market": "moneyline", "side": "home", "point": null, "prob": 0.53, "confidence": "low",
+         "rationale": "Houston has home field and a rested, deep bullpen plan, but the market has moved 5+ points toward Chicago without public news. Holding at the market.",
+         "key_risk": "Chicago's power (211 HR) makes any bullpen game volatile."},
+        {"market": "total", "side": "over", "point": 8, "prob": 0.525, "confidence": "low",
+         "rationale": "Two bullpen games expose more middle relievers, and Fedde has a 4.88 road ERA. Indoor park, a power-heavy lineup on one side. Small lean over.",
+         "key_risk": "Playoff bullpens are shortened to the best arms; Chicago strikes out a lot."}
+      ]
+    },
+    {
+      "game_id": "espn:401891773",
+      "facts": [
+        {"fact": "This is the 2026-27 NHL regular-season opener for both teams (0-0-0), 5 p.m. ET.", "source": "https://www.nhl.com/news/florida-panthers-carolina-hurricanes-game-preview-september-29-2026"},
+        {"fact": "Projected goalies: Jacob Markstrom (FLA) and Brandon Bussi (CAR), both unconfirmed as of the morning.", "source": "https://www.dailyfaceoff.com/starting-goalies/2026-09-29"},
+        {"fact": "Florida without Brad Marchand (August surgery, out about a month) and Jonah Gadjovich; Carolina without Seth Jarvis (shoulder, not before late October).", "source": "https://www.nhl.com/news/florida-panthers-carolina-hurricanes-game-preview-september-29-2026"}
+      ],
+      "judgment": "Injuries roughly offset (Marchand vs Jarvis). The line moved from Carolina -130 toward Florida (-117 to -125 now). Opening-night data is thin; no reason to deviate from market.",
+      "estimates": [
+        {"market": "moneyline", "side": "home", "point": null, "prob": 0.53, "confidence": "low",
+         "rationale": "Offsetting injuries and unconfirmed goalies. Staying near the market's 53%.",
+         "key_risk": "Goalie confirmation could flip this either way."},
+        {"market": "total", "side": "under", "point": 6.5, "prob": 0.535, "confidence": "low",
+         "rationale": "Two structured defensive teams, with both teams' top scoring wings (Marchand, Jarvis) missing. Market already leans under; I agree, no more.",
+         "key_risk": "Opening-night special teams can be sloppy."}
+      ]
+    },
+    {
+      "game_id": "espn:401891827",
+      "facts": [
+        {"fact": "Regular-season opener at Scotiabank Arena, 7 p.m. ET.", "source": "https://lastwordonsports.com/hockey/2026/09/29/nhl-predictions-montreal-toronto-sept-29/"},
+        {"fact": "Projected goalies: Sergei Bobrovsky (TOR, newly signed) vs Jakub Dobes (MTL), both unconfirmed.", "source": "https://www.dailyfaceoff.com/starting-goalies/2026-09-29"},
+        {"fact": "Toronto's offseason additions include Bobrovsky and Gavin McKenna.", "source": "https://www.nhl.com/news/toronto-maple-leafs-season-preview-2026-27"}
+      ],
+      "judgment": "The books disagree: DraftKings prices Toronto at about 51.7% no-vig (-118), and it opened -115, while Polymarket is a coin flip. With the home opener and Bobrovsky over Dobes in goal, I side with DraftKings and think Polymarket's even-money Toronto price is a touch generous. Small edge, low confidence.",
+      "estimates": [
+        {"market": "moneyline", "side": "home", "point": null, "prob": 0.515, "confidence": "low",
+         "rationale": "Toronto at home with Bobrovsky projected against Dobes. DraftKings has Toronto -118; Polymarket's +100 looks slightly stale.",
+         "key_risk": "Goalies unconfirmed; rivalry openers are high-variance."},
+        {"market": "total", "side": "under", "point": 6.5, "prob": 0.52, "confidence": "low",
+         "rationale": "No strong view; the market leans under and I stay there.",
+         "key_risk": "Both teams can score in bunches."}
+      ]
+    },
+    {
+      "game_id": "espn:401907924",
+      "facts": [
+        {"fact": "Yankees start Cam Schlittler (14-6, 1.95 ERA; 0.74 ERA and 27 K in 24 1/3 IP over four starts vs Boston).", "source": "https://www.bostonglobe.com/2026/09/29/sports/mlb-wildcard-red-sox-yankees-lineups-game-1/"},
+        {"fact": "Red Sox start LHP Payton Tolle (9-6, 3.03 ERA; 5-0, 2.66 ERA over his final 13 starts; 0.69 ERA in two starts vs New York).", "source": "https://www.bostonglobe.com/2026/09/29/sports/mlb-wildcard-red-sox-yankees-lineups-game-1/"},
+        {"fact": "Aaron Judge (right soleus strain, suffered Sept. 16) got a platelet-poor plasma injection Monday; Boone said the team is preparing as if Judge won't be available but has not ruled him out.", "source": "https://www.mlb.com/news/aaron-judge-availability-for-wild-card-series"},
+        {"fact": "Entire series at Yankee Stadium, 8 p.m. ET first pitch.", "source": "https://www.nbcsports.com/mlb/news/how-to-watch-red-sox-vs-yankees-in-2026-mlb-wild-card-series-schedule-tv-stream-info-preview"}
+      ],
+      "judgment": "Two starters who have dominated these exact lineups, and the best hitter on the field is likely out or limited. The Yankees line has come down from -142 (Polymarket -127), which fits Judge news being priced in. I don't have a side, but I think the under is the best number: 6.5 already, and the market still has the over at 47%. Low confidence because lineups aren't out yet.",
+      "estimates": [
+        {"market": "moneyline", "side": "home", "point": null, "prob": 0.56, "confidence": "low",
+         "rationale": "Schlittler is the better starter, but Judge's likely absence offsets it and the market has adjusted. At market.",
+         "key_risk": "Judge plays and is fully effective."},
+        {"market": "total", "side": "under", "point": 6.5, "prob": 0.55, "confidence": "low",
+         "rationale": "Schlittler (0.74 ERA vs BOS) and Tolle (0.69 ERA vs NYY) have both shut these lineups down, and Judge is likely out or limited. Two good bullpens behind them in a playoff game.",
+         "key_risk": "A short start by the rookie Tolle, or Judge playing, pushes this over quickly."}
+      ]
+    },
+    {
+      "game_id": "espn:401891774",
+      "facts": [
+        {"fact": "Regular-season opener at TD Garden, 8 p.m. ET.", "source": "https://www.nhl.com/rangers/news/rangers-at-bruins-pregame-notes-09-29-26"},
+        {"fact": "Jeremy Swayman starts for Boston (coach Marco Sturm: 'definitely our guy'); Igor Shesterkin projected for New York (1.81 GAA, .917 in two preseason starts).", "source": "https://bostonhockeynow.com/2026-09-29-bruins-game-1-notes-lines-watch-rangers/"}
+      ],
+      "judgment": "This line has swung hard, from Boston -142 at open to a coin flip. That is a big move and I have no fact to fight it, so I stay at 50%. Two elite goalies make me reluctant to take the over at a juiced 5.5.",
+      "estimates": [
+        {"market": "moneyline", "side": "home", "point": null, "prob": 0.50, "confidence": "low",
+         "rationale": "The market moved from Boston -142 to pick'em; respecting it. No edge either way.",
+         "key_risk": "Unknown reason for the move."},
+        {"market": "total", "side": "over", "point": 5.5, "prob": 0.53, "confidence": "low",
+         "rationale": "Shesterkin vs Swayman argues for fewer goals, so I shade the over slightly below the market's 54%.",
+         "key_risk": "Opening-night rust from the skaters in front of them."}
+      ]
+    },
+    {
+      "game_id": "espn:401907974",
+      "facts": [
+        {"fact": "Padres start Michael King (12-10, 3.21 ERA; 2.74 ERA, 1.12 WHIP, .212 opponent average in 15 home starts).", "source": "https://www.si.com/mlb/padres/onsi/padres-cubs-announce-starting-pitchers-wild-card-game-1"},
+        {"fact": "Cubs start LHP Matthew Boyd (10-5, 3.91 ERA, 96 K and 39 BB in 126 2/3 IP).", "source": "https://www.mlb.com/news/cubs-vs-padres-wild-card-series-lineups-and-pitching-matchup"},
+        {"fact": "Padres bullpen: Mason Miller closes, Adrian Morejon sets up; Jeremiah Estrada unavailable (shoulder impingement). Cubs have no set closer. Cubs' Kevin Gausman is unavailable (left shoulder soreness); Alex Bregman is back from facial fractures.", "source": "https://www.mlb.com/news/cubs-vs-padres-wild-card-series-lineups-and-pitching-matchup"}
+      ],
+      "judgment": "King at home has been excellent and the Padres have the clearer late-inning bullpen (Miller/Morejon vs a committee). I shade San Diego up about a point. The total has come down from 7.5 to 7, and a night game at Petco with King starting fits an under lean.",
+      "estimates": [
+        {"market": "moneyline", "side": "home", "point": null, "prob": 0.555, "confidence": "low",
+         "rationale": "King's home numbers (2.74 ERA) and the stronger back-end bullpen give San Diego a small edge beyond the price.",
+         "key_risk": "Boyd has been solid, and Chicago's lineup has power throughout."},
+        {"market": "total", "side": "under", "point": 7, "prob": 0.51, "confidence": "low",
+         "rationale": "Pitcher-friendly park at night, King at home, and the total already dropping from 7.5. Probability excludes a push on 7.",
+         "key_risk": "Two good offenses; one big inning goes over."}
+      ]
+    },
+    {
+      "game_id": "espn:401891804",
+      "facts": [
+        {"fact": "Regular-season opener at Rogers Place; new Oilers coach Mike Babcock.", "source": "https://www.nhl.com/oilers/news/preview-oilers-vs-canucks-09-29-26"},
+        {"fact": "Tristan Jarry is confirmed to start for Edmonton; he posted a 3.86 GAA and .857 save percentage last season. Kevin Lankinen projected for Vancouver.", "source": "https://www.dailyfaceoff.com/starting-goalies/2026-09-29"}
+      ],
+      "judgment": "72% is a big number for an NHL regular-season game. Edmonton is starting a goalie who was among the league's worst last season, and money has pushed Vancouver out from +215 to +257. I think the market is slightly too high on Edmonton; I take a small amount of value on Vancouver. Low confidence.",
+      "estimates": [
+        {"market": "moneyline", "side": "away", "point": null, "prob": 0.29, "confidence": "low",
+         "rationale": "Jarry (.857 last season) is a real weakness behind a heavy favorite, and NHL underdogs at +250 win more often than bettors expect. Small value on Vancouver.",
+         "key_risk": "McDavid and Draisaitl can win any game on their own."},
+        {"market": "total", "side": "over", "point": 6.5, "prob": 0.52, "confidence": "low",
+         "rationale": "A weak Edmonton goalie in front of an elite offense. Slight over lean, at market.",
+         "key_risk": "Babcock's defensive system tightens things up."}
+      ]
+    },
+    {
+      "game_id": "espn:401891775",
+      "facts": [
+        {"fact": "Regular-season opener in Las Vegas; Golden Knights' 10th season.", "source": "https://www.reviewjournal.com/sports/goldenknights/it-starts-tomorrow-golden-knights-10th-season-starts-against-chicago-3892505/"},
+        {"fact": "Spencer Knight likely starts for Chicago (Arvid Soderblom later on the road trip). Carter Hart is Vegas's projected starter (unconfirmed).", "source": "https://www.dailyfaceoff.com/starting-goalies/2026-09-29"},
+        {"fact": "Chicago's opening lines are young (Moore-Kantserov-Kane; Bertuzzi-Frondell-Mangiapane; Donato-Nazar-Lardis).", "source": "https://chicago.suntimes.com/blackhawks/2026/09/28/blackhawks-lines-pairings-vegas-jeff-blashill-roman-kantserov"}
+      ],
+      "judgment": "Vegas is deep and at home against a rebuilding team. The price (about 71%) reflects that. No specific news to move it.",
+      "estimates": [
+        {"market": "moneyline", "side": "home", "point": null, "prob": 0.705, "confidence": "low",
+         "rationale": "Deeper Vegas roster at home against a young Chicago lineup. At market.",
+         "key_risk": "Spencer Knight can steal a game."},
+        {"market": "total", "side": "over", "point": 5.5, "prob": 0.55, "confidence": "low",
+         "rationale": "No edge; staying near the market's 55%.",
+         "key_risk": "Knight goalies a gem."}
+      ]
+    }
+  ]
+}

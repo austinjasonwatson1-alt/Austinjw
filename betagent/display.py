@@ -78,3 +78,35 @@ def render_slate(slate: Slate, tz: str, all_lines: bool = False) -> str:
     out.append("mktEV = EV at the best price if the no-vig consensus were exactly right (it is ~0 or negative "
                "unless one book is off-market). Real edge comes from research, not this column.")
     return "\n".join(out)
+
+
+def bet_label(pg: PricedGame, ps: PricedSide) -> str:
+    """Human description of the bet, e.g. 'New York Yankees ML', 'Boston Red Sox +1.5', 'BOS@NYY Over 8.5'."""
+    if ps.market == "total":
+        g = pg.game
+        return f"{g.away.abbr or g.away.name}@{g.home.abbr or g.home.name} {ps.side.capitalize()} {fmt_point('total', ps.point)}"
+    team = pg.game.team(ps.side).name
+    return f"{team} ML" if ps.market == "moneyline" else f"{team} {fmt_point('spread', ps.point)}"
+
+
+def render_evaluation(evaluated, warnings, cfg) -> str:
+    """Every estimate vs the market, sorted by EV at the best price."""
+    min_edge = cfg["selection"]["min_edge"]
+    rows = sorted(evaluated, key=lambda e: e.ev, reverse=True)
+    out = [f"{'bet':<34} {'ours':>6} {'fair':>6} {'diff':>6} {'best':>6} {'book':<11} {'EV':>6}  conf    notes", "-" * 104]
+    for e in rows:
+        fair = e.priced.fair_prob
+        diff = e.edge_vs_fair
+        mark = "EDGE" if e.ev >= min_edge and not e.flags else ""
+        notes = ", ".join(([mark] if mark else []) + (["derived"] if e.derived else []) + e.flags)
+        out.append(
+            f"{e.game.game.league + ' ' + bet_label(e.game, e.priced):<34.34} {e.prob * 100:5.1f}% "
+            f"{fmt_prob(fair)} {(f'{diff * 100:+5.1f}' if diff is not None else '   - '):>6} "
+            f"{om.fmt_decimal_as_american(e.priced.best_decimal):>6} {e.priced.best_book:<11} {e.ev * 100:+5.1f}%  "
+            f"{e.estimate.confidence:<7} {notes}"
+        )
+    n_edge = sum(1 for e in rows if e.ev >= min_edge and not e.flags)
+    out += ["", f"{len(rows)} priced estimates, {n_edge} clear the {min_edge:.0%} EV bar at the best available price."]
+    if warnings:
+        out += ["", "Warnings:"] + [f"  - {w}" for w in warnings]
+    return "\n".join(out)

@@ -7,11 +7,11 @@ bet_types: [moneyline, spread, total]
 
 bankroll:
   unit_dollars: 100               # 1 unit = $100
-  bankroll_units: 100             # Kelly sizes against this bankroll (100 units = $10,000)
+  bankroll_units: 20              # Kelly sizes against this bankroll (20 units = $2,000)
 
 staking:
   kelly_fraction: 0.25            # quarter Kelly
-  max_units_per_bet: 3.0          # hard cap on any single bet
+  max_units_per_bet: 2.0          # hard cap on any single bet (2u = $200 = 10% of bankroll)
   round_to_units: 0.25            # stakes are rounded down to this increment
   max_daily_units: null           # null = no daily exposure cap
   max_bets_per_day: null          # null = no limit
@@ -20,7 +20,7 @@ selection:
   min_edge: 0.03                  # EV at the best available price must be >= 3% to be an EDGE pick
   min_picks: 2                    # the agent never abstains: if fewer bets clear min_edge, it fills
                                   #   the card with its best LEAN picks, up to this many
-  lean_stake_units: 0.5           # stake for LEAN picks (below the edge bar)
+  lean_stake_units: 0.25          # stake for LEAN picks (below the edge bar): 0.25u = $25
 
 parlays:
   enabled: true
@@ -48,6 +48,12 @@ sources:
     enabled: auto                 # auto = on when ODDS_API_KEY is set in .env
     regions: us
     bookmakers: []                # optional list, e.g. [draftkings, fanduel, pinnacle]
+
+research:
+  dir: data/research              # packets + the researcher's estimates, one folder per day (committed)
+  max_games: 30                   # cap on games put in the research packet (earliest first)
+  max_deviation: 0.12             # estimates further than this from the fair price are flagged as suspect
+  complement_two_way: true        # an estimate for one side implies the other (probabilities exclude pushes)
 
 cache:
   dir: data/cache

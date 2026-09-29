@@ -1,0 +1,1101 @@
+{
+  "date": "2026-09-29",
+  "generated_at": "2026-09-29T14:03:52+00:00",
+  "timezone": "America/New_York",
+  "bet_types": [
+    "moneyline",
+    "spread",
+    "total"
+  ],
+  "games": [
+    {
+      "game_id": "espn:401907965",
+      "league": "MLB",
+      "start": "Tue 2:00 PM EDT",
+      "start_utc": "2026-09-29T18:00:00+00:00",
+      "matchup": "Philadelphia Phillies @ Atlanta Braves",
+      "away": "Philadelphia Phillies",
+      "home": "Atlanta Braves",
+      "venue": "Truist Park",
+      "city": "Atlanta, Georgia",
+      "indoor": false,
+      "neutral_site": false,
+      "season_type": "post-season",
+      "markets": [
+        {
+          "market": "moneyline",
+          "line": null,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "PHI",
+              "point": null,
+              "fair_prob": 0.3623,
+              "best_price": "+170",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+168",
+                "Polymarket": "+170"
+              },
+              "open": "+159"
+            },
+            {
+              "side": "home",
+              "label": "ATL",
+              "point": null,
+              "fair_prob": 0.6377,
+              "best_price": "-178",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-205",
+                "Polymarket": "-178"
+              },
+              "open": "-193"
+            }
+          ]
+        },
+        {
+          "market": "spread",
+          "line": -1.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "PHI +1.5",
+              "point": 1.5,
+              "fair_prob": 0.5597,
+              "best_price": "-133",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-135",
+                "Polymarket": "-133"
+              },
+              "open": "+1.5 -147"
+            },
+            {
+              "side": "home",
+              "label": "ATL -1.5",
+              "point": -1.5,
+              "fair_prob": 0.4403,
+              "best_price": "+127",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+112",
+                "Polymarket": "+127"
+              },
+              "open": "-1.5 +122"
+            }
+          ]
+        },
+        {
+          "market": "total",
+          "line": 6.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "over",
+              "label": "Over 6.5",
+              "point": 6.5,
+              "fair_prob": 0.5239,
+              "best_price": "-113",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-120",
+                "Polymarket": "-113"
+              },
+              "open": "7 -110"
+            },
+            {
+              "side": "under",
+              "label": "Under 6.5",
+              "point": 6.5,
+              "fair_prob": 0.4761,
+              "best_price": "+108",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+100",
+                "Polymarket": "+108"
+              },
+              "open": "7 -110"
+            }
+          ]
+        }
+      ],
+      "alt_lines": [
+        "spread -2.5",
+        "spread 1.5",
+        "spread 2.5",
+        "total 7.5",
+        "total 8.5"
+      ]
+    },
+    {
+      "game_id": "espn:401907896",
+      "league": "MLB",
+      "start": "Tue 5:00 PM EDT",
+      "start_utc": "2026-09-29T21:00:00+00:00",
+      "matchup": "Chicago White Sox @ Houston Astros",
+      "away": "Chicago White Sox",
+      "home": "Houston Astros",
+      "venue": "Daikin Park",
+      "city": "Houston, Texas",
+      "indoor": true,
+      "neutral_site": false,
+      "season_type": "post-season",
+      "markets": [
+        {
+          "market": "moneyline",
+          "line": null,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "CHW",
+              "point": null,
+              "fair_prob": 0.4656,
+              "best_price": "+113",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+105",
+                "Polymarket": "+113"
+              },
+              "open": "+121"
+            },
+            {
+              "side": "home",
+              "label": "HOU",
+              "point": null,
+              "fair_prob": 0.5344,
+              "best_price": "-117",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-126",
+                "Polymarket": "-117"
+              },
+              "open": "-146"
+            }
+          ]
+        },
+        {
+          "market": "spread",
+          "line": -1.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "CHW +1.5",
+              "point": 1.5,
+              "fair_prob": 0.6355,
+              "best_price": "-178",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-199",
+                "Polymarket": "-178"
+              },
+              "open": "+1.5 -171"
+            },
+            {
+              "side": "home",
+              "label": "HOU -1.5",
+              "point": -1.5,
+              "fair_prob": 0.3645,
+              "best_price": "+170",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+163",
+                "Polymarket": "+170"
+              },
+              "open": "-1.5 +141"
+            }
+          ]
+        },
+        {
+          "market": "total",
+          "line": 8.0,
+          "books": 1,
+          "sides": [
+            {
+              "side": "over",
+              "label": "Over 8",
+              "point": 8.0,
+              "fair_prob": 0.5152,
+              "best_price": "-117",
+              "best_book": "DraftKings",
+              "prices": {
+                "DraftKings": "-117"
+              },
+              "open": "8 -110"
+            },
+            {
+              "side": "under",
+              "label": "Under 8",
+              "point": 8.0,
+              "fair_prob": 0.4848,
+              "best_price": "-103",
+              "best_book": "DraftKings",
+              "prices": {
+                "DraftKings": "-103"
+              },
+              "open": "8 -110"
+            }
+          ]
+        }
+      ],
+      "alt_lines": [
+        "spread -2.5",
+        "spread 1.5",
+        "spread 2.5",
+        "total 7.5",
+        "total 8.5",
+        "total 9.5"
+      ]
+    },
+    {
+      "game_id": "espn:401891773",
+      "league": "NHL",
+      "start": "Tue 5:00 PM EDT",
+      "start_utc": "2026-09-29T21:00:00+00:00",
+      "matchup": "Florida Panthers @ Carolina Hurricanes",
+      "away": "Florida Panthers",
+      "home": "Carolina Hurricanes",
+      "venue": "Lenovo Center",
+      "city": "Raleigh, NC",
+      "indoor": true,
+      "neutral_site": false,
+      "season_type": "regular-season",
+      "markets": [
+        {
+          "market": "moneyline",
+          "line": null,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "FLA",
+              "point": null,
+              "fair_prob": 0.4658,
+              "best_price": "+113",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+105",
+                "Polymarket": "+113"
+              },
+              "open": "+110"
+            },
+            {
+              "side": "home",
+              "label": "CAR",
+              "point": null,
+              "fair_prob": 0.5342,
+              "best_price": "-117",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-125",
+                "Polymarket": "-117"
+              },
+              "open": "-130"
+            }
+          ]
+        },
+        {
+          "market": "spread",
+          "line": -1.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "FLA +1.5",
+              "point": 1.5,
+              "fair_prob": 0.673,
+              "best_price": "-212",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-230",
+                "Polymarket": "-212"
+              },
+              "open": "+1.5 -230"
+            },
+            {
+              "side": "home",
+              "label": "CAR -1.5",
+              "point": -1.5,
+              "fair_prob": 0.327,
+              "best_price": "+203",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+190",
+                "Polymarket": "+203"
+              },
+              "open": "-1.5 +190"
+            }
+          ]
+        },
+        {
+          "market": "total",
+          "line": 6.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "over",
+              "label": "Over 6.5",
+              "point": 6.5,
+              "fair_prob": 0.4658,
+              "best_price": "+113",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+105",
+                "Polymarket": "+113"
+              },
+              "open": "6.5 +100"
+            },
+            {
+              "side": "under",
+              "label": "Under 6.5",
+              "point": 6.5,
+              "fair_prob": 0.5342,
+              "best_price": "-117",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-125",
+                "Polymarket": "-117"
+              },
+              "open": "6.5 -120"
+            }
+          ]
+        }
+      ],
+      "alt_lines": [
+        "total 4.5",
+        "total 5.5",
+        "total 7.5"
+      ]
+    },
+    {
+      "game_id": "espn:401891827",
+      "league": "NHL",
+      "start": "Tue 7:00 PM EDT",
+      "start_utc": "2026-09-29T23:00:00+00:00",
+      "matchup": "Montreal Canadiens @ Toronto Maple Leafs",
+      "away": "Montreal Canadiens",
+      "home": "Toronto Maple Leafs",
+      "venue": "Scotiabank Arena",
+      "city": "Toronto, ON",
+      "indoor": true,
+      "neutral_site": false,
+      "season_type": "regular-season",
+      "markets": [
+        {
+          "market": "moneyline",
+          "line": null,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "MTL",
+              "point": null,
+              "fair_prob": 0.4975,
+              "best_price": "-102",
+              "best_book": "DraftKings",
+              "prices": {
+                "DraftKings": "-102",
+                "Polymarket": "-104"
+              },
+              "open": "-105"
+            },
+            {
+              "side": "home",
+              "label": "TOR",
+              "point": null,
+              "fair_prob": 0.5025,
+              "best_price": "+100",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-118",
+                "Polymarket": "+100"
+              },
+              "open": "-115"
+            }
+          ]
+        },
+        {
+          "market": "spread",
+          "line": -1.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "MTL +1.5",
+              "point": 1.5,
+              "fair_prob": 0.7069,
+              "best_price": "-257",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-258",
+                "Polymarket": "-257"
+              },
+              "open": "+1.5 -250"
+            },
+            {
+              "side": "home",
+              "label": "TOR -1.5",
+              "point": -1.5,
+              "fair_prob": 0.2931,
+              "best_price": "+245",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+210",
+                "Polymarket": "+245"
+              },
+              "open": "-1.5 +205"
+            }
+          ]
+        },
+        {
+          "market": "total",
+          "line": 6.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "over",
+              "label": "Over 6.5",
+              "point": 6.5,
+              "fair_prob": 0.4813,
+              "best_price": "+104",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+102",
+                "Polymarket": "+104"
+              },
+              "open": "6.5 +105"
+            },
+            {
+              "side": "under",
+              "label": "Under 6.5",
+              "point": 6.5,
+              "fair_prob": 0.5187,
+              "best_price": "-108",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-122",
+                "Polymarket": "-108"
+              },
+              "open": "6.5 -125"
+            }
+          ]
+        }
+      ],
+      "alt_lines": [
+        "total 4.5",
+        "total 5.5",
+        "total 7.5"
+      ]
+    },
+    {
+      "game_id": "espn:401907924",
+      "league": "MLB",
+      "start": "Tue 8:00 PM EDT",
+      "start_utc": "2026-09-30T00:00:00+00:00",
+      "matchup": "Boston Red Sox @ New York Yankees",
+      "away": "Boston Red Sox",
+      "home": "New York Yankees",
+      "venue": "Yankee Stadium",
+      "city": "Bronx, New York",
+      "indoor": false,
+      "neutral_site": false,
+      "season_type": "post-season",
+      "markets": [
+        {
+          "market": "moneyline",
+          "line": null,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "BOS",
+              "point": null,
+              "fair_prob": 0.4415,
+              "best_price": "+122",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+120",
+                "Polymarket": "+122"
+              },
+              "open": "+118"
+            },
+            {
+              "side": "home",
+              "label": "NYY",
+              "point": null,
+              "fair_prob": 0.5585,
+              "best_price": "-127",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-145",
+                "Polymarket": "-127"
+              },
+              "open": "-142"
+            }
+          ]
+        },
+        {
+          "market": "spread",
+          "line": -1.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "BOS +1.5",
+              "point": 1.5,
+              "fair_prob": 0.6388,
+              "best_price": "-186",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-190",
+                "Polymarket": "-186"
+              },
+              "open": "+1.5 -185"
+            },
+            {
+              "side": "home",
+              "label": "NYY -1.5",
+              "point": -1.5,
+              "fair_prob": 0.3612,
+              "best_price": "+178",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+156",
+                "Polymarket": "+178"
+              },
+              "open": "-1.5 +152"
+            }
+          ]
+        },
+        {
+          "market": "total",
+          "line": 6.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "over",
+              "label": "Over 6.5",
+              "point": 6.5,
+              "fair_prob": 0.4694,
+              "best_price": "+113",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+100",
+                "Polymarket": "+113"
+              },
+              "open": "6.5 -119"
+            },
+            {
+              "side": "under",
+              "label": "Under 6.5",
+              "point": 6.5,
+              "fair_prob": 0.5306,
+              "best_price": "-117",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-120",
+                "Polymarket": "-117"
+              },
+              "open": "6.5 -102"
+            }
+          ]
+        }
+      ],
+      "alt_lines": [
+        "spread -2.5",
+        "spread 1.5",
+        "spread 2.5",
+        "total 5.5",
+        "total 7.5"
+      ]
+    },
+    {
+      "game_id": "espn:401891774",
+      "league": "NHL",
+      "start": "Tue 8:00 PM EDT",
+      "start_utc": "2026-09-30T00:00:00+00:00",
+      "matchup": "New York Rangers @ Boston Bruins",
+      "away": "New York Rangers",
+      "home": "Boston Bruins",
+      "venue": "TD Garden",
+      "city": "Boston, MA",
+      "indoor": true,
+      "neutral_site": false,
+      "season_type": "regular-season",
+      "markets": [
+        {
+          "market": "moneyline",
+          "line": null,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "NYR",
+              "point": null,
+              "fair_prob": 0.4997,
+              "best_price": "-104",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-105",
+                "Polymarket": "-104"
+              },
+              "open": "+120"
+            },
+            {
+              "side": "home",
+              "label": "BOS",
+              "point": null,
+              "fair_prob": 0.5003,
+              "best_price": "+100",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-115",
+                "Polymarket": "+100"
+              },
+              "open": "-142"
+            }
+          ]
+        },
+        {
+          "market": "spread",
+          "line": -1.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "NYR +1.5",
+              "point": 1.5,
+              "fair_prob": 0.7086,
+              "best_price": "-257",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-265",
+                "Polymarket": "-257"
+              },
+              "open": "+1.5 -218"
+            },
+            {
+              "side": "home",
+              "label": "BOS -1.5",
+              "point": -1.5,
+              "fair_prob": 0.2914,
+              "best_price": "+245",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+215",
+                "Polymarket": "+245"
+              },
+              "open": "-1.5 +180"
+            }
+          ]
+        },
+        {
+          "market": "total",
+          "line": 5.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "over",
+              "label": "Over 5.5",
+              "point": 5.5,
+              "fair_prob": 0.5442,
+              "best_price": "-122",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-130",
+                "Polymarket": "-122"
+              },
+              "open": "5.5 -120"
+            },
+            {
+              "side": "under",
+              "label": "Under 5.5",
+              "point": 5.5,
+              "fair_prob": 0.4558,
+              "best_price": "+117",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+110",
+                "Polymarket": "+117"
+              },
+              "open": "5.5 +100"
+            }
+          ]
+        }
+      ],
+      "alt_lines": [
+        "total 4.5",
+        "total 6.5",
+        "total 7.5"
+      ]
+    },
+    {
+      "game_id": "espn:401907974",
+      "league": "MLB",
+      "start": "Tue 10:00 PM EDT",
+      "start_utc": "2026-09-30T02:00:00+00:00",
+      "matchup": "Chicago Cubs @ San Diego Padres",
+      "away": "Chicago Cubs",
+      "home": "San Diego Padres",
+      "venue": "Petco Park",
+      "city": "San Diego, California",
+      "indoor": false,
+      "neutral_site": false,
+      "season_type": "post-season",
+      "markets": [
+        {
+          "market": "moneyline",
+          "line": null,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "CHC",
+              "point": null,
+              "fair_prob": 0.4565,
+              "best_price": "+117",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+108",
+                "Polymarket": "+117"
+              },
+              "open": "+101"
+            },
+            {
+              "side": "home",
+              "label": "SD",
+              "point": null,
+              "fair_prob": 0.5435,
+              "best_price": "-122",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-130",
+                "Polymarket": "-122"
+              },
+              "open": "-121"
+            }
+          ]
+        },
+        {
+          "market": "spread",
+          "line": -1.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "CHC +1.5",
+              "point": 1.5,
+              "fair_prob": 0.6445,
+              "best_price": "-186",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-206",
+                "Polymarket": "-186"
+              },
+              "open": "+1.5 -199"
+            },
+            {
+              "side": "home",
+              "label": "SD -1.5",
+              "point": -1.5,
+              "fair_prob": 0.3555,
+              "best_price": "+178",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+168",
+                "Polymarket": "+178"
+              },
+              "open": "-1.5 +163"
+            }
+          ]
+        },
+        {
+          "market": "total",
+          "line": 7.0,
+          "books": 1,
+          "sides": [
+            {
+              "side": "over",
+              "label": "Over 7",
+              "point": 7.0,
+              "fair_prob": 0.5195,
+              "best_price": "-119",
+              "best_book": "DraftKings",
+              "prices": {
+                "DraftKings": "-119"
+              },
+              "open": "7.5 -115"
+            },
+            {
+              "side": "under",
+              "label": "Under 7",
+              "point": 7.0,
+              "fair_prob": 0.4805,
+              "best_price": "-101",
+              "best_book": "DraftKings",
+              "prices": {
+                "DraftKings": "-101"
+              },
+              "open": "7.5 -104"
+            }
+          ]
+        }
+      ],
+      "alt_lines": [
+        "spread -2.5",
+        "spread 1.5",
+        "spread 2.5",
+        "total 6.5",
+        "total 7.5",
+        "total 8.5"
+      ]
+    },
+    {
+      "game_id": "espn:401891804",
+      "league": "NHL",
+      "start": "Tue 10:00 PM EDT",
+      "start_utc": "2026-09-30T02:00:00+00:00",
+      "matchup": "Vancouver Canucks @ Edmonton Oilers",
+      "away": "Vancouver Canucks",
+      "home": "Edmonton Oilers",
+      "venue": "Rogers Place",
+      "city": "Edmonton, AB",
+      "indoor": true,
+      "neutral_site": false,
+      "season_type": "regular-season",
+      "markets": [
+        {
+          "market": "moneyline",
+          "line": null,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "VAN",
+              "point": null,
+              "fair_prob": 0.276,
+              "best_price": "+257",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+245",
+                "Polymarket": "+257"
+              },
+              "open": "+215"
+            },
+            {
+              "side": "home",
+              "label": "EDM",
+              "point": null,
+              "fair_prob": 0.724,
+              "best_price": "-270",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-305",
+                "Polymarket": "-270"
+              },
+              "open": "-265"
+            }
+          ]
+        },
+        {
+          "market": "spread",
+          "line": -1.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "VAN +1.5",
+              "point": 1.5,
+              "fair_prob": 0.4842,
+              "best_price": "+104",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-102",
+                "Polymarket": "+104"
+              },
+              "open": "+1.5 -120"
+            },
+            {
+              "side": "home",
+              "label": "EDM -1.5",
+              "point": -1.5,
+              "fair_prob": 0.5158,
+              "best_price": "-108",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-118",
+                "Polymarket": "-108"
+              },
+              "open": "-1.5 +100"
+            }
+          ]
+        },
+        {
+          "market": "total",
+          "line": 6.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "over",
+              "label": "Over 6.5",
+              "point": 6.5,
+              "fair_prob": 0.5136,
+              "best_price": "-108",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-115",
+                "Polymarket": "-108"
+              },
+              "open": "6.5 -110"
+            },
+            {
+              "side": "under",
+              "label": "Under 6.5",
+              "point": 6.5,
+              "fair_prob": 0.4864,
+              "best_price": "+104",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-105",
+                "Polymarket": "+104"
+              },
+              "open": "6.5 -110"
+            }
+          ]
+        }
+      ],
+      "alt_lines": [
+        "total 4.5",
+        "total 5.5",
+        "total 7.5"
+      ]
+    },
+    {
+      "game_id": "espn:401891775",
+      "league": "NHL",
+      "start": "Tue 10:30 PM EDT",
+      "start_utc": "2026-09-30T02:30:00+00:00",
+      "matchup": "Chicago Blackhawks @ Vegas Golden Knights",
+      "away": "Chicago Blackhawks",
+      "home": "Vegas Golden Knights",
+      "venue": "T-Mobile Arena",
+      "city": "Las Vegas, NV",
+      "indoor": true,
+      "neutral_site": false,
+      "season_type": "regular-season",
+      "markets": [
+        {
+          "market": "moneyline",
+          "line": null,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "CHI",
+              "point": null,
+              "fair_prob": 0.2931,
+              "best_price": "+245",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+210",
+                "Polymarket": "+245"
+              },
+              "open": "+205"
+            },
+            {
+              "side": "home",
+              "label": "VGK",
+              "point": null,
+              "fair_prob": 0.7069,
+              "best_price": "-257",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-258",
+                "Polymarket": "-257"
+              },
+              "open": "-250"
+            }
+          ]
+        },
+        {
+          "market": "spread",
+          "line": -1.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "away",
+              "label": "CHI +1.5",
+              "point": 1.5,
+              "fair_prob": 0.5275,
+              "best_price": "-113",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-125",
+                "Polymarket": "-113"
+              },
+              "open": "+1.5 -125"
+            },
+            {
+              "side": "home",
+              "label": "VGK -1.5",
+              "point": -1.5,
+              "fair_prob": 0.4725,
+              "best_price": "+108",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+105",
+                "Polymarket": "+108"
+              },
+              "open": "-1.5 +105"
+            }
+          ]
+        },
+        {
+          "market": "total",
+          "line": 5.5,
+          "books": 2,
+          "sides": [
+            {
+              "side": "over",
+              "label": "Over 5.5",
+              "point": 5.5,
+              "fair_prob": 0.5538,
+              "best_price": "-127",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "-135",
+                "Polymarket": "-127"
+              },
+              "open": "5.5 -125"
+            },
+            {
+              "side": "under",
+              "label": "Under 5.5",
+              "point": 5.5,
+              "fair_prob": 0.4462,
+              "best_price": "+122",
+              "best_book": "Polymarket",
+              "prices": {
+                "DraftKings": "+114",
+                "Polymarket": "+122"
+              },
+              "open": "5.5 +105"
+            }
+          ]
+        }
+      ],
+      "alt_lines": [
+        "total 4.5",
+        "total 6.5",
+        "total 7.5"
+      ]
+    }
+  ],
+  "skipped": [],
+  "source_notes": [],
+  "performance_feedback": "No graded history yet."
+}

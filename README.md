@@ -12,21 +12,41 @@ The repo also contains `mlb_predictor.py`, a standalone sabermetric MLB win-prob
 | Stage | What it adds | Status |
 |---|---|---|
 | 1. Odds pipeline + math | Slate, odds from all sources, no-vig fair prices, line shopping, Kelly, tests | **done** |
-| 2. Research | Claude + web search per game: injuries, lineups, rest, weather, form, line movement; probability estimates | next |
-| 3. Card | Edge filter, Kelly sizing, parlays, dated markdown card | planned |
+| 2. Research | Research packet → Claude Code researches each game with web search → cited estimates → EV check | **done** |
+| 3. Card | Edge filter, Kelly sizing, parlays, dated markdown card | next |
 | 4. Tracking | SQLite log, auto-grading from final scores, record / units / ROI / calibration report, feedback into prompts | planned |
+
+## How it works: the tool and the researcher
+
+No Anthropic API key is needed. The research is done by a **Claude Code session**, running on your
+Claude subscription and using its web search. The Python tool handles everything numeric. They
+talk through files in `data/research/<date>/`:
+
+```
+betagent packet        ->  packet.md / packet.json    priced slate: fair %, best price + book, line movement
+Claude Code researches ->  estimates.json             cited facts, judgment, a probability per bet
+betagent evaluate      ->  our % vs fair, EV at the best price, EDGE / suspect flags
+betagent card          ->  cards/<date>.md            (stage 3)
+```
+
+To run it, open Claude Code in this repo and say **"run today's betting card"**. The
+`betting-card` skill (`.claude/skills/betting-card/SKILL.md`) walks the session through every step.
+The research method (principles, checklist, how far to move off the market, the output schema) lives in
+`prompts/research.md`. Edit that file to change how the agent thinks.
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env        # add ANTHROPIC_API_KEY (needed from stage 2); ODDS_API_KEY is optional
+cp .env.example .env        # optional: ODDS_API_KEY for more sportsbooks
 python -m pytest -q tests
 ```
 
-## Usage (stage 1)
+## Usage
 
 ```bash
+python -m betagent packet                                 # write today's research packet
+python -m betagent evaluate                               # check estimates.json against live prices
 python -m betagent slate                                  # today's slate, all leagues, main lines
 python -m betagent slate --league MLB --game yankees      # one league / one game
 python -m betagent slate --date 2026-10-04 --league NFL
@@ -80,7 +100,11 @@ betagent/
   teams.py           cross-source team-name matching
   cache.py, http.py  on-disk cache, retrying HTTP session
   config.py          config.yaml + .env loading and validation
+  research/          packet.py (packet for the researcher), estimates.py (schema, validation, EV)
   display.py, cli.py terminal output and commands
+prompts/research.md  the researcher's method; edit to tune the agent
+.claude/skills/betting-card/SKILL.md   daily workflow for a Claude Code session
+data/research/<date>/  packets and estimates (committed, so there's a record of every call)
 config.yaml
 tests/               odds math, market pricing, source parsing, cache, end-to-end with mocked HTTP
 ```

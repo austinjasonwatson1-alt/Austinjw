@@ -14,15 +14,15 @@ DEFAULTS: Dict[str, Any] = {
     "timezone": "America/New_York",
     "leagues": ["NFL", "NCAAF", "MLB", "NHL"],
     "bet_types": ["moneyline", "spread", "total"],
-    "bankroll": {"unit_dollars": 100.0, "bankroll_units": 100.0},
+    "bankroll": {"unit_dollars": 100.0, "bankroll_units": 20.0},
     "staking": {
         "kelly_fraction": 0.25,
-        "max_units_per_bet": 3.0,
+        "max_units_per_bet": 2.0,
         "round_to_units": 0.25,
         "max_daily_units": None,
         "max_bets_per_day": None,
     },
-    "selection": {"min_edge": 0.03, "min_picks": 2, "lean_stake_units": 0.5},
+    "selection": {"min_edge": 0.03, "min_picks": 2, "lean_stake_units": 0.25},
     "parlays": {"enabled": True, "max_legs": 3, "max_parlays": 2, "max_units": 1.0},
     "pricing": {"devig_method": "multiplicative", "book_weights": {"default": 1.0}},
     "sources": {
@@ -30,6 +30,7 @@ DEFAULTS: Dict[str, Any] = {
         "polymarket": {"enabled": True, "min_liquidity": 1000, "max_spread": 0.05, "fee_per_share": 0.0},
         "odds_api": {"enabled": "auto", "regions": "us", "bookmakers": []},
     },
+    "research": {"dir": "data/research", "max_games": 30, "max_deviation": 0.12, "complement_two_way": True},
     "cache": {"dir": "data/cache", "free_ttl_minutes": 15, "paid_ttl_minutes": None},
 }
 
