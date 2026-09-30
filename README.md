@@ -38,3 +38,7 @@ python -m pytest -q tests                      # offline test suite (mocked API)
 - **Constants to refresh.** `LeagueConstants` (wOBA weights, FIP constant, league rates), `PARK_FACTORS` and `HR_PARK_FACTORS` should be refreshed each season.
 - **Playoff shift.** The playoff-status adjustment is a hand-set prior, not a fitted effect.
 - For research and entertainment only. This is not betting advice.
+
+## Also in this repo: Gemini prediction-markets MCP server
+
+`gemini_mcp/` is a separate, self-contained MCP server for placing guarded limit orders on Gemini prediction markets. It runs in dry-run mode by default and enforces its guardrails in code. See [`gemini_mcp/README.md`](gemini_mcp/README.md).

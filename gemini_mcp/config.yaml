@@ -1,0 +1,22 @@
+# Guardrail limits for the Gemini prediction-markets MCP server.
+# Re-read on every propose/confirm, so edits take effect without a restart.
+# Unknown keys are rejected (protects against typos).
+#
+# Code defaults (if a key is omitted): max_order_usd 10, max_daily_spend_usd 25,
+# max_open_orders 3, allowed_event_tickers [] (empty = nothing can trade).
+# The values below are deliberately lower for the first live order.
+# Raise them later only by editing this file.
+
+# Worst-case dollars per order. Buys: quantity x price. Sells: quantity x (1 - price).
+max_order_usd: 2
+
+# Total worst-case dollars confirmed per UTC day. Not refunded on cancel.
+max_daily_spend_usd: 5
+
+# Refuse new orders when the account already has this many open orders.
+max_open_orders: 3
+
+# Exact event tickers (from list_markets / get_market) that may be traded.
+# A contract passes only if it is directly inside one of these events.
+# Child events of a game must be listed by their own ticker.
+allowed_event_tickers: []

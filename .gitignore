@@ -3,3 +3,9 @@ __pycache__/
 .pytest_cache/
 *.csv
 .venv/
+
+# Gemini MCP server secrets and runtime state
+.env
+gemini_mcp/audit.log
+gemini_mcp/state/
+gemini_mcp/KILL

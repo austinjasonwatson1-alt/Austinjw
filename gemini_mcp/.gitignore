@@ -1,0 +1,6 @@
+.env
+audit.log
+state/
+KILL
+__pycache__/
+.pytest_cache/
