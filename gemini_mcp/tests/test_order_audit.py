@@ -102,7 +102,11 @@ def test_intent_write_failure_sends_nothing(env, monkeypatch):
     assert env.trader.placed == [] and env.trader.cancelled == []
 
 
-@pytest.mark.parametrize("resp,result", [(RuntimeError("timeout"), "failed"), ({"result": "error"}, "unconfirmed")])
+@pytest.mark.parametrize("resp,result", [
+    (RuntimeError("timeout"), "unconfirmed"),  # outcome unknown: the order may exist
+    (__import__("gemini_client").GeminiAPIError("/v1/prediction-markets/order", 400, '{"result":"error"}'), "failed"),
+    (__import__("gemini_client").GeminiAPIError("/v1/prediction-markets/order", 503, "unavailable"), "unconfirmed"),
+    ({"result": "error"}, "unconfirmed")])
 def test_failed_or_unconfirmed_send_gets_a_result(env, resp, result):
     g = env.guard()
 

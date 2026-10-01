@@ -20,7 +20,9 @@ Behavior:
   {"result": "error", ...}.
 - **Fills:** per-symbol modes. "rest" leaves the order open, "fill" fills it at the limit, "partial:N" fills N
   and rests the rest, "reject:Reason" returns 400. Call ``fill(order_id, qty)`` to fill a resting order later.
-- **Faults:** ``fail_next(path_substring, kind, times)`` injects one of:
+- **Faults:** ``fail_next(match, kind, times)`` injects one of the kinds below. A match starting with "/" must equal
+  the request path exactly; any other match is a substring (of the path, or of the WebSocket stream for
+  "book_timeout"):
   - "503" or "status:<code>": an error status.
   - "timeout": raises before anything is applied.
   - "timeout_after_apply": applies the request, then raises (the response is lost).
@@ -296,7 +298,8 @@ class FakeGemini:
             st["requests"].append([request.method, request.url.raw_path.decode(), request.url.host])
             fault = None
             for f in st["faults"]:
-                if f["times"] > 0 and f["match"] in path:
+                hit = path == f["match"] if f["match"].startswith("/") else f["match"] in path
+                if f["times"] > 0 and hit and f["kind"] != "book_timeout":
                     f["times"] -= 1
                     fault = f["kind"]
                     break

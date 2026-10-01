@@ -941,6 +941,17 @@ def _placement_problem(resp: Any, symbol: str, side: str, outcome: str, quantity
     return None
 
 
+def _definitely_not_done(e: Exception) -> bool:
+    """True only if a send failed in a way that proves Gemini didn't act on it: the request was refused before
+    it left (allowlist, missing credentials), or Gemini answered with a 4xx error. A timeout, connection error,
+    5xx or unparseable 2xx means the outcome is unknown."""
+    from gemini_client import CredentialsMissing, GeminiAPIError, PathNotAllowed
+
+    if isinstance(e, (PathNotAllowed, CredentialsMissing)):
+        return True
+    return isinstance(e, GeminiAPIError) and isinstance(e.status, int) and 400 <= e.status < 500
+
+
 def _cancel_confirmed(resp: Any, order_id: int) -> bool:
     """True only if Gemini's cancel reply positively confirms it. Documented success reply:
     {"result": "ok", "message": "Order N cancelled successfully"}. Also accepted: is_cancelled: true, or an order
@@ -1645,11 +1656,14 @@ class Guardrails:
         try:
             resp = self._trader.place_limit_order(v.instrument_symbol, v.side, v.outcome, v.quantity, v.price)
         except Exception as e:  # noqa: BLE001
-            return self._write_result(intent_id, "failed", common, None, {
+            definite = _definitely_not_done(e)
+            return self._write_result(intent_id, "failed" if definite else "unconfirmed", common, None, {
                 "ok": False,
                 "error": str(e),
-                "note": "Placement failed or its outcome is unknown. It will NOT be retried. "
-                "Check list_open_orders before proposing again. The spend stays counted for today.",
+                "note": ("Gemini rejected the order. " if definite else
+                         "The outcome is UNKNOWN: the order may exist. Check Gemini. ")
+                + "It will NOT be retried. Check list_open_orders before proposing again. "
+                "The spend stays counted for today.",
             }, error=str(e))
         order_id = resp.get("orderId") if isinstance(resp, dict) else None
         status = resp.get("status") if isinstance(resp, dict) else None
@@ -1715,8 +1729,12 @@ class Guardrails:
             try:
                 resp = self._trader.cancel_order(oid)
             except Exception as e:  # noqa: BLE001
-                return self._write_result(intent_id, "cancel_failed", fields, oid,
-                                          {"ok": False, "order_id": oid, "error": str(e)}, error=str(e))
+                definite = _definitely_not_done(e)
+                return self._write_result(intent_id, "cancel_failed" if definite else "unconfirmed", fields, oid, {
+                    "ok": False, "order_id": oid, "error": str(e),
+                    "note": "Gemini refused the cancel." if definite else
+                    "The outcome is UNKNOWN: the order may or may not still be open. Check get_order_status."},
+                    error=str(e))
             if isinstance(resp, dict) and resp.get("result") == "error":
                 return self._write_result(intent_id, "cancel_failed", fields, oid, {
                     "ok": False, "order_id": oid, "error": f"Gemini refused the cancel; response: {resp!r}",
