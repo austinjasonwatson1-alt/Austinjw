@@ -442,18 +442,30 @@ class RiskState:
         self.path = path
         self.mode_key = mode_key
 
-    def read(self) -> dict[str, Any]:
-        data = _read_json(self.path, {}, "risk state")
+    def _entry(self, data: Any) -> dict[str, Any]:
         if not isinstance(data, dict):
             raise Rejected("risk state has a bad shape; refusing to trade")
-        return dict(data.get(self.mode_key) or {})
+        st = data.get(self.mode_key) or {}
+        if not isinstance(st, dict):
+            raise Rejected(f"risk state for {self.mode_key} has a bad shape; refusing to trade")
+        for k in ("peak", "day_start", "initial_equity"):
+            if st.get(k) is None:
+                continue
+            try:
+                ok = Decimal(str(st[k])).is_finite()
+            except InvalidOperation:
+                ok = False
+            if not ok:
+                raise Rejected(f"risk state {k} for {self.mode_key} is malformed ({st[k]!r}); refusing to trade")
+        return dict(st)
+
+    def read(self) -> dict[str, Any]:
+        return self._entry(_read_json(self.path, {}, "risk state"))
 
     def update(self, fn: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
         with file_lock(self.path):
             data = _read_json(self.path, {}, "risk state")
-            if not isinstance(data, dict):
-                raise Rejected("risk state has a bad shape; refusing to trade")
-            st = fn(dict(data.get(self.mode_key) or {}))
+            st = fn(self._entry(data))
             data[self.mode_key] = st
             _atomic_write_json(self.path, data)
             return st
