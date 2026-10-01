@@ -225,3 +225,70 @@ Use `get_positions`, `list_open_orders` and one minimum-size order in the sandbo
 6. **Events:** the `category` field is present if you use `category_exposure_caps`.
 7. **Sandbox WebSocket host:** `wss://ws.sandbox.gemini.com` (the docs disagree); also check that order books arrive at all.
 8. **Gemini oversell check:** Gemini itself rejects a sell beyond holdings (the backstop for Q5).
+
+## Final state
+
+`git log --oneline origin/claude/stoic-archimedes-iacegx..HEAD` (45 commits, plus the commit that adds this section):
+
+```
+b518d83 gemini_mcp: overnight notes for task 7 (self-review, guardrail -> test map, open questions)
+3bd2111 gemini_mcp: overnight notes for task 6
+aef5b7b gemini_mcp: setup_mac.sh and RUNBOOK.md
+eb7eb90 gemini_mcp: launchd template for DRY_RUN-only schedules, with an interlock
+a2b03a8 gemini_mcp: overnight notes for task 5 (and the push slip)
+2f35172 gemini_mcp: read-only dashboard (dashboard.py) with a sample
+3319a0f gemini_mcp: unknown-order status names the real cause
+bdb4b8e gemini_mcp: fix property test counting unfilled paper sells as sold
+dc11f02 gemini_mcp: overnight notes for task 4
+bf68184 gemini_mcp: multi-process stress test against the shared fake exchange
+20b73a8 gemini_mcp: bound every number read from Gemini; refuse empty symbols
+182d6dc gemini_mcp: property tests for sizing and the guardrails (hypothesis)
+cf56e25 gemini_mcp: overnight notes for task 3
+1c1a748 gemini_mcp: e2e fake scenarios for partial exits, live report fills, dry exits
+a8a8391 gemini_mcp: runner never stacks entries on a contract with a resting order
+50af55d gemini_mcp: a send whose outcome is unknown is 'unconfirmed', not 'failed'
+6e55ecc gemini_mcp: overnight notes for task 2
+1e43ffc gemini_mcp: rename initial_deposit_usd to starting_balance_usd
+1e573f6 gemini_mcp: explicit method+path endpoint allowlist, enforced twice
+cd8b074 gemini_mcp: start OVERNIGHT_NOTES.md (task 1 already complete)
+75fa351 gemini_mcp: update real_response_check.md for the refuse-on-absent rules
+74aa0ab gemini_mcp: refuse instead of guessing on absent or unexpected Gemini fields
+057c63f gemini_mcp: count a cancel only when Gemini positively confirms it
+83714ba gemini_mcp: normalize open-order side case; unknown side fails closed
+b3e99d6 gemini_mcp: document the Gemini response fields the code reads
+178c344 gemini_mcp: runner skips entering contracts with no expiry date
+dd0e20e gemini_mcp: fsync'd order_intent before every live send, order_result after
+7b971f4 gemini_mcp: refuse when daily_spend.json is malformed or below audit.log
+cbeff73 gemini_mcp: add max_trades_per_day (default 5), checked at propose and confirm
+6d659a6 gemini_mcp: README going-live checklist matches preflight checks
+25952f3 gemini_mcp: add preflight.py, enforced at server and runner startup
+2afd63c gemini_mcp: add fee_confirmed flag; verify_auth writes a success marker
+01ba48c gemini_mcp: bound magnitude/precision of order inputs; clip audit echo
+58614ad gemini_mcp: cap max_open_orders at the 100-order page that is read
+c09cf19 gemini_mcp: fail closed (and log) on corrupt risk-state values
+14c36ac gemini_mcp: validate quotes used for paper valuation and fills
+cc10a85 gemini_mcp: reject NaN/inf/non-positive contract increments cleanly
+7e97f76 gemini_mcp: runner never mixes paper and live research records
+545cf09 gemini_mcp: don't report placement/cancel as ok without proof
+f2d019a gemini_mcp: verify_auth never prints a key without a known prefix
+c7abacc gemini_mcp: refuse to trade when risk state is missing after trading
+6a12b49 gemini_mcp: subtract resting sells from sellable quantity
+0062aba gemini_mcp: attribute exposure by symbol as well as event metadata
+b657e6f gemini_mcp: reject negative or out-of-range position and order values
+ad2ab87 gemini_mcp: serialize confirm across processes with a file lock
+```
+
+Full test suite, `python -m pytest -q` in `gemini_mcp/`:
+
+```
+........................................................................ [ 12%]
+........................................................................ [ 24%]
+........................................................................ [ 36%]
+........................................................................ [ 48%]
+........................................................................ [ 60%]
+........................................................................ [ 72%]
+........................................................................ [ 84%]
+........................................................................ [ 96%]
+........................                                                 [100%]
+600 passed in 40.94s
+```
