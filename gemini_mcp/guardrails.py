@@ -132,6 +132,14 @@ class Config:
     research_input_usd_per_mtok: Decimal = Decimal("4")
     research_output_usd_per_mtok: Decimal = Decimal("20")
     research_usd_per_search: Decimal = Decimal("0.01")
+    # Optional screening stage: a cheaper model (GEMINI_MCP_SCREEN_MODEL, default claude-haiku-4-5) makes a quick
+    # estimate with at most 1 web search; only contracts whose screening estimate is at least screen_min_edge from
+    # the market mid get full research. Screening counts toward the research cost caps, not max_research_per_run.
+    screening_enabled: bool = False
+    screen_min_edge: Decimal = Decimal("0.08")
+    # Claude Haiku 4.5 list prices ($1 / $5 per million input / output tokens). Update them if you change the model.
+    screen_input_usd_per_mtok: Decimal = Decimal("1")
+    screen_output_usd_per_mtok: Decimal = Decimal("5")
 
 
 # name -> (kind, low, high). Bounds are inclusive; "frac+" excludes 0.
@@ -174,6 +182,10 @@ _SPEC: dict[str, tuple] = {
     "research_input_usd_per_mtok": ("dec", 0, None),
     "research_output_usd_per_mtok": ("dec", 0, None),
     "research_usd_per_search": ("dec", 0, None),
+    "screening_enabled": ("bool",),
+    "screen_min_edge": ("dec", 0, 1),
+    "screen_input_usd_per_mtok": ("dec", 0, None),
+    "screen_output_usd_per_mtok": ("dec", 0, None),
 }
 assert set(_SPEC) == {f.name for f in fields(Config)}
 
@@ -327,6 +339,18 @@ def _cross_check(c: Config) -> Config:
 
 LEARNING_FLOOR_MIN_PCT = Decimal("0.4")  # the learning-budget floor never goes below 40% of the starting balance
 RESEARCH_UNCAPPED_MAX = 5  # max_research_per_run above this needs both research cost caps
+
+
+SCREEN_MODEL_ENV = "GEMINI_MCP_SCREEN_MODEL"
+DEFAULT_SCREEN_MODEL = "claude-haiku-4-5"
+
+
+def screen_model_from_env(environ: Any) -> str:
+    """The screening model: GEMINI_MCP_SCREEN_MODEL, or claude-haiku-4-5 when unset or empty."""
+    name = environ.get(SCREEN_MODEL_ENV) or DEFAULT_SCREEN_MODEL
+    if not isinstance(name, str) or not _MODEL_RE.match(name):
+        raise ConfigError(f"{SCREEN_MODEL_ENV} must be a Claude model id (like {DEFAULT_SCREEN_MODEL})")
+    return name
 
 
 def parse_dry_run(value: str | None) -> bool:

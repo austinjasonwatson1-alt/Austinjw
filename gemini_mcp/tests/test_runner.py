@@ -144,7 +144,7 @@ def estimate(q_yes, n_sources=3, invalidated=False, reason=""):
                     [{"url": f"https://example.gov/{i}"} for i in range(n_sources)], "claude-opus-5-5", 2, {})
 
 
-def run(env, *, dry_run=True, q_yes="0.85", research=None, confirm=None, **cfg):
+def run(env, *, dry_run=True, q_yes="0.85", research=None, confirm=None, screen=None, **cfg):
     write_config(env.config_path, **{"max_order_usd": 10, "max_daily_spend_usd": 25, **cfg})
     guard = env.guard(dry_run=dry_run)
     tools = InProcessTools(server.create_server(env.market, guard))
@@ -157,7 +157,7 @@ def run(env, *, dry_run=True, q_yes="0.85", research=None, confirm=None, **cfg):
     r = Runner(tools=tools, research=research or default_research, config=__import__("guardrails").load_config(
         env.config_path), audit=guard.audit, paper=env.paper(), dry_run=dry_run,
         confirm=confirm or make_confirm(dry_run, False, Config(), interactive=False),
-        now=env.clock, out=lambda s: None)
+        now=env.clock, out=lambda s: None, screen=screen)
     decisions = asyncio.run(r.run())
     return decisions, tools, calls, guard
 

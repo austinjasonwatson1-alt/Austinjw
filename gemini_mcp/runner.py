@@ -44,15 +44,18 @@ from guardrails import (
     BookCheck,
     Config,
     PaperLedger,
+    DEFAULT_SCREEN_MODEL,
+    SCREEN_MODEL_ENV,
     _levels,
     check_book,
     edge_after_fee,
     load_config,
     parse_dry_run,
     parse_env,
+    screen_model_from_env,
     shrink,
 )
-from research import Estimate, ResearchError
+from research import Estimate, ResearchError, ScreenEstimate
 
 HERE = Path(__file__).resolve().parent
 _ONE = Decimal(1)
@@ -173,7 +176,9 @@ def hours_until(expiry: Any, now: float) -> Decimal | None:
 # Charged when a research call's token usage is unknown or malformed (e.g. the API call itself failed): more than
 # a typical call, so an unknown cost never under-counts the budget. Searches are charged at research_max_searches.
 UNKNOWN_USAGE = {"input_tokens": 200_000, "output_tokens": 16_000}
+UNKNOWN_SCREEN_USAGE = {"input_tokens": 30_000, "output_tokens": 2_000}
 _CENT = Decimal("0.01")
+SCREEN_MAX_SEARCHES = 1
 
 
 def _usage_ok(usage: Any) -> bool:
@@ -181,16 +186,20 @@ def _usage_ok(usage: Any) -> bool:
                                             for v in usage.values()))
 
 
-def research_cost_usd(usage: Any, searches: Any, config: Config) -> Decimal:
-    """Estimated dollars for one research call, rounded up to the cent. Unknown or malformed usage is charged
-    UNKNOWN_USAGE; unknown searches are charged research_max_searches."""
+def research_cost_usd(usage: Any, searches: Any, config: Config, stage: str = "full") -> Decimal:
+    """Estimated dollars for one research call ("full") or screening call ("screen"), rounded up to the cent, at
+    that stage's prices. Unknown or malformed usage is charged UNKNOWN_USAGE / UNKNOWN_SCREEN_USAGE; unknown
+    searches are charged the stage's maximum."""
+    screen = stage == "screen"
     if not _usage_ok(usage):
-        usage, searches = UNKNOWN_USAGE, None
+        usage, searches = (UNKNOWN_SCREEN_USAGE if screen else UNKNOWN_USAGE), None
     if isinstance(searches, bool) or not isinstance(searches, int) or searches < 0:
-        searches = config.research_max_searches
+        searches = SCREEN_MAX_SEARCHES if screen else config.research_max_searches
     m = Decimal(1_000_000)
-    cost = (Decimal(usage.get("input_tokens", 0)) * config.research_input_usd_per_mtok / m
-            + Decimal(usage.get("output_tokens", 0)) * config.research_output_usd_per_mtok / m
+    p_in = config.screen_input_usd_per_mtok if screen else config.research_input_usd_per_mtok
+    p_out = config.screen_output_usd_per_mtok if screen else config.research_output_usd_per_mtok
+    cost = (Decimal(usage.get("input_tokens", 0)) * p_in / m
+            + Decimal(usage.get("output_tokens", 0)) * p_out / m
             + Decimal(searches) * config.research_usd_per_search)
     return cost.quantize(_CENT, rounding=ROUND_CEILING)
 
@@ -243,9 +252,12 @@ class Runner:
         confirm: Callable[[dict[str, Any]], bool],
         now: Callable[[], float] = time.time,
         out: Callable[[str], None] = print,
+        screen: Callable[[dict[str, Any]], ScreenEstimate] | None = None,
     ):
         self.tools = tools
         self.research = research
+        self.screen = screen
+        self.last_cost = Decimal(0)  # cost of the latest research or screening call
         self.config = config
         self.audit = audit
         self.paper = paper
@@ -290,12 +302,27 @@ class Runner:
         self._charge(info, est.usage, est.searches, ok=True, model=est.model)
         return est
 
-    def _charge(self, info: dict[str, Any], usage: Any, searches: Any, *, ok: bool, model: str | None) -> None:
-        cost = research_cost_usd(usage, searches, self.config)
+    async def do_screen(self, info: dict[str, Any]) -> ScreenEstimate:
+        assert self.screen is not None
+        try:
+            s = await asyncio.to_thread(self.screen, info)
+        except ResearchError as e:
+            self._charge(info, e.usage, e.searches, ok=False, model=None, stage="screen")
+            raise
+        except Exception:
+            self._charge(info, None, None, ok=False, model=None, stage="screen")
+            raise
+        self._charge(info, s.usage, s.searches, ok=True, model=s.model, stage="screen")
+        return s
+
+    def _charge(self, info: dict[str, Any], usage: Any, searches: Any, *, ok: bool, model: str | None,
+                stage: str = "full") -> None:
+        cost = research_cost_usd(usage, searches, self.config, stage)
+        self.last_cost = cost
         self.run_cost += cost
         self.day_cost += cost
         self.max_call_cost = max(self.max_call_cost, cost)
-        self.audit.write("research_cost", mode="dry_run" if self.dry_run else "live",
+        self.audit.write("research_cost", mode="dry_run" if self.dry_run else "live", stage=stage,
                          instrument_symbol=info.get("instrument_symbol"), ok=ok, model=model,
                          usage=usage if _usage_ok(usage) else None, usage_known=_usage_ok(usage), searches=searches,
                          research_cost_usd=format(cost, "f"), run_cost_usd=format(self.run_cost, "f"),
@@ -485,6 +512,33 @@ class Runner:
                     f"max_days_to_expiry {hi_days}")
         return None
 
+    async def _screen(self, market: dict[str, Any], c: dict[str, Any], bc: BookCheck,
+                      base: dict[str, Any]) -> dict[str, Any]:
+        """Screening stage. Returns the screen fields for the log, with "stop": True when the contract doesn't go on
+        to full research (screened out, screening failed, or no screening model). Fails closed."""
+        if self.screen is None:
+            self.log("no_trade", reason="screening_enabled but no screening model is configured; not researched",
+                     **base)
+            return {"stop": True}
+        try:
+            s = await self.do_screen(contract_info(market, c))
+        except ResearchError as e:
+            self.log("no_trade", reason=f"screening failed: {e}; not researched",
+                     screen_cost_usd=format(self.last_cost, "f"), **base)
+            return {"stop": True}
+        mid = (bc.best_bid + bc.best_ask) / 2
+        diff = abs(s.probability_yes - mid)
+        fields = {"screen_model": s.model, "screen_estimate": format(s.probability_yes, "f"),
+                  "screen_reason": s.reason, "screen_market_mid": format(mid, "f"),
+                  "screen_difference": format(diff, "f"), "screen_searches": s.searches,
+                  "screen_cost_usd": format(self.last_cost, "f")}
+        if diff < self.config.screen_min_edge:
+            self.log("no_trade", reason=f"screened out: screening estimate {s.probability_yes} is {diff} from the "
+                                        f"market mid {mid}, less than screen_min_edge {self.config.screen_min_edge}",
+                     **base, **fields)
+            return {"stop": True}
+        return fields
+
     async def scan_entries(self) -> None:
         # A resting order from an earlier run isn't a position yet; without this the runner would stack
         # another entry on the same contract every run (bounded only by the caps).
@@ -534,12 +588,22 @@ class Runner:
                 if not bc.ok:
                     self.log("no_trade", reason=bc.reason or book.get("error"), book=bc.as_log(), **base)
                     continue
+                screened: dict[str, Any] = {}
+                if self.config.screening_enabled:
+                    screened = await self._screen(market, c, bc, base)
+                    if screened.get("stop"):
+                        continue
+                    screened.pop("stop", None)
+                    block = self.research_block()  # the screening call may have used up the cost budget
+                    if block:
+                        self.log("no_trade", reason=block, **base, **screened)
+                        continue
                 try:
                     est = await self.do_research(contract_info(market, c), None)
                 except ResearchError as e:
-                    self.log("no_trade", reason=f"research failed: {e}", **base)
+                    self.log("no_trade", reason=f"research failed: {e}", **base, **screened)
                     continue
-                record = self._record(est)
+                record = {**self._record(est), **screened, "research_cost_usd": format(self.last_cost, "f")}
                 if len(est.sources) < self.config.min_sources:
                     self.log("no_trade", reason=f"only {len(est.sources)} sources (min_sources "
                                                 f"{self.config.min_sources})", **base, **record)
@@ -654,11 +718,27 @@ def main(argv: list[str] | None = None) -> int:
         except anthropic.APIError as e:
             raise ResearchError(f"{type(e).__name__}: {getattr(e, 'message', e)}")
 
+    screen = None
+    if config.screening_enabled:
+        from research import screen_contract
+
+        screen_model = screen_model_from_env(os.environ)
+
+        def screen(info: dict[str, Any]) -> ScreenEstimate:
+            try:
+                return screen_contract(client, model=screen_model, contract=info,
+                                       now_iso=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                       max_searches=SCREEN_MAX_SEARCHES)
+            except ResearchError:
+                raise
+            except anthropic.APIError as e:
+                raise ResearchError(f"{type(e).__name__}: {getattr(e, 'message', e)}")
+
     paper = PaperLedger(HERE / "paper_ledger.json", config.paper_bankroll_usd)
     confirm = make_confirm(dry_run, args.auto_confirm, config, interactive=sys.stdin.isatty())
     asyncio.run(run_with_server(lambda tools: Runner(
         tools=tools, research=research, config=config, audit=audit, paper=paper,
-        dry_run=dry_run, confirm=confirm)))
+        dry_run=dry_run, confirm=confirm, screen=screen)))
     return 0
 
 

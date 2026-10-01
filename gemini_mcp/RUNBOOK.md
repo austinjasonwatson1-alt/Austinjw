@@ -31,6 +31,7 @@ This is how to operate gemini_mcp day to day on a Mac. Run every command from th
 
 - **Run once by hand:** `DRY_RUN=true py runner.py`. It reviews paper positions, then scans the allowlist. Each run's research budget is `max_research_per_run` calls (at most 20; above 5 it needs both `max_research_cost_usd_per_run` and `max_research_cost_usd_per_day`) and the dollar caps `max_research_cost_usd_per_run` / `_per_day`. `run_end` shows the run's estimated research cost. To limit a trial to a few markets, shrink `allowed_event_tickers` and `max_research_per_run`.
 - **Scheduling (optional):** see section 6. It's DRY_RUN only.
+- **Screening (optional, off by default):** set `screening_enabled: true` to put a cheap first pass before full research. A smaller model, `GEMINI_MCP_SCREEN_MODEL` in `.env` (default `claude-haiku-4-5`), makes a quick estimate with at most 1 web search. Only contracts whose screening estimate is at least `screen_min_edge` (0.08) away from the market mid get full research. The rest are logged as `no_trade` "screened out", with `screen_estimate`, `screen_market_mid`, `screen_model` and `screen_cost_usd`. A failed screen is never followed by full research. Both stages are logged as `research_cost`, with `stage` and `model`, and count toward the research cost caps. Screens don't use up `max_research_per_run`. Position reviews are never screened. Set `screen_input_usd_per_mtok` / `screen_output_usd_per_mtok` if you change the screening model. Check the RESEARCH ECONOMICS table to see whether screening pays for itself.
 - **Look at it:** `py report.py --json > report.json`, then `py dashboard.py`, then open `dashboard.html`. Start with the **Needs attention** panel.
 - **Daily checks:**
   - KILL file? Breaker trips?
@@ -74,7 +75,7 @@ Each line of `audit.log` is one JSON record, with timestamps in UTC.
 | `circuit_breaker_trip` | The floor, drawdown or daily-loss breaker tripped and created `KILL`. It includes the equity, the thresholds and the open positions. |
 | `breaker_reset` | `KILL` was deleted after a trip, and the drawdown peak was re-baselined. |
 | `kill_detected` / `kill_deleted` | A KILL file appeared or was removed. Deletions are always manual. |
-| `research_cost` | Runner only. One per research call (DRY_RUN or live, succeeded or failed): the estimated cost (`research_cost_usd`) from token and search counts at the config prices, plus the run's and the day's totals so far. Unknown usage is charged a conservative estimate (`usage_known: false`). |
+| `research_cost` | Runner only. One per research call (DRY_RUN or live, succeeded or failed): `stage` (`screen` or `full`), the `model`, the estimated cost (`research_cost_usd`) from token and search counts at that stage's config prices, plus the run's and the day's totals so far. Unknown usage is charged a conservative estimate (`usage_known: false`). |
 | `decision` | Runner only. Every run decision is a `decision` event; its `kind` field is listed below. |
 
 The `order_result` values:
@@ -88,7 +89,7 @@ The decision `kind` values:
 - `run_start` (with a risk snapshot) and `run_end`.
 - `entry`, `exit`, `hold`.
 - `skip`: held, or an order is already resting.
-- `no_trade`: with the reason (spread, thin book, edge, sources, server rejection, no expiry, "outside expiry window": the contract expires sooner than `min_hours_to_expiry` or later than `max_days_to_expiry`; such contracts are never researched).
+- `no_trade`: with the reason (spread, thin book, edge, sources, server rejection, no expiry, "outside expiry window": the contract expires sooner than `min_hours_to_expiry` or later than `max_days_to_expiry`; such contracts are never researched; "screened out" / "screening failed": see Screening in section 2).
 - `entry_failed` / `exit_failed` / `review_failed` / `exit_rejected`.
 - `proposed_not_confirmed`: live, with no terminal approval.
 - `run_skipped`: KILL was present when the runner started.

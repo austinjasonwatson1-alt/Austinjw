@@ -17,6 +17,7 @@ Checks:
   max_daily_spend_usd 15, max_trades_per_day 4, max_open_orders 2) need 20 settled live trades in audit.log;
   runner_auto_confirm_live needs 15 clean hand-confirmed live trades (see fast_track_counts). DRY_RUN prints
   these as notes.
+- screening_enabled: GEMINI_MCP_SCREEN_MODEL (if set) must be a Claude model id
 - warnings only (never fail): max_days_to_expiry > 30
 - .env and key files (.env.*, *.pem, *.key, *.p12, *.pfx) are not tracked by git
   and are covered by .gitignore
@@ -37,7 +38,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
 
-from guardrails import LEARNING_FLOOR_MIN_PCT, ConfigError, live_mode_label, load_config, parse_dry_run, parse_env
+from guardrails import (LEARNING_FLOOR_MIN_PCT, ConfigError, live_mode_label, load_config, parse_dry_run, parse_env,
+                        screen_model_from_env)
 
 HERE = Path(__file__).resolve().parent
 MARKER = Path("state") / "verify_auth_ok.json"
@@ -308,6 +310,11 @@ def check_with_notes(environ: Any = os.environ, here: Path = HERE, now: float | 
             fails += ceiling
         else:
             notes += [f"{c} (blocks live mode)" for c in ceiling]
+        if cfg.screening_enabled:
+            try:
+                notes.append(f"screening is on: {screen_model_from_env(environ)} screens contracts before full research")
+            except ConfigError as e:
+                fails.append(str(e))
         for key, limit, desc in WARN_BOUNDS:
             v = getattr(cfg, key)
             if v > limit:

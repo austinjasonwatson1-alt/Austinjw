@@ -98,3 +98,14 @@ research_input_usd_per_mtok: 4
 research_output_usd_per_mtok: 20
 research_usd_per_search: 0.01
 min_sources: 2                 # fewer sources than this -> no trade
+
+# ---- Optional screening stage (two-stage research). Off by default.
+# When on, a cheaper model (env var GEMINI_MCP_SCREEN_MODEL; default claude-haiku-4-5) makes a quick estimate with at
+# most 1 web search. Only contracts whose screening estimate is at least screen_min_edge away from the market mid
+# get full research; the rest are logged as no_trade "screened out". Both stages are logged as research_cost
+# (stage: screen / full, with the model). Screening counts toward the research cost caps, not max_research_per_run.
+screening_enabled: false
+screen_min_edge: 0.08
+# Claude Haiku 4.5 list prices per million tokens; update them if you set another screening model.
+screen_input_usd_per_mtok: 1
+screen_output_usd_per_mtok: 5
