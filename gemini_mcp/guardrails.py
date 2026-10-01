@@ -817,6 +817,17 @@ def _position_summary(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     } for p in positions]
 
 
+def _quote(v: Any) -> Decimal | None:
+    """A price quote from Gemini as a Decimal in [0, 1], or None if missing, non-numeric or out of range."""
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        d = Decimal(str(v))
+    except InvalidOperation:
+        return None
+    return d if d.is_finite() and _ZERO <= d <= _ONE else None
+
+
 def _dec_field(obj: dict, key: str, what: str) -> Decimal:
     try:
         d = Decimal(str(obj[key]))
@@ -1021,9 +1032,9 @@ class Guardrails:
             if contract and contract.get("resolutionSide") in ALLOWED_OUTCOMES:
                 value, has_quote = (qty if contract["resolutionSide"] == p["outcome"] else _ZERO), True
             elif contract:
-                sell = ((contract.get("prices") or {}).get("sell") or {}).get(p["outcome"])
+                sell = _quote(((contract.get("prices") or {}).get("sell") or {}).get(p["outcome"]))
                 if sell is not None:
-                    value, has_quote = qty * Decimal(str(sell)), True
+                    value, has_quote = qty * sell, True
             cat = _category(events[ev].get("category"))
             positions.append({
                 "symbol": p["symbol"], "outcome": p["outcome"], "event_ticker": ev, "category": cat,
@@ -1408,11 +1419,11 @@ class Guardrails:
         if self.dry_run:
             assert self.paper is not None
             if v.side == "buy":
-                ref = v.outcome_buy_price
-                filled = ref is not None and v.price >= Decimal(str(ref))
+                ref = _quote(v.outcome_buy_price)
+                filled = ref is not None and v.price >= ref
             else:
-                ref = v.outcome_sell_price
-                filled = ref is not None and v.price <= Decimal(str(ref))
+                ref = _quote(v.outcome_sell_price)
+                filled = ref is not None and v.price <= ref
             paper_id = self.paper.record_order(
                 symbol=v.instrument_symbol, outcome=v.outcome, side=v.side, quantity=v.quantity,
                 price=v.price, fee=config.fee_per_contract, event_ticker=v.event_ticker, filled=filled,
