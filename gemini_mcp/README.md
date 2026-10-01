@@ -14,6 +14,7 @@ It can move real money, so every limit is enforced in the server's code, not in 
 | `report.py` | Realized vs expected return by edge bucket, plus a summary of decisions. |
 | `config.yaml` | Limits, sizing, breakers and runner settings. It's re-read on every propose and confirm. |
 | `verify_auth.py` | Read-only check that request signing works. Writes `state/verify_auth_ok.json` on success. |
+| `capture_samples.py` | Read-only: captures one positions and one open-orders response, redacted, into `samples/real/` (gitignored), and reports which documented fields were present, absent or empty. |
 | `preflight.py` | Pre-flight checks (see the going-live checklist). Run at server and runner startup. |
 
 Endpoints follow Gemini's docs: the [Prediction Markets API](https://developer.gemini.com/prediction-markets-spec), [WebSocket streams](https://developer.gemini.com/prediction-markets/websocket/streams) and [API key auth](https://developer.gemini.com/authentication/api-key).

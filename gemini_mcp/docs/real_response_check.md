@@ -6,6 +6,7 @@ The guardrails were tested against fake responses built from Gemini's documented
 
 ## How to get real responses (read-only)
 
+- **Quickest:** `python capture_samples.py`. It makes exactly two read-only calls (positions and open orders), refuses if anything in them looks like a secret, and writes redacted copies to `samples/real/` (gitignored, 0600). Every field name, the nesting and each value's type are kept. Then it prints, for every field below, whether it was present, absent or empty. **An empty list proves nothing about field names:** capture again while you hold a position and have a resting buy and a resting sell.
 - **Positions and open orders:** in Claude Code with this server connected, call `get_positions` and `list_open_orders`. Both are read-only. `get_positions` shows the raw Gemini response at the top level, plus the server's normalized `review_positions`. You need at least one open position and one resting order (buy *and* sell, ideally) for the check to mean anything.
 - **Placement and cancel:** these responses only exist once an order is sent. Do it in the sandbox if it works, or with one minimum-size order. `confirm_order` and `cancel_order` return Gemini's raw reply as `response` (or in the error text). `audit.log` stores the raw reply in `order_result` for `unconfirmed`, `cancelled` and `cancel_failed`. For `placed` it stores `order_id` and `status`.
 
