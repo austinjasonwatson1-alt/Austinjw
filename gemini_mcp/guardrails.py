@@ -942,6 +942,9 @@ class Guardrails:
             # Gemini omits marketValue when there's no live sell quote; count that as $0.
             has_quote = p.get("marketValue") is not None
             value = _dec_field(p, "marketValue", "positions lookup") if has_quote else _ZERO
+            if min(total, on_hold, avg, value) < 0 or avg > 1:
+                raise Rejected(f"positions lookup returned an invalid (negative or out-of-range) quantity, price "
+                               f"or value for {p['symbol']}|{p['outcome']}")
             meta = p.get("contractMetadata") if isinstance(p.get("contractMetadata"), dict) else {}
             ev = str(meta.get("eventTicker") or "")
             cat = _category(meta.get("category"))
@@ -960,7 +963,10 @@ class Guardrails:
                 ev = str(meta.get("eventTicker") or "")
                 cat = _category(meta.get("category"))
                 rem = _dec_field({"v": o.get("remainingQuantity") or o.get("quantity") or "0"}, "v", "open orders")
-                resting = rem * _dec_field(o, "price", "open orders")
+                price = _dec_field(o, "price", "open orders")
+                if rem < 0 or not (_ZERO <= price <= _ONE):
+                    raise Rejected("open orders lookup returned an invalid (negative or out-of-range) quantity or price")
+                resting = rem * price
                 exposure[ev] = exposure.get(ev, _ZERO) + resting
                 cat_exp[cat] = cat_exp.get(cat, _ZERO) + resting
         return RiskContext("live", amount + sum((p["value"] for p in positions), _ZERO), cash, positions, exposure,
