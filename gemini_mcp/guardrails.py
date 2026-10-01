@@ -111,7 +111,7 @@ class Config:
 _SPEC: dict[str, tuple] = {
     "max_order_usd": ("dec", 0, None),
     "max_daily_spend_usd": ("dec", 0, None),
-    "max_open_orders": ("int", 0, None),
+    "max_open_orders": ("int", 0, _ACTIVE_ORDERS_PAGE),  # only one page of open orders is read
     "allowed_event_tickers": ("tickers",),
     "estimate_weight": ("dec", 0, 1),
     "kelly_multiplier": ("dec", 0, 1),
