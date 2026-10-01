@@ -9,3 +9,5 @@ __pycache__/
 gemini_mcp/audit.log
 gemini_mcp/state/
 gemini_mcp/KILL
+gemini_mcp/paper_ledger.json
+gemini_mcp/*.lock

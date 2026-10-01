@@ -7,7 +7,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from guardrails import AuditLog, Guardrails, SpendLedger  # noqa: E402
+from guardrails import AuditLog, Guardrails, PaperLedger, RiskState, SpendLedger  # noqa: E402
+from decimal import Decimal  # noqa: E402
 
 SYMBOL = "GEMI-FEDJAN26-DN25"
 EVENT = "FEDJAN26"
@@ -59,6 +60,17 @@ class FakeMarket:
         self.positions_error = None
         self.active = {"orders": []}
         self.active_error = None
+        self.balances = [{"type": "exchange", "currency": "USD", "amount": "1000", "available": "1000"}]
+        self.balances_error = None
+        self.book = {"bids": [["0.60", "500"]], "asks": [["0.62", "500"]]}
+
+    def get_order_book(self, symbol, depth=20):
+        return copy.deepcopy({"symbol": symbol, **self.book})
+
+    def get_balances(self):
+        if self.balances_error:
+            raise self.balances_error
+        return copy.deepcopy(self.balances)
 
     def get_event(self, ticker):
         if ticker in self.failing_events:
@@ -112,8 +124,13 @@ def env(tmp_path):
         kill_path = tmp_path / "KILL"
         audit_path = tmp_path / "audit.log"
         ledger_path = tmp_path / "state" / "daily_spend.json"
+        risk_path = tmp_path / "state" / "risk_state.json"
+        paper_path = tmp_path / "paper_ledger.json"
 
-        def guard(self, dry_run=False, mode_key=None, env_name="sandbox"):
+        def paper(self, bankroll="100"):
+            return PaperLedger(self.paper_path, Decimal(bankroll), clock=self.clock)
+
+        def guard(self, dry_run=False, mode_key=None, env_name="sandbox", bankroll="100"):
             key = mode_key or f"{env_name}:{'dry_run' if dry_run else 'live'}"
             return Guardrails(
                 config_path=self.config_path,
@@ -124,6 +141,8 @@ def env(tmp_path):
                 trader=None if dry_run else self.trader,
                 dry_run=dry_run,
                 env=env_name,
+                risk_state=RiskState(self.risk_path, key),
+                paper=self.paper(bankroll) if dry_run else None,
                 clock=self.clock,
             )
 

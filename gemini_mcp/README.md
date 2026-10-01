@@ -1,67 +1,175 @@
-# Gemini Prediction Markets MCP server
+# Gemini Prediction Markets MCP server and runner
 
-A local MCP server that lets Claude look up Gemini prediction markets and place and manage **limit** orders. It can move real money, so every limit below is enforced in code, not in prompts.
+This is a local MCP server for Gemini prediction markets. It lets Claude look up markets and place and manage **limit** orders. A research-driven runner sits on top of it.
+
+It can move real money, so every limit is enforced in the server's code, not in prompts. The runner has no way to act except by calling the server's tools.
 
 | File | Role |
 |---|---|
-| `gemini_client.py` | Gemini REST calls. A `ReadOnlyClient`, plus a `TradingClient` that adds only *place limit order* and *cancel order*. Nothing for withdrawals or transfers. |
-| `guardrails.py` | All limit checks, confirmation tokens, the daily-spend ledger, the kill switch and the audit log. |
+| `gemini_client.py` | Gemini REST calls, plus the public WebSocket order-book snapshot. Contains a `ReadOnlyClient`, and a `TradingClient` that adds only *place limit order* and *cancel order*. There's nothing for withdrawals or transfers. |
+| `guardrails.py` | Every check: limits, Kelly sizing (`size_position`), the order-book check (`check_book`), circuit breakers, tokens, the daily-spend ledger, the paper ledger, the kill switch and the audit log. |
 | `server.py` | MCP tool definitions (FastMCP, stdio). |
-| `config.yaml` | Limits and event allowlist. It's re-read on every propose and confirm. |
+| `runner.py` | Researches markets, decides entries and exits, and calls the server's tools. |
+| `research.py` | Claude with web search: reads the resolution rules, then estimates P(YES). |
+| `report.py` | Realized vs expected return by edge bucket, plus a summary of decisions. |
+| `config.yaml` | Limits, sizing, breakers and runner settings. It's re-read on every propose and confirm. |
 | `verify_auth.py` | Read-only check that request signing works. |
 
-Endpoints follow Gemini's docs: the [Prediction Markets API](https://developer.gemini.com/prediction-markets-spec) and [API key authentication](https://developer.gemini.com/authentication/api-key).
+Endpoints follow Gemini's docs: the [Prediction Markets API](https://developer.gemini.com/prediction-markets-spec), [WebSocket streams](https://developer.gemini.com/prediction-markets/websocket/streams) and [API key auth](https://developer.gemini.com/authentication/api-key).
 
 ## Tools
 
 | Tool | Effect |
 |---|---|
 | `list_markets(search, status)` | Read-only. Events, contracts, best bid and ask, and whether each event is allowlisted. |
-| `get_market(event_ticker)` | Read-only. Contract details, descriptions, the terms-and-conditions URL, and child events. |
-| `get_balances()`, `get_positions()` | Read-only. |
-| `propose_order(instrument_symbol, outcome, side, quantity, limit_price)` | Runs every guardrail. Returns a preview (e.g. `BUY NO @ 0.35`) and a one-time token. **Places nothing.** |
-| `confirm_order(token)` | Uses up the token, re-runs every check, then places the order. In dry run it only logs. |
-| `cancel_order(order_id)` | Cancels an order. In dry run it only logs. |
+| `get_market(event_ticker)` | Read-only. Contract details, resolution text, terms links and child events. |
+| `get_order_book(instrument_symbol)` | Read-only. A top-20 depth snapshot from Gemini's public WebSocket. Prices are in YES space. |
+| `get_balances()` | Read-only. Balances, plus a risk summary: equity, peak, start-of-day equity, the daily limit and breaker status. Paper figures in DRY_RUN. |
+| `get_positions()` | Read-only. Account positions. `review_positions` holds the paper positions in DRY_RUN. |
+| `propose_order(instrument_symbol, outcome, side, limit_price, quantity?, my_probability?)` | Runs every guardrail and returns a preview and a one-time token. **Places nothing.** For a buy with `my_probability`, the server picks the quantity itself using Kelly sizing. A sell needs `quantity`. |
+| `confirm_order(token)` | Uses up the token and re-checks every cap on the frozen order. Then it places the order, or in DRY_RUN records a paper order. |
+| `cancel_order(order_id)` | Cancels an order. In DRY_RUN it only logs. |
 | `get_order_status(order_id)` | Looks in open orders, then order history. Returns `not_found` rather than guessing. |
 | `list_open_orders()` | Read-only. |
 
-`limit_price` is the price of the outcome you're trading, strictly between 0 and 1. A winning contract pays $1.00.
+`limit_price` is the price of the outcome being traded, strictly between 0 and 1. A winning contract pays $1.00.
 
-## Guardrails
+## Guardrails (server-enforced)
 
-`propose_order` runs these checks, and `confirm_order` runs them all again with fresh data:
+`propose_order` runs all of these, and `confirm_order` runs them again with fresh data:
 
-1. **Kill switch.** If a file named `KILL` exists in this folder, `propose_order`, `confirm_order` and `cancel_order` all refuse. It's checked once more right before the order is sent.
-2. **Input.** `outcome` must be exactly `yes` or `no`, and `side` exactly `buy` or `sell`. Quantity must be above 0, and price strictly between 0 and 1. A missing price or `"market"` is rejected. Orders are always limit and good-til-cancel; stop-limit, IOC and FOK aren't exposed.
-3. **Allowlist (exact match, fails closed).** The symbol must be a direct contract of exactly one event in `allowed_event_tickers`. A game's child events must be listed by their own ticker. If any allowlisted event can't be fetched and the symbol wasn't found elsewhere, the order is rejected. If the symbol turns up in two events, it's rejected. The resolved event ticker is written to every proposal's audit entry.
-4. **Market state.** The event and contract must be `active`, and the contract's `marketState` must be `open`.
-5. **Price and quantity grid.** Both must fit the contract's own `priceMinimum`/`priceIncrement` and `quantityMinimum`/`quantityIncrement`. If those fields are missing, the order is rejected.
-6. **Sells.** You can only sell up to the quantity you hold for that symbol and outcome (`totalQuantity` minus `quantityOnHold`). If the positions lookup fails or returns anything unexpected, the sell is rejected.
-7. **Per-order cap.** The worst-case cost must be at most `max_order_usd`. For a buy that's `quantity × price`; for a sell it's `quantity × (1 − price)`.
-8. **Daily cap.** Today's spend (UTC day) plus this order must be at most `max_daily_spend_usd`. Spend is saved in `state/daily_spend.json`, so restarting doesn't reset it. It's never refunded, even on cancel or a failed placement. Dry-run and live spending are tracked separately.
-9. **Open orders.** Rejected if the account already has `max_open_orders` or more open orders, counted from Gemini's live list. If the count can't be fetched, the order is rejected.
-10. **Tokens.** Tokens are random, single-use and expire after 5 minutes. They live in memory, so a restart cancels them all. A token is used up *before* anything else runs, so a failed confirm can't be retried with it. The stored order is hash-checked.
+1. **Kill switch.** If a `KILL` file exists, `propose_order`, `confirm_order` and `cancel_order` all refuse. It's checked once more right before the order is sent.
+2. **Input.** `outcome` must be exactly `yes` or `no`, and `side` exactly `buy` or `sell`. Every order is a limit order, good-til-cancel. A missing price or `"market"` is rejected.
+3. **Allowlist (exact match, fails closed).** The contract must belong directly to exactly one event in `allowed_event_tickers`. The resolved event ticker is logged with every proposal.
+4. **Market state and grid.** The event and contract must be active and open. Price and quantity must fit the contract's own minimums and increments.
+5. **Circuit breakers.** See below. A trip creates `KILL` automatically.
+6. **Buys:**
+   - the absolute dollar ceiling `max_order_usd`;
+   - `max_order_pct_of_balance` of equity;
+   - `max_market_pct_of_balance` per event, counting the existing position (the larger of cost basis and current value) and any resting buys;
+   - the daily cap, which is the lower of `max_daily_spend_usd` and `max_daily_spend_pct` × start-of-day equity;
+   - available cash.
 
-Other protections:
-- **Credentials** are read only from environment variables (or `.env`, which is loaded into the environment). They're never logged, never returned and redacted from `audit.log`.
-- **Hosts are fixed.** The only hosts are `api.sandbox.gemini.com` (default) and `api.gemini.com`, and redirects aren't followed.
-- **Every private path is allowlisted per client class.** The read-only client can't reach the order endpoints at all.
-- **No retries.** If a placement fails or times out, it isn't retried and the spend stays counted. Check `list_open_orders` before proposing again.
+   These apply whether the quantity came from Kelly sizing or was typed in. The runner can't exceed them.
+7. **Sells.** You can only sell what you hold: Gemini positions when live, the paper ledger in DRY_RUN. If the positions lookup fails or returns anything odd, the sell is rejected. Sells of held quantity reduce exposure, so they don't count against the dollar caps or the daily budget.
+8. **Open orders.** Rejected if the account already has `max_open_orders` or more.
+9. **Tokens.** Single-use, valid for 5 minutes, and used up before anything else runs. The stored order is hash-checked. At confirm the quantity is frozen: the order is never re-sized, only rejected if it no longer fits.
+
+Credentials come only from environment variables (or `.env`). They're never logged or returned, and they're redacted from `audit.log`. Hosts are fixed, redirects aren't followed, every private path is allowlisted per client class, and nothing is retried automatically. If a placement fails or times out, check `list_open_orders` before trying again.
+
+## Conviction sizing
+
+This applies to buys only. For a buy with your probability `q` for the outcome, at price `p` for that outcome:
+
+```
+q_adj        = w*q + (1-w)*p                  w = estimate_weight (0.7)
+edge         = q_adj - p - fee_per_contract   below min_edge -> no trade
+kelly f      = edge / (1 - p)
+kelly stake  = equity * f * kelly_multiplier  (0.25 = quarter Kelly)
+stake        = min(kelly stake, 8% of equity, 15% of equity minus existing event exposure,
+                   remaining daily budget, max_order_usd, available cash)
+quantity     = stake / (p + fee), rounded down to the contract's step; below the minimum -> no trade
+```
+
+Every proposal records `q`, `q_adj`, `p`, `edge`, `kelly_fraction`, every limit, `stake_usd`, and the limit that bound (`binding_limit`) in the audit log. `binding_limit` is `kelly` when no cap was hit.
+
+Equity is cash plus positions at Gemini's mark. Gemini's `marketValue` is the current sell price, and a position with no live quote counts as $0. In DRY_RUN, equity is paper cash plus paper positions at the current sell price, and a settled paper position is worth $1 or $0.
+
+## Circuit breakers
+
+- **Max drawdown:** equity falls `max_drawdown_pct` (20%) below its peak.
+- **Max daily loss:** equity falls `max_daily_loss_pct` (8%) below the start of the UTC day.
+
+They're checked on every `propose_order` and `confirm_order`, for buys and sells.
+
+On a trip, the server:
+- creates `KILL` with the reason and figures;
+- logs `circuit_breaker_trip`;
+- rejects the order.
+
+From then on, every order tool refuses until you delete `KILL` by hand.
+
+Deleting `KILL` resets the drawdown peak to current equity (logged as `breaker_reset`). The daily-loss baseline doesn't reset, so if you delete `KILL` on the same UTC day while still 8% down, it trips again. Deposits and withdrawals move equity too: a withdrawal can trip a breaker, and a deposit raises the peak.
+
+If equity can't be fetched, the order is rejected but no `KILL` is created.
+
+## Runner
+
+```bash
+python runner.py                 # one pass; schedule with cron if you want it recurring
+python runner.py --auto-confirm  # live only, and only if config sets runner_auto_confirm_live: true
+```
+
+The runner starts `server.py` as an MCP subprocess and calls only its tools. Each run goes through two phases.
+
+**1. Position review.** Each open position is researched again. In DRY_RUN those are paper positions. The previous thesis and its invalidation conditions go to the model. The position is sold, at the current bid for that outcome and for the full available quantity, if **any** of these holds:
+- **`price_reached_estimate`:** the sell price is at or above the current `q_adj`. The value is gone.
+- **`edge_gone`:** the estimate fell below its entry value, and the current edge (`q_adj − buy price − fee`) is ≤ 0.
+- **`thesis_invalidated`:** the model reports the thesis invalidated by new information. Its reason is logged.
+- **`near_expiry_not_winning`:** expiry is within `exit_hours_before_expiry` (24h), and the sell price is below `clearly_winning_price` (0.85).
+
+Every condition that fired is logged. A contract exited this run isn't re-entered in the same run.
+
+**2. Entry scan.** This runs for every open contract in an allowlisted event that you don't hold:
+1. Fetch the order book. A spread above `max_spread`, or an empty side, means no trade. This check comes before research, so no research money is spent on it.
+2. Research the contract. Fewer than `min_sources` sources means no trade.
+3. Compute the edge for both YES (`p` = ask) and NO (`p` = 1 − YES bid), and take the better side. Below `min_edge` means no trade.
+4. `propose_order(..., my_probability=q)`. The server sizes the order and applies every cap.
+5. Depth check: there must be at least `min_depth_multiple` × quantity contracts at or better than the price. Otherwise no trade, and the proposal is left to expire.
+6. Confirm. DRY_RUN confirms automatically. Live asks `Type 'yes'` on the terminal. It confirms without asking only with `--auto-confirm` **and** `runner_auto_confirm_live: true`. Under cron there's no terminal, so live proposals are logged as `proposed_not_confirmed`.
+
+**Logging.** Every decision is written to `audit.log` as `{"event": "decision", "kind": ...}`, including `no_trade`, `hold`, `skip` and `review_failed`. Each entry carries the reason, the estimate, the thesis, the sources, both sides' edge math, the book, and the sizing. Every trade's research record is also stored in `paper_ledger.json` under `research`, keyed by the paper order id or `live:<order_id>`.
+
+`max_research_per_run` (10) caps research calls per run. Position reviews go first.
+
+### Research (`research.py`)
+
+- **Model:** `research_model` (`claude-opus-5-5`), with the server-side web search and web fetch tools. Up to `research_max_searches` searches per contract.
+- **Order:** it reads the contract's resolution text and terms link first, then estimates **P(this contract resolves YES under those rules)**. Market prices are deliberately left out of the prompt, so the estimate is independent; the shrinkage step blends in the price afterwards.
+- **Output:** a strict `submit_estimate` tool. Sources are taken from the actual search and fetch results, not from the model's text.
+- **Refusals:** refusal fallback is on (`fallbacks: "default"`). A refusal, a malformed estimate or an API error becomes a logged `no_trade` or `hold`.
+- **Untrusted web content:** the model is told to ignore instructions inside pages. Any one estimate can only do bounded damage, because of the shrinkage toward the market, quarter-Kelly and the server's caps.
+- **Cost:** each research call costs model tokens plus web search usage. `max_research_per_run` caps it.
+- **Key handling:** `ANTHROPIC_API_KEY` is read only by the runner. The Gemini server subprocess never receives it.
+
+### Paper trading (DRY_RUN)
+
+`paper_ledger.json` starts with `paper_bankroll_usd` ($100) of cash. Delete it to reset.
+
+- A paper buy fills only if its limit is at or above the current ask, and it fills at the limit price. A paper sell fills only if its limit is at or below the current bid. Both subtract `fee_per_contract`. Unfilled paper orders are recorded with `filled: false`.
+- Only the server writes fills and positions, so the runner can't invent holdings.
+- DRY_RUN proposals still need a Gemini API key, because the open-order count is a signed read. A read-only key works.
+
+## Report
+
+```bash
+python report.py          # paper trades + decisions
+python report.py --live   # also fetches live fills from order history (read-only)
+python report.py --json
+```
+
+**How trades are built.** Each buy fill is a lot. Later sells close lots first-in, first-out. Whatever is left settles at $1 or $0 once the contract resolves, using the public event data.
+
+**Buckets.** Lots are grouped by the edge stated at entry: `<5%`, `5–10%`, `10–20%` and `20%+`. Each bucket shows:
+- expected return, computed with q_adj and with raw q;
+- realized return;
+- P&L and return on cost;
+- win rate against mean q_adj.
+
+If realized return trails expected in the high-edge buckets, the stated edges are overconfident. A decision summary (by kind, with the top reasons) follows the table.
 
 ## Modes
 
 | `GEMINI_ENV` | `DRY_RUN` | What happens |
 |---|---|---|
-| unset / `sandbox` | unset / `true` | **Default.** Sandbox data. Confirms and cancels only log. |
-| `production` | unset / `true` | Real production market data, but confirms and cancels only log. |
+| unset / `sandbox` | unset / `true` | **Default.** Sandbox data, paper orders only. |
+| `production` | unset / `true` | Real production market data, paper orders only. |
 | `sandbox` | `false` | Real orders with sandbox test funds. |
 | `production` | `false` | **Real money.** |
 
-When `DRY_RUN` isn't exactly `false`, the server never creates a trading client. The order-placement code path doesn't exist in that process, and a test checks this. Any `DRY_RUN` value other than `true` or `false` stops the server from starting.
+When `DRY_RUN` isn't exactly `false`, the server never creates a trading client, and a test checks this. Any other `DRY_RUN` value stops the server from starting.
 
-Dry-run proposals still need an API key. The open-order count, and sell checks, use signed read calls, and without a key the proposal is rejected.
-
-> **Sandbox status (2026-09-30):** the sandbox's prediction-markets endpoint returned `503 Service temporarily unavailable`, while its spot endpoints and production were fine. Until it recovers, use `GEMINI_ENV=production` with `DRY_RUN=true`. Recheck the sandbox before going live, and if it works, run the whole flow there first.
+> **Sandbox status (2026-09-30):** the sandbox's prediction-markets REST endpoint returned 503. Gemini's docs also disagree on the sandbox WebSocket host: the demo page says `ws.sandbox.gemini.com` and the prediction-markets page says `api.sandbox.gemini.com`. This code uses the former, and if no book comes back, the trade is skipped. Recheck the sandbox before going live.
 
 ## Setup
 
@@ -69,97 +177,64 @@ Dry-run proposals still need an API key. The open-order count, and sell checks, 
 cd gemini_mcp
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env && chmod 600 .env    # then fill in the key and secret
-python -m pytest -q tests                 # offline; no network or keys needed
+cp .env.example .env && chmod 600 .env    # Gemini key/secret; ANTHROPIC_API_KEY for the runner
+python -m pytest -q tests                 # offline; no network, keys or API spend
 ```
 
-### Creating the API key
+**API key.** Create it in Gemini under **Settings → API**, as an account-scoped key with a time-based nonce.
 
-In the Gemini web app go to **Settings → API** ([production](https://exchange.gemini.com/settings/api), or [sandbox](https://exchange.sandbox.gemini.com/), which needs a separate account). Create an **account-scoped** key (prefix `account-`) with a **time-based nonce**.
+- Use **Auditor** (read-only) while in DRY_RUN. If Auditor gets a 403 on prediction-market reads, use Trader with `DRY_RUN=true` instead.
+- Use a **Trader-only** key to go live.
+- **Never** assign Fund Manager, the role that can withdraw.
+- Leave "Requires Heartbeat" off.
 
-Choose the role deliberately. Gemini's [roles](https://developer.gemini.com/roles) are Administrator, Trader, Fund Manager and Auditor:
+Then run `python verify_auth.py`. It makes read-only signed calls and stops at the first error, reporting it exactly.
 
-- **For now (dry run): use Auditor.** It's read-only and can't be combined with other roles. Gemini's role table doesn't say whether Auditor can read prediction-market positions and orders. Run `python verify_auth.py`: if Auditor gets a 403 `MissingRole` on those calls, use a Trader key while `DRY_RUN=true` (the placement code isn't reachable then).
-- **When you go live: use Trader only.** Trader can check balances, place and cancel orders, and read orders and positions.
-- **Never assign Fund Manager.** That role can withdraw funds and move money between accounts. This server has no code for either, and the key shouldn't have the permission either.
-- **Leave "Requires Heartbeat" off.** With it on, Gemini cancels every open order after 30 seconds without a request.
+**Terms.** Accept the prediction-market terms yourself on the Gemini website. The server never accepts them.
 
-Put the key and secret in `.env`. Never commit it (it's gitignored) and never paste it into a chat.
-
-### Verify signing (read-only)
-
-```bash
-python verify_auth.py
-```
-
-This signs balances, positions and open-orders requests (all reads), then checks that a `limit` parameter placed in the signed payload is respected. It stops at the first failure and prints Gemini's exact error. It never touches the order endpoints and never tries a different signing scheme. If it fails, send me the output rather than changing the code.
-
-### Prediction-market terms
-
-Orders fail with `TERMS_NOT_ACCEPTED` until you've accepted Gemini's prediction-market terms. The server never accepts them for you. Read and accept them yourself on the Gemini website.
-
-## Running and connecting to Claude
-
-```bash
-python server.py     # stdio MCP server; logs go to stderr
-```
-
-The server loads `.env` from its own folder, so you don't need to put secrets in any Claude config file.
+## Connecting to Claude
 
 **Claude Code:**
 
 ```bash
 claude mcp add --transport stdio --scope user gemini-pm \
   -- /ABS/PATH/gemini_mcp/.venv/bin/python /ABS/PATH/gemini_mcp/server.py
-claude mcp list        # should show gemini-pm as Connected; or run /mcp inside a session
 ```
 
-Prefer `.env` over `--env KEY=...`. Values passed with `--env` are stored in plain text in `~/.claude.json`.
-
-**Claude Desktop:** edit `claude_desktop_config.json`. On macOS it's in `~/Library/Application Support/Claude/`; on Windows, `%APPDATA%\Claude\`. Then restart Claude Desktop:
+**Claude Desktop:** add the following to `claude_desktop_config.json`, then restart:
 
 ```json
-{
-  "mcpServers": {
-    "gemini-pm": {
-      "command": "/ABS/PATH/gemini_mcp/.venv/bin/python",
-      "args": ["/ABS/PATH/gemini_mcp/server.py"]
-    }
-  }
-}
+{"mcpServers": {"gemini-pm": {"command": "/ABS/PATH/gemini_mcp/.venv/bin/python",
+                              "args": ["/ABS/PATH/gemini_mcp/server.py"]}}}
 ```
 
-**claude.ai custom connectors** (Customize → Connectors → Add custom connector) need a **remote MCP server reachable over the public internet**. Anthropic's cloud connects to it, so a process on your laptop won't work as-is. The options:
+The server loads `.env` from its own folder, so keep secrets out of Claude config files.
 
-1. **Recommended: don't expose it.** Use Claude Code or Claude Desktop, as above. Then the server, keys, kill switch and audit log stay on your machine.
-2. **Host it behind HTTPS with real authentication.** This needs code changes: switch FastMCP to the Streamable HTTP transport, and add OAuth, which claude.ai supports via the connector's Advanced settings. Deploy it on a server you control with TLS, and ideally restrict inbound traffic to Anthropic's published IP ranges. Anyone who gets that URL and credential could propose and confirm orders within the caps. Treat it like an exposed trading bot: keep caps tiny, and keep the kill switch and audit log where you can reach them.
-3. **Tunnels (ngrok, Cloudflare Tunnel).** These make a local server reachable quickly. Without the authentication in option 2, anyone who finds the URL can call your tools. Don't do this with a trading key.
-
-This build only ships the stdio transport. I haven't added HTTP or OAuth, on purpose.
+**claude.ai custom connectors** (Customize → Connectors) need a public remote URL. Anthropic's cloud connects to it, so a server on your laptop won't work as-is. The recommendation is not to expose this server; use Claude Code or Desktop. If you do host it, it needs code changes: the Streamable HTTP transport plus OAuth. Run it on a server you control, over TLS, with tiny caps. Never put it behind an unauthenticated tunnel. This build ships stdio only.
 
 ## Going live checklist
 
-1. Recheck the sandbox. If its prediction-markets endpoint works, run the whole flow there with `DRY_RUN=false`.
-2. Swap in a **Trader-only** production key, run `python verify_auth.py`, and make sure the terms are accepted on the website.
-3. Keep `config.yaml` caps low for the first order. It ships with `max_order_usd: 2` and `max_daily_spend_usd: 5`. Add only the event ticker you mean to trade to `allowed_event_tickers`.
-4. Set `GEMINI_ENV=production` **and** `DRY_RUN=false`, then restart the server. The mode is shown in every preview (`LIVE (production): REAL MONEY`).
-5. Propose, read the preview (the action line, the cost and the resolved event), confirm, then check `list_open_orders`.
-6. Raise the limits later only by editing `config.yaml`.
+1. Recheck the sandbox. If it works, run the flow there with `DRY_RUN=false`.
+2. Paper-trade first, and read `python report.py`. Do the high-edge buckets actually earn more?
+3. Swap in a Trader-only key, run `verify_auth.py`, and accept the terms on the website.
+4. Keep the caps tiny: `max_order_usd: 2`, `max_daily_spend_usd: 5`. Allowlist only the events you mean to trade. Check `fee_per_contract` against your fee schedule; Gemini's API docs don't state it.
+5. Set `GEMINI_ENV=production` **and** `DRY_RUN=false`. Run the runner from a terminal and approve each order.
 
-**Kill switch:** `touch gemini_mcp/KILL` stops all order tools immediately, with no restart needed. `rm gemini_mcp/KILL` turns trading back on. It blocks `cancel_order` too, so while it's on, cancel open orders on the Gemini website.
+**Kill switch:** `touch gemini_mcp/KILL` stops every order tool immediately; `rm` it to resume. While it exists, `cancel_order` is blocked too, so cancel orders on the Gemini website.
 
 ## Audit log
 
-`audit.log` is JSON lines with UTC timestamps. The event types are `proposal`, `confirmation`, `would_place`, `placement`, `placement_failed`, `rejection` (with its `reason`), `cancel`, `would_cancel` and `cancel_failed`. Example:
+`audit.log` is JSON lines with UTC timestamps. Both the server and the runner write to it, under a file lock. Event types:
 
-```json
-{"ts": "2026-09-30T23:45:56.265+00:00", "event": "rejection", "action": "propose_order", "reason": "allowlist is empty: add event tickers to allowed_event_tickers in config.yaml", "mode": "DRY RUN (production): nothing will be placed", "request": {"instrument_symbol": "GEMI-X", "outcome": "yes", "side": "buy", "quantity": "1", "limit_price": "0.5"}}
-```
+- **Server:** `proposal` and `confirmation` (both include `sizing`), `would_place` (with `paper_order_id` and `paper_filled`), `placement`, `placement_failed`, `rejection` (with `reason`, and `sizing` when relevant), `cancel`, `would_cancel`, `cancel_failed`, `circuit_breaker_trip`, `breaker_reset`.
+- **Runner:** `decision`.
 
 ## Known limits
 
-- **Fees aren't included** in the worst-case cost. Gemini's order endpoint doesn't document a fee field, so leave some headroom in your caps.
-- **The open-order count uses the first 100** open orders. That's only a problem if your cap is above 100.
-- **`get_order_status` searches** up to 1,000 open orders and 5,000 history orders. An order can fill or be cancelled between the two lookups.
-- **The terms status isn't checked by the server.** `GET /terms/status` needs authentication, and Gemini only documents signing for POST requests. A rejected order will report `TERMS_NOT_ACCEPTED`.
-- **Nonces are Unix seconds, strictly increasing.** Signed requests are spaced at least a second apart. Don't share one key between this server and another bot.
+- **Fees:** the fee per contract is an estimate from config.
+- **Open-order count:** only the first 100 open orders are counted.
+- **`get_order_status`:** searches up to 1,000 open and 5,000 history orders.
+- **Book filter scope:** the spread and depth check is applied by the runner only. Manual `propose_order` calls from a chat aren't filtered by it.
+- **Self-reported probability:** `my_probability` comes from the caller. The server can't verify it, only cap what it does.
+- **Nonces:** they're Unix seconds and strictly increasing, so signed requests are spaced at least a second apart. Don't share a key with another bot.
+- **Report accuracy:** the report's live mode relies on audit placements plus order history. Fills of orders placed outside this tool aren't attributed to an estimate.

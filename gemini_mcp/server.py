@@ -22,13 +22,26 @@ from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 from gemini_client import EVENT_STATUSES, NonceGenerator, ReadOnlyClient, TradingClient
-from guardrails import AuditLog, Guardrails, SpendLedger, load_config, parse_dry_run, parse_env
+from guardrails import (
+    AuditLog,
+    Config,
+    ConfigError,
+    Guardrails,
+    PaperLedger,
+    RiskState,
+    SpendLedger,
+    load_config,
+    parse_dry_run,
+    parse_env,
+)
 
 HERE = Path(__file__).resolve().parent
 CONFIG_PATH = HERE / "config.yaml"
 KILL_PATH = HERE / "KILL"
 AUDIT_PATH = HERE / "audit.log"
 LEDGER_PATH = HERE / "state" / "daily_spend.json"
+RISK_PATH = HERE / "state" / "risk_state.json"
+PAPER_PATH = HERE / "paper_ledger.json"
 
 # stdout carries the MCP protocol; diagnostics go to stderr only.
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(levelname)s %(message)s")
@@ -48,6 +61,10 @@ def build(environ: dict[str, str] | os._Environ = os.environ) -> tuple[ReadOnlyC
 
     audit = AuditLog(AUDIT_PATH, redact=market.secrets())
     mode_key = f"{env}:{'dry_run' if dry_run else 'live'}"
+    try:
+        bankroll = load_config(CONFIG_PATH).paper_bankroll_usd
+    except ConfigError:
+        bankroll = Config().paper_bankroll_usd  # order tools still reject until config.yaml is valid
     guard = Guardrails(
         config_path=CONFIG_PATH,
         kill_path=KILL_PATH,
@@ -57,6 +74,8 @@ def build(environ: dict[str, str] | os._Environ = os.environ) -> tuple[ReadOnlyC
         trader=trader,
         dry_run=dry_run,
         env=env,
+        risk_state=RiskState(RISK_PATH, mode_key),
+        paper=PaperLedger(PAPER_PATH, bankroll) if dry_run else None,
     )
     log.info("mode: %s | credentials: %s", guard.mode, "set" if market.has_credentials else "missing")
     return market, guard
@@ -189,6 +208,7 @@ def create_server(market: ReadOnlyClient, guard: Guardrails) -> FastMCP:
                 cc["description"] = c.get("description")
                 cc["terms_and_conditions_url"] = c.get("termsAndConditionsUrl")
                 cc["resolution_side"] = c.get("resolutionSide")
+                cc["settlement_value"] = c.get("settlementValue")
                 contracts.append(cc)
         child_events = [
             {"event_ticker": ce.get("ticker"), "title": ce.get("title")}
@@ -205,6 +225,7 @@ def create_server(market: ReadOnlyClient, guard: Guardrails) -> FastMCP:
             "category": e.get("category"),
             "expiry": e.get("expiryDate"),
             "resolved_at": e.get("resolvedAt"),
+            "terms_link": e.get("termsLink"),
             "contracts": contracts,
             "child_events": child_events,
             "note": "Child events are separate events; each must be allowlisted by its own ticker to trade it.",
@@ -213,14 +234,35 @@ def create_server(market: ReadOnlyClient, guard: Guardrails) -> FastMCP:
     @mcp.tool()
     @safe
     def get_balances() -> dict[str, Any]:
-        """Read-only. Account balances (GET available balances)."""
-        return {"ok": True, "balances": market.get_balances()}
+        """Read-only. Account balances, plus a risk summary for the active mode (equity, caps,
+        circuit-breaker status; paper equity in DRY_RUN). Never trips a breaker."""
+        out: dict[str, Any] = {"ok": True}
+        try:
+            out["balances"] = market.get_balances()
+        except Exception as e:  # noqa: BLE001 - paper mode works without a key
+            out["balances_error"] = f"{type(e).__name__}: {e}"
+        try:
+            out["risk"] = guard.risk_summary()
+        except Exception as e:  # noqa: BLE001
+            out["risk_error"] = f"{type(e).__name__}: {e}"
+        return out
 
     @mcp.tool()
     @safe
     def get_positions() -> dict[str, Any]:
-        """Read-only. Current prediction-market positions."""
-        return {"ok": True, **market.get_positions()}
+        """Read-only. Current prediction-market positions. review_positions is the normalized list for
+        the active mode: paper positions in DRY_RUN, account positions when live."""
+        out: dict[str, Any] = {"ok": True}
+        try:
+            out.update(market.get_positions())
+        except Exception as e:  # noqa: BLE001 - paper mode works without a key
+            out["positions_error"] = f"{type(e).__name__}: {e}"
+        try:
+            out["review_positions"] = guard.review_positions()
+            out["review_source"] = "paper" if guard.dry_run else "live"
+        except Exception as e:  # noqa: BLE001
+            out["review_error"] = f"{type(e).__name__}: {e}"
+        return out
 
     @mcp.tool()
     @safe
@@ -228,17 +270,21 @@ def create_server(market: ReadOnlyClient, guard: Guardrails) -> FastMCP:
         instrument_symbol: str,
         outcome: str,
         side: str,
-        quantity: str | int | float,
         limit_price: str | int | float,
+        quantity: str | int | float | None = None,
+        my_probability: str | int | float | None = None,
     ) -> dict[str, Any]:
         """Validate a LIMIT order against all guardrails and return a preview plus a one-time
         confirmation token. Places NOTHING.
 
         outcome: exactly 'yes' or 'no'. side: exactly 'buy' or 'sell'.
         limit_price: price of the chosen outcome, strictly between 0 and 1.
+        Buys: pass my_probability (your probability that this outcome wins) and the server sizes the
+        order with fractional Kelly, capped by every limit; quantity, if also given, is an upper bound.
+        Sells: pass quantity (at most what you hold).
         Show the returned preview to the user and wait for explicit approval before confirm_order.
         """
-        return guard.propose(instrument_symbol, outcome, side, quantity, limit_price)
+        return guard.propose(instrument_symbol, outcome, side, quantity, limit_price, my_probability)
 
     @mcp.tool()
     @safe
@@ -264,6 +310,17 @@ def create_server(market: ReadOnlyClient, guard: Guardrails) -> FastMCP:
         if oid <= 0:
             return {"ok": False, "error": "order_id must be a positive integer"}
         return find_order(market, oid)
+
+    @mcp.tool()
+    @safe
+    def get_order_book(instrument_symbol: str) -> dict[str, Any]:
+        """Read-only. Top-20 order book snapshot from Gemini's public depth stream. Levels are
+        YES-space [price, quantity]: buying NO at L fills against YES bids at or above 1 - L."""
+        book = market.get_order_book(instrument_symbol)
+        bids, asks = book["bids"], book["asks"]
+        return {"ok": True, **book,
+                "best_bid_yes": bids[0][0] if bids else None,
+                "best_ask_yes": asks[0][0] if asks else None}
 
     @mcp.tool()
     @safe

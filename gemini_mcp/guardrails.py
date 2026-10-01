@@ -1,18 +1,24 @@
 """Every order limit check lives here, enforced in code rather than in prompts.
 
 Flow:
-  propose() -> validates, returns a preview and a one-time token. Places nothing.
+  propose() -> validates, sizes buys (Kelly) when given my_probability,
+               returns a preview and a one-time token. Places nothing.
   confirm() -> burns the token first, re-runs every check with fresh data,
-               records spend, then either logs a dry-run placement or calls
-               the trading client.
+               records spend, then either records a paper order (dry run)
+               or calls the trading client.
   cancel()  -> kill-switch aware; dry run only logs.
 
 All checks fail closed. If data is missing, malformed or can't be fetched,
-the order is rejected.
+the order is rejected. The circuit breakers create the KILL file themselves
+when they trip.
+
+Pure, separately tested helpers: size_position(), check_book(),
+evaluate_breakers(), order_cost().
 """
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -20,11 +26,12 @@ import re
 import secrets
 import threading
 import time
-from dataclasses import asdict, dataclass
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import yaml
 
@@ -33,16 +40,26 @@ ALLOWED_OUTCOMES = ("yes", "no")
 ALLOWED_SIDES = ("buy", "sell")
 _SYMBOL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,120}$")
 _TICKER_RE = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
+_MODEL_RE = re.compile(r"^claude-[a-z0-9.-]{1,60}$")
 _ACTIVE_ORDERS_PAGE = 100
+_ZERO = Decimal(0)
 _ONE = Decimal(1)
 
 
 class Rejected(Exception):
     """An order or action refused by a guardrail. The message is the reason."""
 
+    def __init__(self, reason: str, details: dict[str, Any] | None = None):
+        super().__init__(reason)
+        self.details = details or {}
+
 
 class ConfigError(Rejected):
     pass
+
+
+def _fmt(d: Decimal | None) -> str | None:
+    return None if d is None else format(d, "f")
 
 
 # --------------------------------------------------------------------------- config
@@ -50,24 +67,107 @@ class ConfigError(Rejected):
 
 @dataclass(frozen=True)
 class Config:
+    # Hard limits (absolute dollars).
     max_order_usd: Decimal = Decimal("10")
     max_daily_spend_usd: Decimal = Decimal("25")
     max_open_orders: int = 3
     allowed_event_tickers: tuple[str, ...] = ()
+    # Conviction sizing. Fractions: 0.08 means 8%.
+    estimate_weight: Decimal = Decimal("0.7")
+    kelly_multiplier: Decimal = Decimal("0.25")
+    min_edge: Decimal = Decimal("0.05")
+    fee_per_contract: Decimal = Decimal("0.02")
+    max_order_pct_of_balance: Decimal = Decimal("0.08")
+    max_market_pct_of_balance: Decimal = Decimal("0.15")
+    max_daily_spend_pct: Decimal = Decimal("0.25")
+    # Circuit breakers.
+    max_drawdown_pct: Decimal = Decimal("0.20")
+    max_daily_loss_pct: Decimal = Decimal("0.08")
+    # Order book quality (runner entry filter).
+    max_spread: Decimal = Decimal("0.04")
+    min_depth_multiple: Decimal = Decimal("1")
+    # Runner.
+    exit_hours_before_expiry: Decimal = Decimal("24")
+    clearly_winning_price: Decimal = Decimal("0.85")
+    paper_bankroll_usd: Decimal = Decimal("100")
+    runner_auto_confirm_live: bool = False
+    research_model: str = "claude-opus-5-5"
+    research_max_searches: int = 5
+    max_research_per_run: int = 10
+    min_sources: int = 2
 
 
-_CONFIG_KEYS = {"max_order_usd", "max_daily_spend_usd", "max_open_orders", "allowed_event_tickers"}
+# name -> (kind, low, high). Bounds are inclusive; "frac+" excludes 0.
+_SPEC: dict[str, tuple] = {
+    "max_order_usd": ("dec", 0, None),
+    "max_daily_spend_usd": ("dec", 0, None),
+    "max_open_orders": ("int", 0, None),
+    "allowed_event_tickers": ("tickers",),
+    "estimate_weight": ("dec", 0, 1),
+    "kelly_multiplier": ("dec", 0, 1),
+    "min_edge": ("dec", 0, 1),
+    "fee_per_contract": ("dec", 0, 1),
+    "max_order_pct_of_balance": ("dec", 0, 1),
+    "max_market_pct_of_balance": ("dec", 0, 1),
+    "max_daily_spend_pct": ("dec", 0, 1),
+    "max_drawdown_pct": ("frac+",),
+    "max_daily_loss_pct": ("frac+",),
+    "max_spread": ("dec", 0, 1),
+    "min_depth_multiple": ("dec", 0, None),
+    "exit_hours_before_expiry": ("dec", 0, None),
+    "clearly_winning_price": ("dec", 0, 1),
+    "paper_bankroll_usd": ("dec", 0, None),
+    "runner_auto_confirm_live": ("bool",),
+    "research_model": ("model",),
+    "research_max_searches": ("int", 1, 50),
+    "max_research_per_run": ("int", 0, None),
+    "min_sources": ("int", 0, None),
+}
+assert set(_SPEC) == {f.name for f in fields(Config)}
 
 
-def _nonneg_decimal(name: str, value: Any) -> Decimal:
+def _cfg_decimal(name: str, value: Any) -> Decimal:
     if isinstance(value, bool) or not isinstance(value, (int, float, str, Decimal)):
         raise ConfigError(f"config {name} must be a number")
     try:
         d = Decimal(str(value))
     except InvalidOperation:
         raise ConfigError(f"config {name} must be a number")
-    if not d.is_finite() or d < 0:
-        raise ConfigError(f"config {name} must be a finite number >= 0")
+    if not d.is_finite():
+        raise ConfigError(f"config {name} must be finite")
+    return d
+
+
+def _cfg_value(name: str, value: Any) -> Any:
+    kind = _SPEC[name][0]
+    if kind == "tickers":
+        value = [] if value is None else value
+        if not isinstance(value, list) or not all(isinstance(t, str) and _TICKER_RE.match(t) for t in value):
+            raise ConfigError("config allowed_event_tickers must be a list of event ticker strings")
+        return tuple(value)
+    if kind == "bool":
+        if not isinstance(value, bool):
+            raise ConfigError(f"config {name} must be true or false")
+        return value
+    if kind == "model":
+        if not isinstance(value, str) or not _MODEL_RE.match(value):
+            raise ConfigError(f"config {name} must be a Claude model id")
+        return value
+    if kind == "int":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ConfigError(f"config {name} must be an integer")
+        lo, hi = _SPEC[name][1], _SPEC[name][2]
+        if value < lo or (hi is not None and value > hi):
+            raise ConfigError(f"config {name} must be between {lo} and {hi if hi is not None else 'any'}")
+        return value
+    d = _cfg_decimal(name, value)
+    if kind == "frac+":
+        if not (_ZERO < d <= _ONE):
+            raise ConfigError(f"config {name} must be greater than 0 and at most 1 (0.20 = 20%)")
+        return d
+    lo, hi = _SPEC[name][1], _SPEC[name][2]
+    if d < lo or (hi is not None and d > hi):
+        raise ConfigError(f"config {name} must be between {lo} and {hi if hi is not None else 'any'}")
     return d
 
 
@@ -81,22 +181,10 @@ def load_config(path: Path) -> Config:
         raise ConfigError(f"config file is not valid YAML: {e}")
     if not isinstance(raw, dict):
         raise ConfigError("config file must be a YAML mapping")
-    unknown = set(raw) - _CONFIG_KEYS
+    unknown = set(raw) - set(_SPEC)
     if unknown:
         raise ConfigError(f"unknown config keys (typo?): {sorted(unknown)}")
-
-    d = Config()
-    max_order = _nonneg_decimal("max_order_usd", raw.get("max_order_usd", d.max_order_usd))
-    max_daily = _nonneg_decimal("max_daily_spend_usd", raw.get("max_daily_spend_usd", d.max_daily_spend_usd))
-    max_open = raw.get("max_open_orders", d.max_open_orders)
-    if isinstance(max_open, bool) or not isinstance(max_open, int) or max_open < 0:
-        raise ConfigError("config max_open_orders must be an integer >= 0")
-    tickers = raw.get("allowed_event_tickers", [])
-    if tickers is None:
-        tickers = []
-    if not isinstance(tickers, list) or not all(isinstance(t, str) and _TICKER_RE.match(t) for t in tickers):
-        raise ConfigError("config allowed_event_tickers must be a list of event ticker strings")
-    return Config(max_order, max_daily, max_open, tuple(tickers))
+    return Config(**{name: _cfg_value(name, value) for name, value in raw.items()})
 
 
 def parse_dry_run(value: str | None) -> bool:
@@ -117,11 +205,42 @@ def parse_env(value: str | None) -> str:
     raise ConfigError(f"GEMINI_ENV must be 'sandbox' or 'production', got {value!r}")
 
 
+# --------------------------------------------------------------------------- files
+
+
+@contextmanager
+def file_lock(path: Path) -> Iterator[None]:
+    """Cross-process exclusive lock on <path>.lock (server and runner share state files)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path.with_name(path.name + ".lock"), "a") as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+        yield
+
+
+def _atomic_write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, default=str))
+    os.replace(tmp, path)
+
+
+def _read_json(path: Path, default: Any, what: str) -> Any:
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text())
+    except (ValueError, OSError) as e:
+        raise Rejected(f"{what} {path} is unreadable ({e}); refusing to trade")
+
+
 # --------------------------------------------------------------------------- audit log
 
 
 class AuditLog:
-    """Append-only JSON-lines log. Known secret values are redacted before writing."""
+    """Append-only JSON-lines log, safe for the server and runner to share.
+
+    Known secret values are redacted before writing.
+    """
 
     def __init__(self, path: Path, clock: Callable[[], float] = time.time, redact: list[str] | None = None):
         self.path = path
@@ -135,6 +254,7 @@ class AuditLog:
         for s in self._redact:
             line = line.replace(s, "[REDACTED]")
         with self._lock, open(self.path, "a", encoding="utf-8") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
             f.write(line + "\n")
             f.flush()
             os.fsync(f.fileno())
@@ -144,10 +264,10 @@ class AuditLog:
 
 
 class SpendLedger:
-    """Persisted per-UTC-day spend, keyed by mode so dry runs never use up the live budget.
+    """Persisted per-UTC-day spend on buys, keyed by mode so dry runs never use up the live budget.
 
-    Spend is recorded when an order is confirmed and is never refunded, even
-    on cancel or a failed placement.
+    Spend is recorded when a buy is confirmed and is never refunded, even on
+    cancel or a failed placement.
     """
 
     def __init__(self, path: Path, mode_key: str):
@@ -156,18 +276,13 @@ class SpendLedger:
         self._lock = threading.Lock()
 
     def _load(self) -> dict[str, Any]:
-        if not self.path.exists():
-            return {"version": 1, "spend": {}}
-        try:
-            data = json.loads(self.path.read_text())
-            if not isinstance(data, dict) or not isinstance(data.get("spend"), dict):
-                raise ValueError("bad shape")
-            return data
-        except (ValueError, OSError) as e:
-            raise Rejected(f"daily spend ledger {self.path} is unreadable ({e}); refusing to trade")
+        data = _read_json(self.path, {"version": 1, "spend": {}}, "daily spend ledger")
+        if not isinstance(data, dict) or not isinstance(data.get("spend"), dict):
+            raise Rejected(f"daily spend ledger {self.path} has a bad shape; refusing to trade")
+        return data
 
     def spent_on(self, day: str) -> Decimal:
-        with self._lock:
+        with self._lock, file_lock(self.path):
             raw = self._load()["spend"].get(self.mode_key, {}).get(day, "0")
         try:
             return Decimal(raw)
@@ -175,18 +290,338 @@ class SpendLedger:
             raise Rejected("daily spend ledger has a malformed amount; refusing to trade")
 
     def add(self, day: str, amount: Decimal) -> Decimal:
-        with self._lock:
+        with self._lock, file_lock(self.path):
             data = self._load()
             days = data["spend"].setdefault(self.mode_key, {})
             total = Decimal(days.get(day, "0")) + amount
             days[day] = format(total, "f")
             for old in sorted(days)[:-30]:
                 del days[old]
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(data, indent=2))
-            os.replace(tmp, self.path)
+            _atomic_write_json(self.path, data)
             return total
+
+
+# --------------------------------------------------------------------------- paper ledger
+
+
+class PaperLedger:
+    """Paper positions and fills for DRY_RUN, plus research records for every trade.
+
+    Fills and positions are written only by the server (at dry-run confirm),
+    so the runner can't invent holdings. The runner adds research records.
+    A paper buy fills only if its limit is at or above the current ask for
+    that outcome, and fills at the limit price. A paper sell fills only if
+    its limit is at or below the current bid. Fees use fee_per_contract.
+    """
+
+    def __init__(self, path: Path, bankroll: Decimal, clock: Callable[[], float] = time.time):
+        self.path = path
+        self.bankroll = bankroll
+        self._clock = clock
+        self._lock = threading.Lock()
+
+    def _fresh(self) -> dict[str, Any]:
+        return {"version": 1, "bankroll_usd": _fmt(self.bankroll), "cash_usd": _fmt(self.bankroll),
+                "positions": {}, "orders": [], "research": {}}
+
+    def _load(self) -> dict[str, Any]:
+        data = _read_json(self.path, None, "paper ledger") or self._fresh()
+        if not isinstance(data, dict) or not all(
+            isinstance(data.get(k), t) for k, t in (("positions", dict), ("orders", list), ("research", dict))
+        ):
+            raise Rejected(f"paper ledger {self.path} has a bad shape; refusing to trade")
+        return data
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock, file_lock(self.path):
+            return self._load()
+
+    def cash(self) -> Decimal:
+        try:
+            return Decimal(self.snapshot()["cash_usd"])
+        except (KeyError, InvalidOperation):
+            raise Rejected("paper ledger cash is malformed; refusing to trade")
+
+    def positions(self) -> list[dict[str, Any]]:
+        return list(self.snapshot()["positions"].values())
+
+    def held(self, symbol: str, outcome: str) -> Decimal:
+        pos = self.snapshot()["positions"].get(f"{symbol}|{outcome}")
+        return Decimal(pos["quantity"]) if pos else _ZERO
+
+    def record_order(
+        self, *, symbol: str, outcome: str, side: str, quantity: Decimal, price: Decimal,
+        fee: Decimal, event_ticker: str, filled: bool,
+    ) -> str:
+        with self._lock, file_lock(self.path):
+            data = self._load()
+            oid = f"paper-{int(self._clock() * 1000)}-{secrets.token_hex(3)}"
+            key = f"{symbol}|{outcome}"
+            if filled:
+                cash = Decimal(data["cash_usd"])
+                pos = data["positions"].get(key) or {
+                    "symbol": symbol, "outcome": outcome, "event_ticker": event_ticker,
+                    "quantity": "0", "cost_basis": "0",
+                }
+                qty, basis = Decimal(pos["quantity"]), Decimal(pos["cost_basis"])
+                if side == "buy":
+                    cash -= quantity * (price + fee)
+                    qty, basis = qty + quantity, basis + quantity * (price + fee)
+                else:
+                    if quantity > qty:
+                        raise Rejected("paper sell exceeds paper holdings")
+                    cash += quantity * (price - fee)
+                    basis = basis * (qty - quantity) / qty if qty else _ZERO
+                    qty -= quantity
+                if qty > 0:
+                    data["positions"][key] = {**pos, "quantity": _fmt(qty), "cost_basis": _fmt(basis)}
+                else:
+                    data["positions"].pop(key, None)
+                data["cash_usd"] = _fmt(cash)
+            data["orders"].append({
+                "paper_order_id": oid,
+                "ts": datetime.fromtimestamp(self._clock(), tz=timezone.utc).isoformat(timespec="seconds"),
+                "symbol": symbol, "outcome": outcome, "side": side, "quantity": _fmt(quantity),
+                "price": _fmt(price), "fee": _fmt(fee), "event_ticker": event_ticker, "filled": filled,
+            })
+            _atomic_write_json(self.path, data)
+            return oid
+
+    def attach_research(self, order_ref: str, record: dict[str, Any]) -> None:
+        with self._lock, file_lock(self.path):
+            data = self._load()
+            data["research"][order_ref] = record
+            _atomic_write_json(self.path, data)
+
+
+# --------------------------------------------------------------------------- circuit-breaker state
+
+
+class RiskState:
+    """Peak equity, start-of-day equity and trip record, per mode, in state/risk_state.json."""
+
+    def __init__(self, path: Path, mode_key: str):
+        self.path = path
+        self.mode_key = mode_key
+
+    def read(self) -> dict[str, Any]:
+        data = _read_json(self.path, {}, "risk state")
+        if not isinstance(data, dict):
+            raise Rejected("risk state has a bad shape; refusing to trade")
+        return dict(data.get(self.mode_key) or {})
+
+    def update(self, fn: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
+        with file_lock(self.path):
+            data = _read_json(self.path, {}, "risk state")
+            if not isinstance(data, dict):
+                raise Rejected("risk state has a bad shape; refusing to trade")
+            st = fn(dict(data.get(self.mode_key) or {}))
+            data[self.mode_key] = st
+            _atomic_write_json(self.path, data)
+            return st
+
+
+def evaluate_breakers(
+    equity: Decimal, peak: Decimal, day_start: Decimal, max_drawdown_pct: Decimal, max_daily_loss_pct: Decimal
+) -> str | None:
+    """Return a trip reason, or None. Drawdown is from peak; daily loss from start-of-day equity."""
+    if peak > 0:
+        dd = (peak - equity) / peak
+        if dd >= max_drawdown_pct:
+            return f"max drawdown: equity ${equity:.2f} is {dd:.1%} below peak ${peak:.2f} (limit {max_drawdown_pct:.0%})"
+    if day_start > 0:
+        loss = (day_start - equity) / day_start
+        if loss >= max_daily_loss_pct:
+            return (f"max daily loss: equity ${equity:.2f} is {loss:.1%} below today's start ${day_start:.2f} "
+                    f"(limit {max_daily_loss_pct:.0%})")
+    return None
+
+
+# --------------------------------------------------------------------------- sizing
+
+
+def shrink(q: Decimal, p: Decimal, weight: Decimal) -> Decimal:
+    """q_adj = w*q + (1-w)*p: pull my estimate toward the market price."""
+    return weight * q + (_ONE - weight) * p
+
+
+def edge_after_fee(q_adj: Decimal, p: Decimal, fee: Decimal) -> Decimal:
+    return q_adj - p - fee
+
+
+# On a tie, report the explicit cap rather than Kelly.
+_LIMIT_ORDER = ("dollar_ceiling", "daily_budget", "market_pct", "order_pct", "cash", "kelly")
+
+
+@dataclass(frozen=True)
+class SizingResult:
+    outcome: str
+    q: Decimal
+    q_adj: Decimal
+    p: Decimal
+    fee: Decimal
+    edge: Decimal
+    kelly_fraction: Decimal
+    limits: dict[str, Decimal]
+    binding_limit: str | None
+    stake_usd: Decimal
+    quantity: Decimal
+    skip_reason: str | None
+
+    def as_log(self) -> dict[str, Any]:
+        return {
+            "outcome": self.outcome,
+            "q": _fmt(self.q),
+            "q_adj": _fmt(self.q_adj.quantize(Decimal("0.0001"))),
+            "p": _fmt(self.p),
+            "fee": _fmt(self.fee),
+            "edge": _fmt(self.edge.quantize(Decimal("0.0001"))),
+            "kelly_fraction": _fmt(self.kelly_fraction.quantize(Decimal("0.0001"))),
+            "limits_usd": {k: _fmt(v.quantize(Decimal("0.01"))) for k, v in self.limits.items()},
+            "binding_limit": self.binding_limit,
+            "stake_usd": _fmt(self.stake_usd),
+            "quantity": _fmt(self.quantity),
+            "skip_reason": self.skip_reason,
+        }
+
+
+def size_position(
+    *,
+    outcome: str,
+    balance: Decimal,
+    p: Decimal,
+    q: Decimal,
+    fee: Decimal,
+    estimate_weight: Decimal,
+    min_edge: Decimal,
+    kelly_multiplier: Decimal,
+    max_order_pct: Decimal,
+    max_market_pct: Decimal,
+    existing_market_exposure: Decimal,
+    daily_budget_remaining: Decimal,
+    dollar_ceiling: Decimal,
+    available_cash: Decimal | None,
+    quantity_increment: Decimal,
+    quantity_minimum: Decimal,
+) -> SizingResult:
+    """Fractional-Kelly stake for buying one outcome of a binary contract.
+
+    p and q are for the outcome being bought. The smallest of the Kelly stake
+    and every cap wins. Quantity is rounded down to the contract's step, using
+    p + fee per contract so the fee estimate also fits inside the stake.
+    """
+    if not (_ZERO < p < _ONE):
+        raise ValueError("p must be strictly between 0 and 1")
+    if not (_ZERO <= q <= _ONE):
+        raise ValueError("q must be between 0 and 1")
+    if quantity_increment <= 0:
+        raise ValueError("quantity_increment must be positive")
+
+    q_adj = shrink(q, p, estimate_weight)
+    edge = edge_after_fee(q_adj, p, fee)
+    kelly_f = max(edge, _ZERO) / (_ONE - p)
+
+    def result(stake: Decimal, qty: Decimal, binding: str | None, limits: dict, skip: str | None) -> SizingResult:
+        return SizingResult(outcome, q, q_adj, p, fee, edge, kelly_f, limits, binding, stake, qty, skip)
+
+    if edge < min_edge:
+        return result(_ZERO, _ZERO, None, {}, f"edge {edge:.4f} is below min_edge {min_edge}")
+
+    limits: dict[str, Decimal] = {
+        "kelly": max(balance, _ZERO) * kelly_f * kelly_multiplier,
+        "order_pct": max(balance, _ZERO) * max_order_pct,
+        "market_pct": max(max(balance, _ZERO) * max_market_pct - existing_market_exposure, _ZERO),
+        "daily_budget": max(daily_budget_remaining, _ZERO),
+        "dollar_ceiling": max(dollar_ceiling, _ZERO),
+    }
+    if available_cash is not None:
+        limits["cash"] = max(available_cash, _ZERO)
+    binding = min((k for k in _LIMIT_ORDER if k in limits), key=lambda k: (limits[k], _LIMIT_ORDER.index(k)))
+    stake = limits[binding]
+
+    qty = (stake / (p + fee) / quantity_increment).to_integral_value(rounding=ROUND_FLOOR) * quantity_increment
+    if qty <= 0 or qty < quantity_minimum:
+        return result(_ZERO, _ZERO, binding, limits,
+                      f"stake ${stake:.2f} buys {qty} contracts, below the minimum order size {quantity_minimum}")
+    return result(qty * p, qty, binding, limits, None)
+
+
+# --------------------------------------------------------------------------- order book
+
+
+@dataclass(frozen=True)
+class BookCheck:
+    ok: bool
+    reason: str | None
+    best_bid: Decimal | None = None  # YES space
+    best_ask: Decimal | None = None  # YES space
+    spread: Decimal | None = None
+    buy_price: Decimal | None = None  # for the requested outcome
+    sell_price: Decimal | None = None  # for the requested outcome
+    depth_contracts: Decimal | None = None
+
+    def as_log(self) -> dict[str, Any]:
+        return {k: (_fmt(v) if isinstance(v, Decimal) else v) for k, v in asdict(self).items()}
+
+
+def _levels(raw: Any) -> list[tuple[Decimal, Decimal]]:
+    out = []
+    for lvl in raw or []:
+        price, qty = Decimal(str(lvl[0])), Decimal(str(lvl[1]))
+        if not (price.is_finite() and qty.is_finite()) or qty < 0:
+            raise ValueError("bad level")
+        if qty > 0:
+            out.append((price, qty))
+    return out
+
+
+def check_book(
+    book: Any,
+    outcome: str,
+    *,
+    max_spread: Decimal,
+    side: str = "buy",
+    limit_price: Decimal | None = None,
+    quantity: Decimal | None = None,
+    min_depth_multiple: Decimal = _ONE,
+) -> BookCheck:
+    """Reject wide spreads and thin books. Levels are YES-space [price, quantity], per Gemini's depth docs.
+
+    Buying YES takes asks; buying NO at L takes YES bids at or above 1 - L.
+    Selling YES hits bids; selling NO at L takes YES asks at or below 1 - L.
+    Depth (contracts at or better than the limit) must be at least
+    quantity * min_depth_multiple.
+    """
+    try:
+        bids = sorted(_levels(book.get("bids")), key=lambda x: -x[0])
+        asks = sorted(_levels(book.get("asks")), key=lambda x: x[0])
+    except (AttributeError, TypeError, ValueError, IndexError, InvalidOperation):
+        return BookCheck(False, "order book is missing or unparseable")
+    if not bids or not asks:
+        return BookCheck(False, f"thin book: no {'bids' if not bids else 'asks'}")
+    best_bid, best_ask = bids[0][0], asks[0][0]
+    spread = best_ask - best_bid
+    if outcome == "yes":
+        buy_price, sell_price = best_ask, best_bid
+    else:
+        buy_price, sell_price = _ONE - best_bid, _ONE - best_ask
+    base = dict(best_bid=best_bid, best_ask=best_ask, spread=spread, buy_price=buy_price, sell_price=sell_price)
+    if spread > max_spread:
+        return BookCheck(False, f"wide spread: {spread} > max_spread {max_spread}", **base)
+    if limit_price is None or quantity is None:
+        return BookCheck(True, None, **base)
+
+    taking_asks = (side == "buy") == (outcome == "yes")
+    yes_limit = limit_price if outcome == "yes" else _ONE - limit_price
+    if taking_asks:
+        depth = sum((q for pr, q in asks if pr <= yes_limit), _ZERO)
+    else:
+        depth = sum((q for pr, q in bids if pr >= yes_limit), _ZERO)
+    need = quantity * min_depth_multiple
+    if depth < need:
+        return BookCheck(False, f"thin book: {depth} contracts at or better than {limit_price}, need {need}",
+                         depth_contracts=depth, **base)
+    return BookCheck(True, None, depth_contracts=depth, **base)
 
 
 # --------------------------------------------------------------------------- orders
@@ -197,8 +632,9 @@ class OrderInput:
     instrument_symbol: str
     outcome: str
     side: str
-    quantity: str
+    quantity: str | None
     limit_price: str
+    my_probability: str | None = None
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(asdict(self), sort_keys=True).encode()).hexdigest()
@@ -220,6 +656,7 @@ class ValidatedOrder:
     outcome_buy_price: Any
     outcome_sell_price: Any
     held_quantity: Decimal | None
+    sizing: dict[str, Any] | None = None
 
     @property
     def action(self) -> str:
@@ -232,6 +669,18 @@ class PendingOrder:
     digest: str
     created_at: float
     expires_at: float
+    sizing: dict[str, Any] | None = None
+
+
+@dataclass
+class RiskContext:
+    """Equity, cash and exposure for the active mode (live account or paper ledger)."""
+
+    source: str
+    equity: Decimal
+    cash: Decimal
+    positions: list[dict[str, Any]] = field(default_factory=list)
+    event_exposure: dict[str, Decimal] = field(default_factory=dict)
 
 
 def _to_decimal(name: str, value: Any) -> Decimal:
@@ -250,7 +699,9 @@ def _on_grid(value: Decimal, anchor: Decimal, step: Decimal) -> bool:
     return step > 0 and (value - anchor) % step == 0
 
 
-def parse_order_input(instrument_symbol: Any, outcome: Any, side: Any, quantity: Any, limit_price: Any) -> OrderInput:
+def parse_order_input(
+    instrument_symbol: Any, outcome: Any, side: Any, quantity: Any, limit_price: Any, my_probability: Any = None
+) -> OrderInput:
     if not isinstance(instrument_symbol, str) or not _SYMBOL_RE.match(instrument_symbol):
         raise Rejected("instrument_symbol is missing or malformed")
     if outcome not in ALLOWED_OUTCOMES:
@@ -259,18 +710,41 @@ def parse_order_input(instrument_symbol: Any, outcome: Any, side: Any, quantity:
         raise Rejected(f"side must be exactly 'buy' or 'sell', got {side!r}")
     if limit_price is None or (isinstance(limit_price, str) and limit_price.strip().lower() in ("", "market")):
         raise Rejected("a limit price is required; market orders are not supported")
-    qty = _to_decimal("quantity", quantity)
     price = _to_decimal("limit_price", limit_price)
-    if qty <= 0:
-        raise Rejected("quantity must be greater than 0")
-    if not (Decimal(0) < price < _ONE):
+    if not (_ZERO < price < _ONE):
         raise Rejected("limit_price must be strictly between 0 and 1")
-    return OrderInput(instrument_symbol, outcome, side, format(qty, "f"), format(price, "f"))
+    prob = None
+    if my_probability is not None:
+        if side != "buy":
+            raise Rejected("my_probability sizes buys only; sells use quantity and the sell rules")
+        q = _to_decimal("my_probability", my_probability)
+        if not (_ZERO <= q <= _ONE):
+            raise Rejected("my_probability must be between 0 and 1")
+        prob = format(q, "f")
+    qty_s = None
+    if quantity is not None:
+        qty = _to_decimal("quantity", quantity)
+        if qty <= 0:
+            raise Rejected("quantity must be greater than 0")
+        qty_s = format(qty, "f")
+    elif prob is None:
+        raise Rejected("quantity is required (or give my_probability to size a buy)")
+    return OrderInput(instrument_symbol, outcome, side, qty_s, format(price, "f"), prob)
 
 
 def order_cost(side: str, quantity: Decimal, price: Decimal) -> Decimal:
-    """Worst-case dollars at risk: buys cost q*p; sells count q*(1-p)."""
+    """Worst-case dollars: buys cost q*p; sells are shown as q*(1-p) (informational, not capped)."""
     return quantity * price if side == "buy" else quantity * (_ONE - price)
+
+
+def _dec_field(obj: dict, key: str, what: str) -> Decimal:
+    try:
+        d = Decimal(str(obj[key]))
+    except (KeyError, InvalidOperation, TypeError):
+        raise Rejected(f"{what} returned an unparseable {key}")
+    if not d.is_finite():
+        raise Rejected(f"{what} returned an unparseable {key}")
+    return d
 
 
 # --------------------------------------------------------------------------- guardrails
@@ -288,6 +762,8 @@ class Guardrails:
         trader: Any | None,
         dry_run: bool,
         env: str,
+        risk_state: RiskState | None = None,
+        paper: PaperLedger | None = None,
         clock: Callable[[], float] = time.time,
     ):
         # Dry run must not hold a client that is able to place orders.
@@ -295,6 +771,8 @@ class Guardrails:
             raise ValueError("dry-run Guardrails must not be given a trading client")
         if not dry_run and trader is None:
             raise ValueError("live Guardrails requires a trading client")
+        if dry_run and paper is None:
+            raise ValueError("dry-run Guardrails requires a paper ledger")
         self.config_path = config_path
         self.kill_path = kill_path
         self.ledger = ledger
@@ -303,6 +781,8 @@ class Guardrails:
         self._trader = trader
         self.dry_run = dry_run
         self.env = env
+        self.risk = risk_state or RiskState(ledger.path.with_name("risk_state.json"), ledger.mode_key)
+        self.paper = paper
         self._clock = clock
         self._pending: dict[str, PendingOrder] = {}
         self._used: set[str] = set()
@@ -328,9 +808,9 @@ class Guardrails:
     def _today(self) -> str:
         return datetime.fromtimestamp(self._clock(), tz=timezone.utc).strftime("%Y-%m-%d")
 
-    def _reject(self, action: str, reason: str, **fields: Any) -> dict[str, Any]:
-        self.audit.write("rejection", action=action, reason=reason, mode=self.mode, **fields)
-        return {"ok": False, "rejected": True, "reason": reason}
+    def _reject(self, action: str, reason: str, details: dict | None = None, **fields: Any) -> dict[str, Any]:
+        self.audit.write("rejection", action=action, reason=reason, mode=self.mode, **(details or {}), **fields)
+        return {"ok": False, "rejected": True, "reason": reason, **(details or {})}
 
     def _resolve_contract(self, symbol: str, config: Config) -> tuple[dict, dict]:
         """Find the one allowlisted event whose own contracts include this symbol (exact match).
@@ -368,46 +848,149 @@ class Guardrails:
             raise Rejected(f"{symbol} is not a contract of any allowlisted event {list(config.allowed_event_tickers)}")
         return matches[0]
 
-    def _held_quantity(self, symbol: str, outcome: str) -> Decimal:
-        """Quantity of (symbol, outcome) available to sell. Anything unexpected rejects."""
+    # ---- risk context
+
+    def _live_context(self) -> RiskContext:
+        try:
+            balances = self.market.get_balances()
+        except Exception as e:  # noqa: BLE001
+            raise Rejected(f"balances lookup failed: {e}")
+        if not isinstance(balances, list):
+            raise Rejected("balances lookup returned an unexpected shape")
+        usd = [b for b in balances if isinstance(b, dict) and str(b.get("currency", "")).upper() == "USD"]
+        amount = _dec_field(usd[0], "amount", "balances") if usd else _ZERO
+        cash = _dec_field(usd[0], "available", "balances") if usd else _ZERO
+
         try:
             resp = self.market.get_positions()
         except Exception as e:  # noqa: BLE001
-            raise Rejected(f"positions lookup failed, so the sell can't be checked: {e}")
-        positions = resp.get("positions") if isinstance(resp, dict) else None
-        if not isinstance(positions, list):
-            raise Rejected("positions lookup returned an unexpected shape; rejecting sell")
-        found = [p for p in positions if isinstance(p, dict) and p.get("symbol") == symbol and p.get("outcome") == outcome]
-        if not found:
-            return Decimal(0)
-        if len(found) > 1:
-            raise Rejected("positions lookup returned duplicate entries for this contract and outcome; rejecting sell")
-        try:
-            total = Decimal(str(found[0]["totalQuantity"]))
-            on_hold = Decimal(str(found[0].get("quantityOnHold") or "0"))
-        except (KeyError, InvalidOperation):
-            raise Rejected("positions lookup returned an unparseable quantity; rejecting sell")
-        if not total.is_finite() or not on_hold.is_finite():
-            raise Rejected("positions lookup returned an unparseable quantity; rejecting sell")
-        return total - on_hold
+            raise Rejected(f"positions lookup failed: {e}")
+        raw = resp.get("positions") if isinstance(resp, dict) else None
+        if not isinstance(raw, list):
+            raise Rejected("positions lookup returned an unexpected shape")
+        positions, exposure, seen = [], {}, set()
+        for p in raw:
+            if not isinstance(p, dict) or not isinstance(p.get("symbol"), str) or p.get("outcome") not in ALLOWED_OUTCOMES:
+                raise Rejected("positions lookup returned an unexpected entry")
+            key = (p["symbol"], p["outcome"])
+            if key in seen:
+                raise Rejected("positions lookup returned duplicate entries for one contract and outcome")
+            seen.add(key)
+            total = _dec_field(p, "totalQuantity", "positions lookup")
+            on_hold = _dec_field({"v": p.get("quantityOnHold") or "0"}, "v", "positions lookup")
+            avg = _dec_field({"v": p.get("avgPrice") or "0"}, "v", "positions lookup")
+            # Gemini omits marketValue when there's no live sell quote; count that as $0.
+            value = _dec_field(p, "marketValue", "positions lookup") if p.get("marketValue") is not None else _ZERO
+            meta = p.get("contractMetadata") if isinstance(p.get("contractMetadata"), dict) else {}
+            ev = str(meta.get("eventTicker") or "")
+            cost = total * avg
+            positions.append({
+                "symbol": p["symbol"], "outcome": p["outcome"], "event_ticker": ev,
+                "quantity": total, "available": total - on_hold, "cost_basis": cost, "value": value,
+                "expiry": meta.get("expiryDate"),
+            })
+            exposure[ev] = exposure.get(ev, _ZERO) + max(cost, value)
 
-    def _open_order_count(self) -> int:
+        for o in self._active_orders():
+            if isinstance(o, dict) and o.get("side") == "buy":
+                meta = o.get("contractMetadata") if isinstance(o.get("contractMetadata"), dict) else {}
+                ev = str(meta.get("eventTicker") or "")
+                rem = _dec_field({"v": o.get("remainingQuantity") or o.get("quantity") or "0"}, "v", "open orders")
+                exposure[ev] = exposure.get(ev, _ZERO) + rem * _dec_field(o, "price", "open orders")
+        return RiskContext("live", amount + sum((p["value"] for p in positions), _ZERO), cash, positions, exposure)
+
+    def _paper_context(self) -> RiskContext:
+        assert self.paper is not None
+        events: dict[str, dict] = {}
+        positions, exposure = [], {}
+        for p in self.paper.positions():
+            ev = p["event_ticker"]
+            if ev not in events:
+                try:
+                    events[ev] = self.market.get_event(ev)
+                except Exception as e:  # noqa: BLE001
+                    raise Rejected(f"couldn't value paper position in {ev}: {e}")
+            contract = next((c for c in events[ev].get("contracts") or []
+                             if isinstance(c, dict) and c.get("instrumentSymbol") == p["symbol"]), None)
+            qty, basis = Decimal(p["quantity"]), Decimal(p["cost_basis"])
+            value = _ZERO
+            if contract and contract.get("resolutionSide") in ALLOWED_OUTCOMES:
+                value = qty if contract["resolutionSide"] == p["outcome"] else _ZERO
+            elif contract:
+                sell = ((contract.get("prices") or {}).get("sell") or {}).get(p["outcome"])
+                value = qty * Decimal(str(sell)) if sell is not None else _ZERO
+            positions.append({
+                "symbol": p["symbol"], "outcome": p["outcome"], "event_ticker": ev,
+                "quantity": qty, "available": qty, "cost_basis": basis, "value": value,
+                "expiry": (contract or {}).get("expiryDate"),
+            })
+            exposure[ev] = exposure.get(ev, _ZERO) + max(basis, value)
+        cash = self.paper.cash()
+        return RiskContext("paper", cash + sum((p["value"] for p in positions), _ZERO), cash, positions, exposure)
+
+    def _context(self) -> RiskContext:
+        return self._paper_context() if self.dry_run else self._live_context()
+
+    def _active_orders(self) -> list:
         try:
             resp = self.market.list_active_orders(limit=_ACTIVE_ORDERS_PAGE)
         except Exception as e:  # noqa: BLE001
-            raise Rejected(f"couldn't count open orders: {e}")
+            raise Rejected(f"couldn't read open orders: {e}")
         orders = resp.get("orders") if isinstance(resp, dict) else None
         if not isinstance(orders, list):
-            raise Rejected("open-orders lookup returned an unexpected shape")
-        return len(orders)
+            raise Rejected("open orders lookup returned an unexpected shape")
+        return orders
 
-    def _validate(self, inp: OrderInput, config: Config) -> ValidatedOrder:
-        qty = Decimal(inp.quantity)
+    # ---- circuit breakers
+
+    def _check_breakers(self, config: Config, ctx: RiskContext) -> dict[str, Any]:
+        """Update peak and start-of-day equity; trip (create KILL) if a limit is breached."""
+        today = self._today()
+        notes: list[dict] = []
+
+        def step(st: dict[str, Any]) -> dict[str, Any]:
+            if st.get("tripped") and not self.kill_switch_active():
+                # KILL was deleted by hand: acknowledge the trip and restart the drawdown peak from here.
+                notes.append({"event": "breaker_reset", "previous_trip": st["tripped"], "equity": _fmt(ctx.equity)})
+                st["tripped"] = None
+                st["peak"] = _fmt(ctx.equity)
+            peak = max(Decimal(st.get("peak") or ctx.equity), ctx.equity)
+            st["peak"] = _fmt(peak)
+            if st.get("day") != today:
+                st["day"], st["day_start"] = today, _fmt(ctx.equity)
+            return st
+
+        st = self.risk.update(step)
+        for n in notes:
+            self.audit.write(n.pop("event"), mode=self.mode, **n)
+        peak, day_start = Decimal(st["peak"]), Decimal(st["day_start"])
+        reason = evaluate_breakers(ctx.equity, peak, day_start, config.max_drawdown_pct, config.max_daily_loss_pct)
+        if reason:
+            trip = {"reason": reason, "equity": _fmt(ctx.equity), "peak": _fmt(peak), "day_start": _fmt(day_start),
+                    "source": ctx.source}
+            try:
+                with open(self.kill_path, "x") as f:
+                    json.dump({"created_by": "circuit_breaker", "ts": time.time(), **trip}, f, indent=2)
+            except FileExistsError:
+                pass
+            self.risk.update(lambda s: {**s, "tripped": trip})
+            self.audit.write("circuit_breaker_trip", mode=self.mode, **trip)
+            raise Rejected(f"circuit breaker tripped ({reason}); created {self.kill_path.name}. "
+                           "Delete it by hand to resume.")
+        return {"peak": peak, "day_start": day_start}
+
+    def _daily_limit(self, config: Config, day_start: Decimal) -> Decimal:
+        return min(config.max_daily_spend_usd, config.max_daily_spend_pct * max(day_start, _ZERO))
+
+    # ---- validation
+
+    def _validate(self, inp: OrderInput, config: Config, *, allow_sizing: bool) -> ValidatedOrder:
         price = Decimal(inp.limit_price)
         event, contract = self._resolve_contract(inp.instrument_symbol, config)
+        event_ticker = str(event.get("ticker"))
 
         if event.get("status") != "active":
-            raise Rejected(f"event {event.get('ticker')} status is {event.get('status')!r}, not 'active'")
+            raise Rejected(f"event {event_ticker} status is {event.get('status')!r}, not 'active'")
         if contract.get("status") != "active":
             raise Rejected(f"contract status is {contract.get('status')!r}, not 'active'")
         if contract.get("marketState") != "open":
@@ -422,29 +1005,68 @@ class Guardrails:
             raise Rejected("contract is missing price/quantity increments; can't validate the order")
         if price < p_min or not _on_grid(price, p_min, p_inc):
             raise Rejected(f"limit_price {price} is off the contract's price grid (min {p_min}, step {p_inc})")
-        if qty < q_min or not _on_grid(qty, Decimal(0), q_inc):
+
+        ctx = self._context()
+        marks = self._check_breakers(config, ctx)
+        spent = self.ledger.spent_on(self._today())
+        daily_limit = self._daily_limit(config, marks["day_start"])
+        exposure = ctx.event_exposure.get(event_ticker, _ZERO)
+
+        sizing = None
+        if inp.side == "buy" and inp.my_probability is not None and allow_sizing:
+            sz = size_position(
+                outcome=inp.outcome, balance=ctx.equity, p=price, q=Decimal(inp.my_probability),
+                fee=config.fee_per_contract, estimate_weight=config.estimate_weight, min_edge=config.min_edge,
+                kelly_multiplier=config.kelly_multiplier, max_order_pct=config.max_order_pct_of_balance,
+                max_market_pct=config.max_market_pct_of_balance, existing_market_exposure=exposure,
+                daily_budget_remaining=daily_limit - spent, dollar_ceiling=config.max_order_usd,
+                available_cash=ctx.cash, quantity_increment=q_inc, quantity_minimum=q_min,
+            )
+            sizing = sz.as_log()
+            if sz.quantity <= 0:
+                raise Rejected(f"no trade: {sz.skip_reason}", {"sizing": sizing})
+            qty = sz.quantity
+            if inp.quantity is not None:  # caller's quantity is an upper bound
+                qty = min(qty, Decimal(inp.quantity))
+        elif inp.quantity is None:
+            raise Rejected("quantity is required")
+        else:
+            qty = Decimal(inp.quantity)
+        if qty < q_min or not _on_grid(qty, _ZERO, q_inc):
             raise Rejected(f"quantity {qty} is off the contract's quantity grid (min {q_min}, step {q_inc})")
 
         held: Decimal | None = None
         if inp.side == "sell":
-            held = self._held_quantity(inp.instrument_symbol, inp.outcome)
+            match = [p for p in ctx.positions if p["symbol"] == inp.instrument_symbol and p["outcome"] == inp.outcome]
+            held = match[0]["available"] if match else _ZERO
             if qty > held:
-                raise Rejected(f"sell quantity {qty} exceeds the {held} {inp.outcome.upper()} contracts you hold")
+                raise Rejected(f"sell quantity {qty} exceeds the {held} {inp.outcome.upper()} contracts you hold "
+                               f"({ctx.source} positions)")
 
         cost = order_cost(inp.side, qty, price)
-        if cost > config.max_order_usd:
-            raise Rejected(f"order worst-case cost ${cost} exceeds max_order_usd ${config.max_order_usd}")
+        details = {"sizing": sizing} if sizing else None
+        if inp.side == "buy":
+            # Sells of held quantity reduce exposure, so only buys are capped in dollars.
+            if cost > config.max_order_usd:
+                raise Rejected(f"order cost ${cost} exceeds max_order_usd ${config.max_order_usd}", details)
+            order_cap = config.max_order_pct_of_balance * max(ctx.equity, _ZERO)
+            if cost > order_cap:
+                raise Rejected(f"order cost ${cost} exceeds max_order_pct_of_balance "
+                               f"({config.max_order_pct_of_balance} x ${ctx.equity:.2f} = ${order_cap:.2f})", details)
+            market_cap = config.max_market_pct_of_balance * max(ctx.equity, _ZERO)
+            if exposure + cost > market_cap:
+                raise Rejected(f"event {event_ticker} exposure ${exposure:.2f} + ${cost} exceeds "
+                               f"max_market_pct_of_balance cap ${market_cap:.2f}", details)
+            if spent + cost > daily_limit:
+                raise Rejected(f"daily cap: ${spent} already spent today (UTC) + ${cost} would exceed the daily "
+                               f"limit ${daily_limit:.2f} (lower of max_daily_spend_usd and max_daily_spend_pct)",
+                               details)
+            if cost > ctx.cash:
+                raise Rejected(f"order cost ${cost} exceeds available cash ${ctx.cash:.2f}", details)
 
-        spent = self.ledger.spent_on(self._today())
-        if spent + cost > config.max_daily_spend_usd:
-            raise Rejected(
-                f"daily cap: ${spent} already spent today (UTC) + ${cost} would exceed "
-                f"max_daily_spend_usd ${config.max_daily_spend_usd}"
-            )
-
-        open_count = self._open_order_count()
+        open_count = len(self._active_orders())
         if open_count >= config.max_open_orders:
-            raise Rejected(f"{open_count} open orders already; max_open_orders is {config.max_open_orders}")
+            raise Rejected(f"{open_count} open orders already; max_open_orders is {config.max_open_orders}", details)
 
         prices = contract.get("prices") if isinstance(contract.get("prices"), dict) else {}
         buy = prices.get("buy") if isinstance(prices.get("buy"), dict) else {}
@@ -456,7 +1078,7 @@ class Guardrails:
             quantity=qty,
             price=price,
             cost_usd=cost,
-            event_ticker=str(event.get("ticker")),
+            event_ticker=event_ticker,
             event_title=str(event.get("title", "")),
             contract_label=str(contract.get("label", "")),
             best_bid=prices.get("bestBid"),
@@ -464,31 +1086,39 @@ class Guardrails:
             outcome_buy_price=buy.get(inp.outcome),
             outcome_sell_price=sell.get(inp.outcome),
             held_quantity=held,
+            sizing=sizing,
         )
 
     # ---- public API
 
-    def propose(self, instrument_symbol: Any, outcome: Any, side: Any, quantity: Any, limit_price: Any) -> dict[str, Any]:
+    def propose(
+        self, instrument_symbol: Any, outcome: Any, side: Any, quantity: Any, limit_price: Any,
+        my_probability: Any = None,
+    ) -> dict[str, Any]:
         raw = {
             "instrument_symbol": instrument_symbol,
             "outcome": outcome,
             "side": side,
             "quantity": quantity,
             "limit_price": limit_price,
+            "my_probability": my_probability,
         }
         with self._lock:
             try:
                 self._check_kill()
-                inp = parse_order_input(instrument_symbol, outcome, side, quantity, limit_price)
+                inp = parse_order_input(instrument_symbol, outcome, side, quantity, limit_price, my_probability)
                 config = load_config(self.config_path)
-                v = self._validate(inp, config)
+                v = self._validate(inp, config, allow_sizing=True)
             except Rejected as e:
-                return self._reject("propose_order", str(e), request=raw)
+                return self._reject("propose_order", str(e), e.details, request=raw)
 
+            # Freeze the sized quantity: confirm re-checks every cap on exactly this order.
+            frozen = OrderInput(inp.instrument_symbol, inp.outcome, inp.side, format(v.quantity, "f"),
+                                inp.limit_price, inp.my_probability)
             now = self._clock()
             self._pending = {t: p for t, p in self._pending.items() if p.expires_at > now}
             token = secrets.token_urlsafe(24)
-            self._pending[token] = PendingOrder(inp, inp.digest(), now, now + TOKEN_TTL_SECONDS)
+            self._pending[token] = PendingOrder(frozen, frozen.digest(), now, now + TOKEN_TTL_SECONDS, v.sizing)
             spent = self.ledger.spent_on(self._today())
             expires = datetime.fromtimestamp(now + TOKEN_TTL_SECONDS, tz=timezone.utc).isoformat(timespec="seconds")
             preview = {
@@ -520,11 +1150,13 @@ class Guardrails:
                     "max_open_orders": config.max_open_orders,
                 },
             }
+            if v.sizing:
+                preview["sizing"] = v.sizing
             if v.held_quantity is not None:
                 preview["held_quantity"] = format(v.held_quantity, "f")
             self.audit.write(
                 "proposal",
-                token_id=inp.digest()[:12],
+                token_id=frozen.digest()[:12],
                 mode=self.mode,
                 trade=v.action,
                 instrument_symbol=v.instrument_symbol,
@@ -532,6 +1164,7 @@ class Guardrails:
                 limit_price=v.price,
                 worst_case_cost_usd=v.cost_usd,
                 resolved_event_ticker=v.event_ticker,
+                sizing=v.sizing,
             )
             return {
                 "ok": True,
@@ -558,10 +1191,10 @@ class Guardrails:
                     raise Rejected("stored order does not match its token; refusing")
                 self._check_kill()
                 config = load_config(self.config_path)
-                v = self._validate(pending.order, config)
+                v = self._validate(pending.order, config, allow_sizing=False)
             except Rejected as e:
                 order = asdict(pending.order) if pending else None
-                return self._reject("confirm_order", str(e), order=order)
+                return self._reject("confirm_order", str(e), e.details, order=order)
 
             common = dict(
                 mode=self.mode,
@@ -573,17 +1206,33 @@ class Guardrails:
                 limit_price=v.price,
                 worst_case_cost_usd=v.cost_usd,
                 resolved_event_ticker=v.event_ticker,
+                sizing=pending.sizing,
             )
             self.audit.write("confirmation", **common)
-            spent_total = self.ledger.add(self._today(), v.cost_usd)
+            spent_total = (self.ledger.add(self._today(), v.cost_usd) if v.side == "buy"
+                           else self.ledger.spent_on(self._today()))
 
             if self.dry_run:
-                self.audit.write("would_place", spent_today_usd=spent_total, **common)
+                assert self.paper is not None
+                if v.side == "buy":
+                    ref = v.outcome_buy_price
+                    filled = ref is not None and v.price >= Decimal(str(ref))
+                else:
+                    ref = v.outcome_sell_price
+                    filled = ref is not None and v.price <= Decimal(str(ref))
+                paper_id = self.paper.record_order(
+                    symbol=v.instrument_symbol, outcome=v.outcome, side=v.side, quantity=v.quantity,
+                    price=v.price, fee=config.fee_per_contract, event_ticker=v.event_ticker, filled=filled,
+                )
+                self.audit.write("would_place", spent_today_usd=spent_total, paper_order_id=paper_id,
+                                 paper_filled=filled, **common)
                 return {
                     "ok": True,
                     "dry_run": True,
                     "message": f"DRY RUN: would have placed {v.action} x {format(v.quantity, 'f')} "
                     f"{v.instrument_symbol}. Nothing was sent to Gemini.",
+                    "paper_order_id": paper_id,
+                    "paper_filled": filled,
                     "spent_today_usd": format(spent_total, "f"),
                 }
 
@@ -632,3 +1281,35 @@ class Guardrails:
                 return {"ok": False, "error": str(e)}
             self.audit.write("cancel", order_id=oid, response=resp, mode=self.mode)
             return {"ok": True, "dry_run": False, "response": resp}
+
+    # ---- read-only views for tools
+
+    def risk_summary(self) -> dict[str, Any]:
+        """Equity, caps and breaker status for the active mode. Doesn't trip or persist anything."""
+        config = load_config(self.config_path)
+        ctx = self._context()
+        st = self.risk.read()
+        peak = max(Decimal(st.get("peak") or ctx.equity), ctx.equity)
+        day_start = Decimal(st["day_start"]) if st.get("day") == self._today() else ctx.equity
+        spent = self.ledger.spent_on(self._today())
+        daily_limit = self._daily_limit(config, day_start)
+        return {
+            "mode": self.mode,
+            "source": ctx.source,
+            "equity_usd": _fmt(ctx.equity.quantize(Decimal("0.01"))),
+            "cash_usd": _fmt(ctx.cash.quantize(Decimal("0.01"))),
+            "peak_equity_usd": _fmt(peak.quantize(Decimal("0.01"))),
+            "day_start_equity_usd": _fmt(day_start.quantize(Decimal("0.01"))),
+            "spent_today_usd": _fmt(spent),
+            "daily_limit_usd": _fmt(daily_limit.quantize(Decimal("0.01"))),
+            "event_exposure_usd": {k: _fmt(v.quantize(Decimal("0.01"))) for k, v in ctx.event_exposure.items()},
+            "breaker_would_trip": evaluate_breakers(ctx.equity, peak, day_start, config.max_drawdown_pct,
+                                                    config.max_daily_loss_pct),
+            "breaker_tripped": st.get("tripped"),
+            "kill_switch_active": self.kill_switch_active(),
+        }
+
+    def review_positions(self) -> list[dict[str, Any]]:
+        """Positions the runner reviews: paper positions in dry run, account positions when live."""
+        return [{k: (_fmt(v) if isinstance(v, Decimal) else v) for k, v in p.items()}
+                for p in self._context().positions]

@@ -4,3 +4,6 @@ state/
 KILL
 __pycache__/
 .pytest_cache/
+paper_ledger.json
+*.lock
+*.tmp

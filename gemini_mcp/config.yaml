@@ -1,22 +1,46 @@
-# Guardrail limits for the Gemini prediction-markets MCP server.
+# Guardrail limits for the Gemini prediction-markets MCP server and runner.
 # Re-read on every propose/confirm, so edits take effect without a restart.
-# Unknown keys are rejected (protects against typos).
-#
-# Code defaults (if a key is omitted): max_order_usd 10, max_daily_spend_usd 25,
-# max_open_orders 3, allowed_event_tickers [] (empty = nothing can trade).
-# The values below are deliberately lower for the first live order.
-# Raise them later only by editing this file.
+# Unknown keys are rejected (protects against typos). Fractions: 0.08 = 8%.
 
-# Worst-case dollars per order. Buys: quantity x price. Sells: quantity x (1 - price).
+# ---- Hard dollar limits (server-enforced; the runner can never exceed them)
+# Absolute ceiling per buy, in dollars (quantity x price). Kelly sizing is capped by this.
 max_order_usd: 2
-
-# Total worst-case dollars confirmed per UTC day. Not refunded on cancel.
+# Total buy dollars confirmed per UTC day (also capped by max_daily_spend_pct). Not refunded on cancel.
 max_daily_spend_usd: 5
-
 # Refuse new orders when the account already has this many open orders.
 max_open_orders: 3
-
-# Exact event tickers (from list_markets / get_market) that may be traded.
-# A contract passes only if it is directly inside one of these events.
+# Exact event tickers that may be traded. Empty = nothing can trade.
 # Child events of a game must be listed by their own ticker.
 allowed_event_tickers: []
+
+# ---- Conviction sizing (buys only; sells of held quantity are not Kelly-sized)
+# q_adj = estimate_weight * my_estimate + (1 - estimate_weight) * market_price
+estimate_weight: 0.7
+# Stake = balance * Kelly fraction * kelly_multiplier (0.25 = quarter Kelly)
+kelly_multiplier: 0.25
+# No trade unless q_adj - price - fee_per_contract >= min_edge
+min_edge: 0.05
+# Fee estimate per contract in dollars. Gemini's API docs don't state it; check your fee schedule.
+fee_per_contract: 0.02
+# Caps as a share of equity (cash + positions at Gemini's mark; paper equity in DRY_RUN).
+max_order_pct_of_balance: 0.08
+max_market_pct_of_balance: 0.15   # per event, counting existing position and resting buys
+max_daily_spend_pct: 0.25          # of start-of-day equity
+
+# ---- Circuit breakers (trip -> KILL file created; delete it by hand to resume)
+max_drawdown_pct: 0.20     # from peak equity; peak restarts from current equity when you delete KILL
+max_daily_loss_pct: 0.08   # from start-of-UTC-day equity
+
+# ---- Order book quality (runner entry filter)
+max_spread: 0.04           # best ask - best bid
+min_depth_multiple: 1      # contracts available at or better than our price >= order size x this
+
+# ---- Runner
+exit_hours_before_expiry: 24   # near expiry, exit unless clearly winning
+clearly_winning_price: 0.85    # "clearly winning" = current sell price at or above this
+paper_bankroll_usd: 100        # starting paper cash in DRY_RUN (delete paper_ledger.json to reset)
+runner_auto_confirm_live: false
+research_model: claude-opus-5-5
+research_max_searches: 5       # web searches per contract
+max_research_per_run: 10       # research calls per run (position reviews first)
+min_sources: 2                 # fewer sources than this -> no trade

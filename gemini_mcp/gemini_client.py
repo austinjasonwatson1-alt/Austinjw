@@ -24,6 +24,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import threading
 import time
 from decimal import Decimal
@@ -36,6 +37,13 @@ BASE_URLS = {
     "sandbox": "https://api.sandbox.gemini.com",
     "production": "https://api.gemini.com",
 }
+
+# Public market-data WebSocket (order book depth). Per Gemini's demo-environment page.
+WS_URLS = {
+    "sandbox": "wss://ws.sandbox.gemini.com",
+    "production": "wss://ws.gemini.com",
+}
+_WS_SYMBOL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,120}$")
 
 EVENTS_PATH = "/v1/prediction-markets/events"
 BALANCES_PATH = "/v1/balances"
@@ -137,6 +145,7 @@ class ReadOnlyClient:
         transport: httpx.BaseTransport | None = None,
         nonces: NonceGenerator | None = None,
         timeout: float = 15.0,
+        ws_connect: Callable[..., Any] | None = None,
     ):
         if env not in BASE_URLS:
             raise ValueError(f"env must be one of {sorted(BASE_URLS)}")
@@ -146,6 +155,7 @@ class ReadOnlyClient:
         self.__secret = api_secret or None
         self._account = account or None
         self._nonces = nonces or NonceGenerator()
+        self._ws_connect = ws_connect
         self._http = httpx.Client(
             base_url=self.base_url,
             transport=transport,
@@ -204,6 +214,37 @@ class ReadOnlyClient:
 
     def get_event(self, event_ticker: str) -> Any:
         return self._public_get(f"{EVENTS_PATH}/{quote(event_ticker, safe='')}")
+
+    def get_order_book(self, symbol: str, depth: int = 20, timeout: float = 8.0) -> dict[str, Any]:
+        """One public L2 partial-depth snapshot ({symbol}@depth{N}). Levels are YES-space [price, qty].
+
+        Unauthenticated and read-only: it subscribes, takes the first snapshot,
+        and disconnects.
+        """
+        if not _WS_SYMBOL_RE.match(symbol or ""):
+            raise ValueError("malformed instrument symbol")
+        if depth not in (5, 10, 20):
+            raise ValueError("depth must be 5, 10 or 20")
+        connect = self._ws_connect
+        if connect is None:
+            from websockets.sync.client import connect  # imported lazily; only this call needs it
+        stream = f"{symbol}@depth{depth}"
+        deadline = time.monotonic() + timeout
+        with connect(WS_URLS[self.env], open_timeout=timeout, close_timeout=2) as ws:
+            ws.send(json.dumps({"id": "1", "method": "SUBSCRIBE", "params": [stream]}))
+            while (left := deadline - time.monotonic()) > 0:
+                try:
+                    msg = json.loads(ws.recv(timeout=left))
+                except TimeoutError:
+                    break
+                if not isinstance(msg, dict):
+                    continue
+                if msg.get("error"):
+                    raise GeminiAPIError(f"ws:{stream}", None, json.dumps(msg))
+                if isinstance(msg.get("bids"), list) and isinstance(msg.get("asks"), list):
+                    return {"symbol": symbol, "bids": msg["bids"], "asks": msg["asks"],
+                            "last_update_id": msg.get("lastUpdateId")}
+        raise GeminiAPIError(f"ws:{stream}", None, "no depth snapshot received before timeout")
 
     # ---- signed reads
 

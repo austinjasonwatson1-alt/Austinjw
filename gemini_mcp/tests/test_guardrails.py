@@ -128,7 +128,10 @@ def test_dry_run_guardrails_refuse_a_trading_client(env):
     from guardrails import Guardrails
     with pytest.raises(ValueError):
         Guardrails(config_path=env.config_path, kill_path=env.kill_path, ledger=None, audit=None,
-                   market=env.market, trader=env.trader, dry_run=True, env="sandbox")
+                   market=env.market, trader=env.trader, dry_run=True, env="sandbox", paper=env.paper())
+    with pytest.raises(ValueError, match="paper ledger"):
+        Guardrails(config_path=env.config_path, kill_path=env.kill_path, ledger=None, audit=None,
+                   market=env.market, trader=None, dry_run=True, env="sandbox")
 
 
 def test_daily_cap_accumulates(env):
@@ -302,10 +305,13 @@ def test_sell_with_no_position_rejected(env):
     assert not r["ok"] and "exceeds" in r["reason"]
 
 
-def test_sell_cost_counts_toward_per_order_cap(env):
+def test_sell_of_held_quantity_is_not_capped_in_dollars(env):
     hold(env, "100")
-    r = env.guard().propose(SYMBOL, "yes", "sell", "50", "0.70")  # 50 x 0.30 = $15 > $10
-    assert not r["ok"] and "max_order_usd" in r["reason"]
+    g = env.guard()
+    r = propose_ok(g, side="sell", qty="50", price="0.70")  # worst case 50 x 0.30 = $15 > $10 ceiling
+    assert r["preview"]["worst_case_cost_usd"] == "15.00"
+    assert g.confirm(r["confirmation_token"])["ok"]
+    assert g.ledger.spent_on(g._today()) == 0  # exits don't use the daily budget
 
 
 @pytest.mark.parametrize("positions", [None, {"nope": 1}, {"positions": "x"},
@@ -354,6 +360,10 @@ def test_config_defaults(tmp_path):
     c = load_config(p)
     assert (c.max_order_usd, c.max_daily_spend_usd, c.max_open_orders, c.allowed_event_tickers) == (
         Decimal("10"), Decimal("25"), 3, ())
+    assert (c.estimate_weight, c.kelly_multiplier, c.max_order_pct_of_balance, c.max_market_pct_of_balance,
+            c.max_daily_spend_pct, c.max_drawdown_pct, c.max_daily_loss_pct) == (
+        Decimal("0.7"), Decimal("0.25"), Decimal("0.08"), Decimal("0.15"), Decimal("0.25"), Decimal("0.20"),
+        Decimal("0.08"))
 
 
 def test_shipped_config_is_valid_and_trades_nothing():
@@ -361,6 +371,7 @@ def test_shipped_config_is_valid_and_trades_nothing():
     c = load_config(Path(__file__).resolve().parents[1] / "config.yaml")
     assert c.allowed_event_tickers == ()
     assert c.max_order_usd <= 2
+    assert c.runner_auto_confirm_live is False
 
 
 def test_dry_run_parsing():

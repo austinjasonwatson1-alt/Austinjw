@@ -20,7 +20,9 @@ from gemini_client import (
     encode_payload,
     sign,
 )
-from guardrails import AuditLog, Guardrails, SpendLedger
+from decimal import Decimal
+
+from guardrails import AuditLog, Guardrails, PaperLedger, RiskState, SpendLedger
 
 KEY = "account-TESTKEY000"
 SECRET = "test-secret-1234abcd"
@@ -103,6 +105,9 @@ class MockGemini:
         p = request.url.path
         if p == f"/v1/prediction-markets/events/{EVENT}":
             return httpx.Response(200, json=make_event())
+        if p == "/v1/balances":
+            return httpx.Response(200, json=[{"type": "exchange", "currency": "USD", "amount": "500",
+                                              "available": "500"}])
         if p == "/v1/prediction-markets/positions":
             return httpx.Response(200, json={"positions": []})
         if p == "/v1/prediction-markets/orders/active":
@@ -152,6 +157,8 @@ def build_stack(tmp_path, mock, dry_run):
         trader=trader,
         dry_run=dry_run,
         env="sandbox",
+        risk_state=RiskState(tmp_path / "risk.json", "sandbox:x"),
+        paper=PaperLedger(tmp_path / "paper.json", Decimal("100")) if dry_run else None,
     )
     return server.create_server(market, guard), guard
 
@@ -284,3 +291,46 @@ def test_no_redirects_and_fixed_hosts():
     assert ReadOnlyClient("sandbox").base_url == "https://api.sandbox.gemini.com"
     with pytest.raises(ValueError):
         ReadOnlyClient("https://evil.example")
+
+
+# --------------------------------------------------------------- public depth snapshot (WebSocket)
+
+
+class FakeWS:
+    def __init__(self, frames):
+        self.frames, self.sent = list(frames), []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def send(self, msg):
+        self.sent.append(json.loads(msg))
+
+    def recv(self, timeout=None):
+        if not self.frames:
+            raise TimeoutError
+        return self.frames.pop(0)
+
+
+def test_order_book_snapshot_via_public_depth_stream():
+    ws = FakeWS([json.dumps({"id": "1", "result": None}),
+                 json.dumps({"lastUpdateId": 7, "bids": [["0.60", "10"]], "asks": [["0.62", "5"]]})])
+    urls = []
+    c = ReadOnlyClient("production", ws_connect=lambda url, **kw: urls.append(url) or ws)
+    book = c.get_order_book(SYMBOL)
+    assert urls == ["wss://ws.gemini.com"]
+    assert ws.sent == [{"id": "1", "method": "SUBSCRIBE", "params": [f"{SYMBOL}@depth20"]}]
+    assert book["bids"] == [["0.60", "10"]] and book["last_update_id"] == 7
+
+
+def test_order_book_errors_and_validation():
+    with pytest.raises(GeminiAPIError, match="no depth snapshot"):
+        ReadOnlyClient("sandbox", ws_connect=lambda url, **kw: FakeWS([])).get_order_book(SYMBOL, timeout=0.2)
+    with pytest.raises(GeminiAPIError):
+        ReadOnlyClient("sandbox", ws_connect=lambda url, **kw: FakeWS([json.dumps({"error": "invalid stream"})])
+                       ).get_order_book(SYMBOL)
+    with pytest.raises(ValueError):
+        ReadOnlyClient("sandbox").get_order_book("bad symbol!")
