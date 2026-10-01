@@ -159,3 +159,11 @@ def test_report_live_fills_read_order_results():
              {"event": "placement", "order_id": 2, "instrument_symbol": SYMBOL, "outcome": "yes", "side": "buy"}]
     fills = report.live_fills(audit, Client(), guardrails.Decimal("0.02"))
     assert sorted(f.ref for f in fills) == ["live:1", "live:2"]
+
+
+def test_unknown_order_status_names_the_real_cause():
+    audit = [intent("t"), result("t", "unconfirmed", error="read timed out after the request was applied"),
+             intent("n"), result("n", "unconfirmed", response={"result": "error"})]
+    by_id = {u["intent_id"]: u["status"] for u in report.unknown_orders(audit)}
+    assert "timed out" in by_id["t"] and "no order id" not in by_id["t"]
+    assert by_id["n"].startswith("unknown, check Gemini")

@@ -232,15 +232,17 @@ def estimate_brier(entries: list[dict[str, Any]], resolve: Callable[[str, str], 
         key = (e["instrument_symbol"], str(e.get("ts", ""))[:10])
         if key not in latest or str(e.get("ts", "")) >= latest[key][0]:
             latest[key] = (str(e.get("ts", "")), p_yes, mid, e.get("event_ticker") or "")
-    mine, market = [], []
+    mine, market, points = [], [], []
     models: Counter = Counter()
-    for (symbol, _), (_, p_yes, mid, ev) in latest.items():
+    for (symbol, day), (_, p_yes, mid, ev) in latest.items():
         side = resolve(ev, symbol)
         if side not in ("yes", "no"):
             continue
         won = side == "yes"
         mine.append((p_yes, won))
         market.append((mid, won))
+        points.append({"symbol": symbol, "day": day, "p_yes": format(p_yes, "f"), "market": format(mid, "f"),
+                       "won": won})
     b_me, b_mkt = brier(mine), brier(market)
     for e in entries:
         if e.get("event") == "decision" and e.get("research_model"):
@@ -249,7 +251,7 @@ def estimate_brier(entries: list[dict[str, Any]], resolve: Callable[[str, str], 
     return {"n_scored": len(mine), "n_estimates": len(latest), "low_n": len(mine) < MIN_N,
             "brier_mine": fmt(b_me), "brier_market": fmt(b_mkt),
             "brier_skill": fmt(Decimal(1) - b_me / b_mkt) if b_me is not None and b_mkt else None,
-            "estimates_by_model": dict(models)}
+            "estimates_by_model": dict(models), "points": points}
 
 
 def decision_summary(entries: list[dict[str, Any]]) -> dict[str, Any]:
@@ -333,7 +335,12 @@ def unknown_orders(audit: list[dict[str, Any]]) -> list[dict[str, Any]]:
         r = results.get(e.get("intent_id"))
         if r is not None and r.get("result") != "unconfirmed":
             continue
-        why = "no result logged" if r is None else "Gemini returned no order id"
+        if r is None:
+            why = "no result logged"
+        elif r.get("error"):  # timeout, connection error, 5xx...
+            why = f"outcome unconfirmed: {str(r['error'])[:160]}"
+        else:
+            why = "outcome unconfirmed: Gemini's reply didn't confirm it"
         out.append({"intent_id": e.get("intent_id"), "ts": e.get("ts"), "action": e.get("action"),
                     "instrument_symbol": e.get("instrument_symbol"), "side": e.get("side"),
                     "outcome": e.get("outcome"), "quantity": e.get("quantity"), "limit_price": e.get("limit_price"),
