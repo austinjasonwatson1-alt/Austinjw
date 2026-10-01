@@ -103,8 +103,6 @@ class Config:
     learning_budget_usd: Decimal | None = None
     # Name of the profile applied from config.yaml's "profiles" section (None = base keys only).
     profile: str | None = None
-    # Live preflight refuses limits above the micro_live ceilings unless this is true.
-    allow_above_micro_live: bool = False
     # Optional per-category exposure caps as a share of equity, e.g. {default: 0.30, sports: 0.20}.
     # Empty = no category caps. Categories come from Gemini's event "category" field.
     category_exposure_caps: dict[str, Decimal] = field(default_factory=dict)
@@ -158,7 +156,6 @@ _SPEC: dict[str, tuple] = {
     "starting_balance_usd": ("opt_dec",),
     "learning_budget_usd": ("opt_dec",),
     "profile": ("profile",),
-    "allow_above_micro_live": ("bool",),
     "category_exposure_caps": ("caps",),
     "max_spread": ("dec", 0, 1),
     "min_depth_multiple": ("dec", 0, None),
@@ -255,6 +252,11 @@ def _cfg_value(name: str, value: Any) -> Any:
 
 
 _RENAMED = {"initial_deposit_usd": "starting_balance_usd"}  # old key -> new key, still read with a warning
+_REMOVED = {  # old key -> why it's gone (a config that still sets it is refused, so nobody relies on it silently)
+    "allow_above_micro_live": "removed: live limits above the micro_live ceilings are unlocked only by 20 settled "
+                              "live trades in audit.log, and auto-confirm by 15 hand-confirmed ones (preflight.py; "
+                              "RUNBOOK.md section 9). Delete the key.",
+}
 
 
 def load_config(path: Path) -> Config:
@@ -273,6 +275,11 @@ def load_config(path: Path) -> Config:
                 raise ConfigError(f"config sets both {old} and {new}; remove {old}")
             warnings.warn(f"config key {old} is deprecated; rename it to {new}", DeprecationWarning, stacklevel=2)
             raw[new] = raw.pop(old)
+    for key, why in _REMOVED.items():
+        nested = [n for n, o in (raw.get("profiles") or {}).items() if isinstance(o, dict) and key in o] \
+            if isinstance(raw.get("profiles"), dict) else []
+        if key in raw or nested:
+            raise ConfigError(f"config {key} was {why}")
     profiles = raw.pop("profiles", None)
     profiles = {} if profiles is None else profiles
     if not isinstance(profiles, dict):
@@ -870,6 +877,7 @@ class ValidatedOrder:
     outcome_sell_price: Any
     held_quantity: Decimal | None
     sizing: dict[str, Any] | None = None
+    contract_expiry: str | None = None  # as Gemini reported it at validation (contract, else event, expiryDate)
 
     @property
     def action(self) -> str:
@@ -992,6 +1000,18 @@ def _position_summary(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "cost_basis": _fmt(p["cost_basis"]), "value": _fmt(p["value"]),
         "quote": "ok" if p.get("has_quote") else "NO LIVE QUOTE (valued at $0)",
     } for p in positions]
+
+
+def _expiry_text(v: Any) -> str | None:
+    return v[:64] if isinstance(v, str) and v else None
+
+
+CONFIRMED_BY = ("hand", "auto")  # what a client may say about how a confirmation was approved; anything else: None
+
+
+def live_mode_label(env: str) -> str:
+    """The audit "mode" of live orders in this GEMINI_ENV."""
+    return "LIVE (production): REAL MONEY" if env == "production" else "LIVE (sandbox): test funds"
 
 
 def _quote(v: Any) -> Decimal | None:
@@ -1141,9 +1161,7 @@ class Guardrails:
     def mode(self) -> str:
         if self.dry_run:
             return f"DRY RUN ({self.env}): nothing will be placed"
-        if self.env == "production":
-            return "LIVE (production): REAL MONEY"
-        return "LIVE (sandbox): test funds"
+        return live_mode_label(self.env)
 
     def kill_switch_active(self) -> bool:
         return os.path.lexists(self.kill_path)
@@ -1650,6 +1668,7 @@ class Guardrails:
             outcome_sell_price=sell.get(inp.outcome),
             held_quantity=held,
             sizing=sizing,
+            contract_expiry=_expiry_text(contract.get("expiryDate") or event.get("expiryDate")),
         )
 
     # ---- public API
@@ -1742,7 +1761,9 @@ class Guardrails:
                 "note": "Nothing has been placed. Call confirm_order with this token within 5 minutes to proceed.",
             }
 
-    def confirm(self, token: Any) -> dict[str, Any]:
+    def confirm(self, token: Any, confirmed_by: Any = None) -> dict[str, Any]:
+        """confirmed_by: how the client says this was approved, "hand" (a person typed yes) or "auto". It's a
+        client claim, recorded for preflight's fast-track counts; any other value is recorded as None."""
         with self._lock:
             if not isinstance(token, str) or not token:
                 return self._reject("confirm_order", "a confirmation token is required")
@@ -1763,9 +1784,9 @@ class Guardrails:
             # Other server processes share the state files. Hold one cross-process lock from validation
             # through recording spend and placing, so two processes can't both pass the same cap.
             with file_lock(self.ledger.path.with_name("orders")):
-                return self._confirm_locked(pending)
+                return self._confirm_locked(pending, confirmed_by if confirmed_by in CONFIRMED_BY else None)
 
-    def _confirm_locked(self, pending: PendingOrder) -> dict[str, Any]:
+    def _confirm_locked(self, pending: PendingOrder, confirmed_by: str | None = None) -> dict[str, Any]:
         try:
             self.observe_kill()
             self._check_kill()
@@ -1798,6 +1819,8 @@ class Guardrails:
             resolved_event_ticker=v.event_ticker,
             sizing=pending.sizing,
             paper_assumed=paper_assumed,
+            contract_expiry=v.contract_expiry,
+            confirmed_by=confirmed_by,
         )
         # Ledger first: audit.log must never show more than the ledger (that mismatch is refused).
         spent_total, _ = self.ledger.record_trade(self._today(), v.cost_usd if v.side == "buy" else _ZERO, v.side)

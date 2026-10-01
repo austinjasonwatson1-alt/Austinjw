@@ -70,7 +70,7 @@ Each line of `audit.log` is one JSON record, with timestamps in UTC.
 | `confirmation` | `confirm_order` re-checked everything with fresh data. Spend and the trade count were recorded just before this line. |
 | `would_place` / `would_cancel` | DRY_RUN only: what would have been sent. Each `would_place` carries `paper_order_id` and `paper_filled`. |
 | `order_intent` | Live only. Written and fsync'd **before** a placement or cancel is sent. It carries an `intent_id`. |
-| `order_result` | Live only. It carries the same `intent_id`, and `result` is one of the values below. |
+| `order_result` | Live only. It carries the same `intent_id`, and `result` is one of the values below. Like `confirmation` and `order_intent`, it records `contract_expiry` and `confirmed_by` (`hand` / `auto`), which preflight's fast-track gates count (section 9). |
 | `circuit_breaker_trip` | The floor, drawdown or daily-loss breaker tripped and created `KILL`. It includes the equity, the thresholds and the open positions. |
 | `breaker_reset` | `KILL` was deleted after a trip, and the drawdown peak was re-baselined. |
 | `kill_detected` / `kill_deleted` | A KILL file appeared or was removed. Deletions are always manual. |
@@ -176,7 +176,9 @@ Before the first live order, also:
 
 A shorter route to live money than section 8: start at micro-live size early, and earn each step up with live evidence instead of weeks of paper trading. **This track still keeps every breaker, cap, and the endpoint allowlist.** Nothing is switched off: KILL, the equity floor, drawdown and daily-loss breakers, the per-order, daily-spend, trade, exit and open-order caps, the event allowlist, the endpoint allowlist, the expiry window and the research cost caps all apply as usual. Scheduled (launchd) runs stay DRY_RUN only.
 
-**micro_live** is the profile in `config.yaml` (`profile: micro_live`). Live preflight enforces its ceilings, whatever profile is active: `max_order_usd 5`, `max_daily_spend_usd 15`, `max_trades_per_day 4`, `max_open_orders 2`, `runner_auto_confirm_live false`, and `learning_budget_usd` must be set. The equity floor is then `starting_balance_usd - learning_budget_usd`, never below 40% of the starting balance: decide what you are prepared to lose while learning (for example 30 of a 100 balance gives a floor of 70). Going above any ceiling needs `allow_above_micro_live: true`, which preflight always prints.
+**micro_live** is the profile in `config.yaml` (`profile: micro_live`). Its ceilings are `max_order_usd 5`, `max_daily_spend_usd 15`, `max_trades_per_day 4`, `max_open_orders 2` and `runner_auto_confirm_live false`. Live mode also always needs `learning_budget_usd` set. The equity floor is then `starting_balance_usd - learning_budget_usd`, never below 40% of the starting balance: decide what you are prepared to lose while learning (for example 30 of a 100 balance gives a floor of 70).
+
+Live preflight enforces the ceilings whatever profile is active, and **there is no override**: going above them is unlocked only by the history in `audit.log`, counted as described below. DRY_RUN preflight prints the same checks as notes.
 
 **Gates (in order; each one must hold before the next step):**
 
@@ -186,7 +188,21 @@ A shorter route to live money than section 8: start at micro-live size early, an
    - **`py capture_samples.py`** ran with no ABSENT or EMPTY required field (see `docs/real_response_check.md`).
    - `py preflight.py` with `DRY_RUN=false` prints OK, with `fee_confirmed: true` and `learning_budget_usd` set.
    Then trade live from a terminal, typing `yes` for each order, and check every fill against Gemini's site (section 8, "A human check of the fill").
-2. **Scale up only after about 20 settled trades with no unexplained fill/fee differences.** Settled means live trades whose contracts have resolved. "No unexplained differences": `py report.py --live` shows no **LIVE FILLS CONSISTENTLY WORSE THAN PAPER ASSUMED** flag, every nonzero price or fee gap in the PAPER vs LIVE table has a reason you wrote down, and the fees you saw on Gemini's site match `fee_per_contract`. Only then raise limits above micro_live, with `allow_above_micro_live: true`, and in small steps.
-3. **Auto-confirm only after about 15 clean hand-confirmed live trades:** each one typed `yes` at the terminal, checked against Gemini's site with no mismatch, and none left unknown. Auto-confirm (`runner_auto_confirm_live: true` plus `--auto-confirm`) is above the micro_live ceilings, so it also needs `allow_above_micro_live: true`. It still never runs from the launchd schedule.
+2. **Scale up only after about 20 settled trades with no unexplained fill/fee differences.** Preflight refuses any live limit above the micro_live ceilings until `audit.log` shows **at least 20 settled live trades** (rule below). The judgement part is yours: `py report.py --live` shows no **LIVE FILLS CONSISTENTLY WORSE THAN PAPER ASSUMED** flag, every nonzero price or fee gap in the PAPER vs LIVE table has a reason you wrote down, and the fees you saw on Gemini's site match `fee_per_contract`. Then raise limits in small steps.
+3. **Auto-confirm only after about 15 clean hand-confirmed live trades.** Preflight refuses `runner_auto_confirm_live: true` in live mode until `audit.log` shows **at least 15 hand-confirmed live trades** that ended "placed" since the last unconfirmed or unknown result (rule below). Each should also have been checked against Gemini's site with no mismatch. Auto-confirm still never runs from the launchd schedule.
 
-If a gate fails after you've passed it (a fill mismatch, an unknown order, the worse-fills flag, a breaker trip), go back a step: set `profile: micro_live` again with `allow_above_micro_live: false` (or `touch KILL`), and investigate before trading again.
+**Exact counting rules** (`preflight.fast_track_counts`). Only entries for live orders in the current `GEMINI_ENV` count (their `mode` is that environment's live label, for example `LIVE (production): REAL MONEY`). Sandbox history never unlocks production. If `audit.log` is missing or unreadable, it counts as zero (both counts).
+
+- **Settled live trade:** an `order_result` with `result "placed"`, `side "buy"`, placement `status "filled"`, and a recorded `contract_expiry` that is before now. Each order id counts once. Not counted:
+  - orders that were resting (`open`) when placed, because `audit.log` has no evidence they filled later;
+  - exits;
+  - entries written before `contract_expiry` was recorded.
+  Expiry passing is the closest stand-in for "resolved" that `audit.log` can show.
+- **Hand-confirmed live trade:** an `order_result` with `result "placed"` and `confirmed_by "hand"`, whose runner decision (`order_ref` `live:<id>`) also says `confirmed_by "hand"`. Only the runner sends `"hand"`, and only after someone typed `yes` at the terminal. Entries and exits both count, and each order id counts once.
+- **Clean:** walking the log in order, the hand-confirmed count restarts at 0 at:
+  - every live `order_result` with `result "unconfirmed"`;
+  - every live `order_intent` that never got an order_result (outcome unknown);
+  - every line that is not valid JSON.
+  A definite `failed` result doesn't restart it.
+
+If a gate fails after you've passed it (a fill mismatch, an unknown order, the worse-fills flag, a breaker trip), go back a step: set `profile: micro_live` again (or `touch KILL`), and investigate before trading again. An unknown result restarts the auto-confirm count on its own.

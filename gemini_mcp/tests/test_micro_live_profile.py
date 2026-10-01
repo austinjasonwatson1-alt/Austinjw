@@ -159,7 +159,7 @@ def test_live_above_a_ceiling_fails(tmp_path, key, value):
     data = json.loads(json.dumps(MICRO_ON))
     data["profiles"]["micro_live"][key] = value
     fails, _ = pf(tmp_path, LIVE, data)
-    assert any(key in f and "micro_live" in f and "allow_above_micro_live" in f for f in fails), fails
+    assert any(key in f and ("settled live trades" in f or "hand-confirmed" in f) for f in fails), fails
 
 
 def test_live_with_no_profile_is_held_to_the_same_ceilings(tmp_path):
@@ -177,15 +177,9 @@ def test_live_needs_a_learning_budget(tmp_path):
     assert any("learning_budget_usd" in f for f in fails)
 
 
-def test_override_flag_allows_higher_limits(tmp_path):
-    data = {**BASE, "max_order_usd": 10, "max_daily_spend_usd": 25, "allow_above_micro_live": True}
-    fails, notes = pf(tmp_path, LIVE, data)
-    assert not any("micro_live" in f for f in fails)
-    assert any("allow_above_micro_live" in n for n in notes)  # said out loud, never silent
-
-
-def test_override_does_not_relax_other_bounds(tmp_path):
-    fails, _ = pf(tmp_path, LIVE, {**BASE, "allow_above_micro_live": True, "kelly_multiplier": 0.9})
+def test_unlocked_limits_do_not_relax_other_bounds(tmp_path):
+    # Even with the scale-up gate passed, the fixed risk bounds still apply (see test_fast_track_gates.py).
+    fails, _ = pf(tmp_path, LIVE, {**MICRO_ON, "kelly_multiplier": 0.9})
     assert any("kelly_multiplier" in f for f in fails)
 
 
@@ -212,4 +206,4 @@ def test_enforce_refuses_live_above_ceilings(tmp_path):
 
 def test_config_defaults():
     c = Config()
-    assert c.profile is None and c.learning_budget_usd is None and c.allow_above_micro_live is False
+    assert c.profile is None and c.learning_budget_usd is None and not hasattr(c, "allow_above_micro_live")

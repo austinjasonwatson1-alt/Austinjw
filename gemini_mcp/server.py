@@ -295,10 +295,11 @@ def create_server(market: ReadOnlyClient, guard: Guardrails) -> FastMCP:
 
     @mcp.tool()
     @safe
-    def confirm_order(token: str) -> dict[str, Any]:
+    def confirm_order(token: str, confirmed_by: str | None = None) -> dict[str, Any]:
         """Place a previously proposed order. Tokens are single-use and expire after 5 minutes.
-        All guardrails are re-checked. In DRY_RUN mode nothing is sent to Gemini."""
-        return guard.confirm(token)
+        All guardrails are re-checked. In DRY_RUN mode nothing is sent to Gemini.
+        confirmed_by: "hand" only if a person explicitly approved this order, "auto" otherwise."""
+        return guard.confirm(token, confirmed_by)
 
     @mcp.tool()
     @safe

@@ -46,14 +46,14 @@ equity_floor_pct: 0.60
 # starting_balance_usd: 100
 
 # Learning budget (USD): when set, the floor is starting_balance_usd - learning_budget_usd, never below 40% of the
-# starting balance, and it replaces equity_floor_pct. Live preflight requires it unless allow_above_micro_live.
+# starting balance, and it replaces equity_floor_pct. Live preflight requires it.
 # learning_budget_usd: 30
 
 # ---- Profiles. "profile: <name>" applies that profile's keys over the base keys above and below.
-# Live preflight fails when the effective limits are above the micro_live ceilings below (or learning_budget_usd
-# is unset), unless you set allow_above_micro_live: true on purpose. See RUNBOOK.md, "Fast track".
+# Live preflight fails when the effective limits are above the micro_live ceilings below until audit.log shows 20
+# settled live trades, and fails live auto-confirm until it shows 15 clean hand-confirmed live trades. There is no
+# override. See RUNBOOK.md, "Fast track", for the exact counting rules.
 profile: null
-allow_above_micro_live: false
 profiles:
   micro_live:
     max_order_usd: 5

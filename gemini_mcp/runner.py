@@ -214,17 +214,19 @@ def contract_info(market: dict[str, Any], contract: dict[str, Any]) -> dict[str,
 
 
 def make_confirm(dry_run: bool, auto_flag: bool, config: Config, interactive: bool,
-                 ask: Callable[[str], str] = input) -> Callable[[dict[str, Any]], bool]:
-    def confirm(preview: dict[str, Any]) -> bool:
+                 ask: Callable[[str], str] = input) -> Callable[[dict[str, Any]], str | bool]:
+    """The confirm callback returns how the order was approved ("dry_run", "auto", "hand"), or False. "hand"
+    means a person typed yes at the terminal; preflight's auto-confirm gate counts only those."""
+    def confirm(preview: dict[str, Any]) -> str | bool:
         if dry_run:
-            return True
+            return "dry_run"
         if auto_flag and config.runner_auto_confirm_live:
-            return True
+            return "auto"
         if not interactive:
             return False
         answer = ask(f"\n{preview.get('mode')}\n{preview.get('summary')}\n"
                      f"worst-case ${preview.get('worst_case_cost_usd')}. Type 'yes' to confirm: ")
-        return answer.strip().lower() == "yes"
+        return "hand" if answer.strip().lower() == "yes" else False
     return confirm
 
 
@@ -377,10 +379,14 @@ class Runner:
                   "worst_case_cost_usd": preview["worst_case_cost_usd"], "event_ticker": preview["resolved_event_ticker"],
                   "kelly_fraction": sizing.get("kelly_fraction"), "stake_usd": sizing.get("stake_usd"),
                   "binding_limit": sizing.get("binding_limit"), "sizing": sizing or None}
-        if not self.confirm(preview):
+        how = self.confirm(preview)
+        if not how:
             self.log("proposed_not_confirmed", reason="live proposal not confirmed (no terminal approval)", **fields)
             return
-        res = await self.tools.call("confirm_order", token=prop["confirmation_token"])
+        # Only a terminal "yes" is reported as hand-confirmed; any other approval (incl. a plain True) is "auto".
+        fields["confirmed_by"] = how if how in ("hand", "auto", "dry_run") else "auto"
+        res = await self.tools.call("confirm_order", token=prop["confirmation_token"],
+                                    confirmed_by=fields["confirmed_by"] if not self.dry_run else None)
         if not res.get("ok"):
             self.log(f"{kind}_failed", reason=res.get("reason") or res.get("error"), **fields)
             return

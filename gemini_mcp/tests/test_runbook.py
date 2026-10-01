@@ -60,8 +60,21 @@ def test_fast_track_gates_are_the_agreed_ones():
                    "scale up only after about 20 settled trades", "no unexplained fill/fee differences",
                    "auto-confirm only after about 15 clean hand-confirmed live trades",
                    "still keeps every breaker, cap, and the endpoint allowlist",
-                   "profile: micro_live", "learning_budget_usd", "allow_above_micro_live",
-                   "live fills consistently worse than paper assumed"):
+                   "profile: micro_live", "learning_budget_usd",
+                   "live fills consistently worse than paper assumed", "there is no override"):
+        assert needle in flat, needle
+    assert "allow_above_micro_live" not in flat  # removed: preflight's audit.log gates replace it
+
+
+def test_fast_track_documents_the_exact_counting_rules():
+    import preflight
+    flat = _fast_track().replace("**", "").replace("`", "").lower()
+    assert f"at least {preflight.SCALE_UP_SETTLED} settled live trades" in flat
+    assert f"at least {preflight.AUTO_CONFIRM_HAND_TRADES} hand-confirmed live trades" in flat
+    for needle in ('result "placed"', 'side "buy"', 'status "filled"', "contract_expiry", "before now",
+                   "resting", 'confirmed_by "hand"', "order_ref", "live:<id>", 'result "unconfirmed"',
+                   "order_intent", "never got an order_result", "not valid json", "restarts at 0",
+                   "missing or unreadable", "counts as zero", "gemini_env", "each order id counts once"):
         assert needle in flat, needle
 
 

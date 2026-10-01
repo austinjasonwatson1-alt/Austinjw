@@ -13,9 +13,10 @@ Checks:
 - sane bounds: max_order_pct_of_balance <= 0.15, max_daily_spend_pct <= 0.5,
   max_drawdown_pct <= 0.35, equity_floor_pct >= 0.4, kelly_multiplier <= 0.5,
   max_trades_per_day <= 20, max_exits_per_day <= 30
-- live only: the effective limits (after any profile) are within the micro_live ceilings (max_order_usd 5,
-  max_daily_spend_usd 15, max_trades_per_day 4, max_open_orders 2, runner_auto_confirm_live false) and
-  learning_budget_usd is set, unless allow_above_micro_live: true (DRY_RUN prints these as notes)
+- live only: learning_budget_usd is set; limits above the micro_live ceilings (max_order_usd 5,
+  max_daily_spend_usd 15, max_trades_per_day 4, max_open_orders 2) need 20 settled live trades in audit.log;
+  runner_auto_confirm_live needs 15 clean hand-confirmed live trades (see fast_track_counts). DRY_RUN prints
+  these as notes.
 - warnings only (never fail): max_days_to_expiry > 30
 - .env and key files (.env.*, *.pem, *.key, *.p12, *.pfx) are not tracked by git
   and are covered by .gitignore
@@ -30,11 +31,13 @@ import subprocess
 import sys
 import time
 import warnings
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
 
-from guardrails import LEARNING_FLOOR_MIN_PCT, ConfigError, load_config, parse_dry_run, parse_env
+from guardrails import LEARNING_FLOOR_MIN_PCT, ConfigError, live_mode_label, load_config, parse_dry_run, parse_env
 
 HERE = Path(__file__).resolve().parent
 MARKER = Path("state") / "verify_auth_ok.json"
@@ -53,7 +56,9 @@ BOUNDS = (  # (config key, comparison, limit, description)
 )
 
 # The micro_live profile's ceilings (config.yaml profiles.micro_live must match; a test checks it). Live mode fails
-# preflight when the effective config (after any profile) is above any of them, unless allow_above_micro_live.
+# preflight when the effective config (after any profile) is above any of them, until audit.log shows the fast-track
+# history that unlocks it: SCALE_UP_SETTLED settled live trades for the limits, AUTO_CONFIRM_HAND_TRADES clean
+# hand-confirmed live trades for auto-confirm. There is no override flag. Counting rules: fast_track_counts.
 MICRO_LIVE_CEILINGS: dict[str, Any] = {
     "max_order_usd": Decimal("5"),
     "max_daily_spend_usd": Decimal("15"),
@@ -62,27 +67,119 @@ MICRO_LIVE_CEILINGS: dict[str, Any] = {
     "runner_auto_confirm_live": False,
 }
 
+SCALE_UP_SETTLED = 20
+AUTO_CONFIRM_HAND_TRADES = 15
+
+
+@dataclass(frozen=True)
+class FastTrackCounts:
+    settled: int = 0               # settled live trades (see fast_track_counts)
+    hand_confirmed_clean: int = 0  # hand-confirmed placed live trades since the last unconfirmed/unknown send
+
+
+def _parse_ts(v: Any) -> float | None:
+    if not isinstance(v, str) or not v:
+        return None
+    try:
+        dt = datetime.fromisoformat(v.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp()
+
+
+def fast_track_counts(audit_path: Path, env: str | None, now: float) -> FastTrackCounts:
+    """Count fast-track history in audit.log for live orders in this GEMINI_ENV (entries whose "mode" is that
+    environment's live label). A missing or unreadable file counts as zero.
+
+    settled: distinct order ids with an order_result that is result "placed", side "buy", placement status
+      "filled", and a recorded contract_expiry that is before now. Orders that rested ("open") at placement have
+      no fill evidence in audit.log and are not counted, nor are entries written before contract_expiry was
+      recorded.
+    hand_confirmed_clean: walking the log in order, +1 for each distinct order id with an order_result "placed"
+      that says confirmed_by "hand" AND a runner decision (mode "live", order_ref "live:<id>") that also says
+      confirmed_by "hand". The count restarts at 0 at every live order_result "unconfirmed", at every live
+      order_intent that never got an order_result (unknown outcome), and at every line that isn't valid JSON.
+    """
+    if env is None:
+        return FastTrackCounts()
+    try:
+        text = Path(audit_path).read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return FastTrackCounts()
+    label = live_mode_label(env)
+    entries: list[dict[str, Any] | None] = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            e = json.loads(line)
+        except ValueError:
+            e = None
+        entries.append(e if isinstance(e, dict) else None)
+    live = [e for e in entries if e is not None and e.get("mode") == label]
+    answered = {e.get("intent_id") for e in live if e.get("event") == "order_result"}
+    hand_refs = {e.get("order_ref") for e in entries if e is not None and e.get("event") == "decision"
+                 and e.get("mode") == "live" and e.get("confirmed_by") == "hand"}
+    settled: set[str] = set()
+    for e in live:
+        if e.get("event") != "order_result" or e.get("result") != "placed" or e.get("side") != "buy":
+            continue
+        if str(e.get("status") or "").lower() != "filled" or e.get("order_id") is None:
+            continue
+        expiry = _parse_ts(e.get("contract_expiry"))
+        if expiry is not None and expiry < now:
+            settled.add(str(e["order_id"]))
+    streak, counted = 0, set()
+    for e in entries:
+        if e is None:
+            streak, counted = 0, set()
+            continue
+        if e.get("mode") != label:
+            continue
+        if e.get("event") == "order_intent" and e.get("intent_id") not in answered:
+            streak, counted = 0, set()
+        elif e.get("event") == "order_result" and e.get("result") == "unconfirmed":
+            streak, counted = 0, set()
+        elif (e.get("event") == "order_result" and e.get("result") == "placed" and e.get("confirmed_by") == "hand"
+              and e.get("order_id") is not None and f"live:{e['order_id']}" in hand_refs
+              and str(e["order_id"]) not in counted):
+            counted.add(str(e["order_id"]))
+            streak += 1
+    return FastTrackCounts(settled=len(settled), hand_confirmed_clean=streak)
+
+
 WARN_BOUNDS = (  # (config key, limit, description): above the limit is a warning (note), not a failure
     ("max_days_to_expiry", Decimal("30"), "above 30 days; the short-dated focus is off (long-dated contracts tie up "
                                           "cash and settle too slowly to learn from)"),
 )
 
 
-def _micro_live_problems(cfg: Any) -> list[str]:
-    out = []
-    fix = "lower it (profile: micro_live) or set allow_above_micro_live: true"
-    for key, limit in MICRO_LIVE_CEILINGS.items():
-        v = getattr(cfg, key)
-        if isinstance(limit, bool):
-            if v != limit:
-                out.append(f"{key} is {str(v).lower()}; micro_live requires {str(limit).lower()}: set it to "
-                           f"{str(limit).lower()} or set allow_above_micro_live: true")
-        elif v > limit:
-            out.append(f"{key} is {v}, above the micro_live ceiling {limit}: {fix}")
+def _micro_live_problems(cfg: Any, counts: Callable[[], FastTrackCounts]) -> tuple[list[str], list[str]]:
+    """(problems, notes) for the fast-track gates. Problems fail live preflight (DRY_RUN prints them as notes)."""
+    out, notes = [], []
+    over = [(k, getattr(cfg, k), lim) for k, lim in MICRO_LIVE_CEILINGS.items()
+            if not isinstance(lim, bool) and getattr(cfg, k) > lim]
+    if over:
+        n = counts().settled
+        if n >= SCALE_UP_SETTLED:
+            notes.append(f"limits above micro_live ({', '.join(k for k, _, _ in over)}) unlocked: {n} settled live "
+                         f"trades in audit.log (needs {SCALE_UP_SETTLED} settled)")
+        else:
+            out += [f"{k} is {v}, above the micro_live ceiling {lim}: needs at least {SCALE_UP_SETTLED} settled live "
+                    f"trades in audit.log (found {n}); lower it (profile: micro_live) until then" for k, v, lim in over]
+    if cfg.runner_auto_confirm_live:
+        n = counts().hand_confirmed_clean
+        if n >= AUTO_CONFIRM_HAND_TRADES:
+            notes.append(f"runner_auto_confirm_live unlocked: {n} clean hand-confirmed live trades in audit.log "
+                         f"(needs {AUTO_CONFIRM_HAND_TRADES})")
+        else:
+            out.append(f"runner_auto_confirm_live is true: live auto-confirm needs at least {AUTO_CONFIRM_HAND_TRADES} "
+                       "hand-confirmed live trades that ended \"placed\", counted since the last unconfirmed or "
+                       f"unknown live result (found {n}); set it to false until then")
     if cfg.learning_budget_usd is None:
-        out.append("learning_budget_usd is unset: micro_live sets the equity floor as starting_balance_usd - "
-                   "learning_budget_usd; set it (or set allow_above_micro_live: true)")
-    return out
+        out.append("learning_budget_usd is unset: live mode sets the equity floor as starting_balance_usd - "
+                   "learning_budget_usd; set it (profile: micro_live)")
+    return out, notes
 
 
 def _learning_budget_notes(cfg: Any) -> list[str]:
@@ -198,11 +295,16 @@ def check_with_notes(environ: Any = os.environ, here: Path = HERE, now: float | 
             if (op == "gt" and v > limit) or (op == "lt" and v < limit):
                 fails.append(f"{key} is {v}; {desc}")
         notes += _learning_budget_notes(cfg)
-        ceiling = _micro_live_problems(cfg)
-        if cfg.allow_above_micro_live:
-            notes.append("allow_above_micro_live is true: live limits above the micro_live ceilings are allowed"
-                         + (f" ({'; '.join(ceiling)})" if ceiling else ""))
-        elif is_live(environ):
+        cache: list[FastTrackCounts] = []
+
+        def counts() -> FastTrackCounts:
+            if not cache:
+                cache.append(fast_track_counts(here / "audit.log", env, now))
+            return cache[0]
+
+        ceiling, unlocked = _micro_live_problems(cfg, counts)
+        notes += unlocked
+        if is_live(environ):
             fails += ceiling
         else:
             notes += [f"{c} (blocks live mode)" for c in ceiling]
