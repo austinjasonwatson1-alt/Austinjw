@@ -283,7 +283,8 @@ def test_open_orders_lookup_failure_rejects(env):
 
 def hold(env, qty, outcome="yes", on_hold="0"):
     env.market.positions = {"positions": [
-        {"symbol": SYMBOL, "outcome": outcome, "totalQuantity": qty, "quantityOnHold": on_hold}]}
+        {"symbol": SYMBOL, "outcome": outcome, "totalQuantity": qty, "quantityOnHold": on_hold, "avgPrice": "0",
+         "contractMetadata": {"eventTicker": EVENT, "category": "economics"}}]}
 
 
 def test_sell_within_holdings_uses_one_minus_price_cost(env):

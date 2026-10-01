@@ -5,7 +5,7 @@ import json
 import pytest
 import yaml
 
-from conftest import SYMBOL, write_config
+from conftest import SYMBOL, make_position, write_config
 from guardrails import ConfigError, load_config
 
 
@@ -55,7 +55,7 @@ def test_limit_enforced_again_at_confirm(env):
 
 def test_sells_count(env):
     write_config(env.config_path, max_trades_per_day=1)
-    env.market.positions = {"positions": [{"symbol": SYMBOL, "outcome": "yes", "totalQuantity": "10"}]}
+    env.market.positions = {"positions": [make_position(total="10")]}
     g = env.guard()
     r = g.propose(SYMBOL, "yes", "sell", "5", "0.70")
     assert g.confirm(r["confirmation_token"])["ok"]

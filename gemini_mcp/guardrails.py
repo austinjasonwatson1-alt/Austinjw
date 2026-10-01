@@ -887,6 +887,50 @@ def _quote(v: Any) -> Decimal | None:
     return d if d.is_finite() and _ZERO <= d <= _ONE else None
 
 
+def _metadata(obj: dict, what: str) -> tuple[str, str]:
+    """(event ticker, category) from contractMetadata. Gemini documents both for positions and orders; without
+    them exposure can't be attributed, so refuse."""
+    meta = obj.get("contractMetadata")
+    if not isinstance(meta, dict):
+        raise Rejected(f"{what} returned an entry without contractMetadata; can't attribute exposure, refusing")
+    ev, cat = meta.get("eventTicker"), meta.get("category")
+    if not isinstance(ev, str) or not ev or not isinstance(cat, str) or not cat.strip():
+        raise Rejected(f"{what} returned contractMetadata without eventTicker or category; can't attribute "
+                       "exposure, refusing")
+    return ev, _category(cat)
+
+
+def _lower(v: Any) -> str | None:
+    return v.lower() if isinstance(v, str) else None
+
+
+def _placement_problem(resp: Any, symbol: str, side: str, outcome: str, quantity: Decimal,
+                       price: Decimal) -> str | None:
+    """None if Gemini's reply positively confirms a live order matching the request, else why not."""
+    if not isinstance(resp, dict):
+        return "reply is not an object"
+    if resp.get("result") == "error":
+        return "Gemini returned an error"
+    if resp.get("orderId") is None:
+        return "no order id"
+    if _lower(resp.get("status")) not in ("open", "filled"):
+        return f"status {resp.get('status')!r} is not open or filled"
+    echo = [("symbol", resp.get("symbol"), symbol), ("side", _lower(resp.get("side")), side),
+            ("outcome", _lower(resp.get("outcome")), outcome)]
+    for name, got, want in echo:
+        if name in resp and got != want:
+            return f"{name} {resp.get(name)!r} doesn't match the request ({want})"
+    for name, want in (("quantity", quantity), ("price", price)):
+        if name in resp:
+            try:
+                ok = Decimal(str(resp[name])) == want
+            except InvalidOperation:
+                ok = False
+            if not ok:
+                return f"{name} {resp.get(name)!r} doesn't match the request ({want})"
+    return None
+
+
 def _cancel_confirmed(resp: Any, order_id: int) -> bool:
     """True only if Gemini's cancel reply positively confirms it. Documented success reply:
     {"result": "ok", "message": "Order N cancelled successfully"}. Also accepted: is_cancelled: true, or an order
@@ -1023,9 +1067,13 @@ class Guardrails:
             raise Rejected(f"balances lookup failed: {e}")
         if not isinstance(balances, list):
             raise Rejected("balances lookup returned an unexpected shape")
-        usd = [b for b in balances if isinstance(b, dict) and str(b.get("currency", "")).upper() == "USD"]
-        amount = _dec_field(usd[0], "amount", "balances") if usd else _ZERO
-        cash = _dec_field(usd[0], "available", "balances") if usd else _ZERO
+        if not all(isinstance(b, dict) for b in balances):
+            raise Rejected("balances lookup returned a non-object entry; refusing")
+        usd = [b for b in balances if str(b.get("currency", "")).upper() == "USD"]
+        if len(usd) != 1:
+            raise Rejected(f"balances lookup returned {len(usd)} USD entries (need exactly 1); refusing")
+        amount = _dec_field(usd[0], "amount", "balances")
+        cash = _dec_field(usd[0], "available", "balances")
 
         try:
             resp = self.market.get_positions()
@@ -1042,25 +1090,29 @@ class Guardrails:
         resting_sells: dict[tuple[str, str], Decimal] = {}
         for o in self._active_orders():
             if not isinstance(o, dict):
-                continue
-            rem = _dec_field({"v": o.get("remainingQuantity") or o.get("quantity") or "0"}, "v", "open orders")
-            if rem < 0:
-                raise Rejected("open orders lookup returned an invalid (negative or out-of-range) quantity or price")
-            sym = str(o.get("symbol") or "")
-            side = o.get("side").lower() if isinstance(o.get("side"), str) else None
+                raise Rejected("open orders lookup returned a non-object entry; refusing")
+            sym = o.get("symbol")
+            if not isinstance(sym, str) or not sym:
+                raise Rejected("open orders lookup returned an order without a symbol; refusing")
+            side = _lower(o.get("side"))
             if side not in ALLOWED_SIDES:
                 raise Rejected(f"open orders lookup returned an order with an unrecognized side "
                                f"{_clip(str(o.get('side')))!r}; can't tell buys from sells, refusing")
+            outcome = _lower(o.get("outcome"))
+            if outcome not in ALLOWED_OUTCOMES:
+                raise Rejected(f"open orders lookup returned an order with an unrecognized outcome "
+                               f"{_clip(str(o.get('outcome')))!r}; refusing")
+            rem = _dec_field(o, "remainingQuantity", "open orders")
+            if rem < 0:
+                raise Rejected("open orders lookup returned an invalid (negative or out-of-range) quantity or price")
+            ev, cat = _metadata(o, "open orders lookup")
             if side == "buy":
-                meta = o.get("contractMetadata") if isinstance(o.get("contractMetadata"), dict) else {}
                 price = _dec_field(o, "price", "open orders")
                 if not (_ZERO <= price <= _ONE):
                     raise Rejected("open orders lookup returned an invalid (negative or out-of-range) quantity or price")
-                exp.add(sym, str(meta.get("eventTicker") or ""), _category(meta.get("category")), rem * price)
+                exp.add(sym, ev, cat, rem * price)
             else:
-                outs = (o["outcome"],) if o.get("outcome") in ALLOWED_OUTCOMES else ALLOWED_OUTCOMES
-                for out in outs:
-                    resting_sells[(sym, out)] = resting_sells.get((sym, out), _ZERO) + rem
+                resting_sells[(sym, outcome)] = resting_sells.get((sym, outcome), _ZERO) + rem
 
         for p in raw:
             if not isinstance(p, dict) or not isinstance(p.get("symbol"), str) or p.get("outcome") not in ALLOWED_OUTCOMES:
@@ -1070,23 +1122,21 @@ class Guardrails:
                 raise Rejected("positions lookup returned duplicate entries for one contract and outcome")
             seen.add(key)
             total = _dec_field(p, "totalQuantity", "positions lookup")
-            on_hold = _dec_field({"v": p.get("quantityOnHold") or "0"}, "v", "positions lookup")
-            avg = _dec_field({"v": p.get("avgPrice") or "0"}, "v", "positions lookup")
+            on_hold = _dec_field(p, "quantityOnHold", "positions lookup")
+            avg = _dec_field(p, "avgPrice", "positions lookup")
             # Gemini omits marketValue when there's no live sell quote; count that as $0.
             has_quote = p.get("marketValue") is not None
             value = _dec_field(p, "marketValue", "positions lookup") if has_quote else _ZERO
             if min(total, on_hold, avg, value) < 0 or avg > 1:
                 raise Rejected(f"positions lookup returned an invalid (negative or out-of-range) quantity, price "
                                f"or value for {p['symbol']}|{p['outcome']}")
-            meta = p.get("contractMetadata") if isinstance(p.get("contractMetadata"), dict) else {}
-            ev = str(meta.get("eventTicker") or "")
-            cat = _category(meta.get("category"))
+            ev, cat = _metadata(p, "positions lookup")
             cost = total * avg
             positions.append({
                 "symbol": p["symbol"], "outcome": p["outcome"], "event_ticker": ev, "category": cat,
                 "quantity": total, "available": total - max(on_hold, resting_sells.get(key, _ZERO)),
                 "cost_basis": cost, "value": value,
-                "has_quote": has_quote, "expiry": meta.get("expiryDate"),
+                "has_quote": has_quote, "expiry": p["contractMetadata"].get("expiryDate"),
             })
             exp.add(p["symbol"], ev, cat, max(cost, value))
         exp.equity, exp.cash, exp.positions = amount + sum((p["value"] for p in positions), _ZERO), cash, positions
@@ -1317,6 +1367,10 @@ class Guardrails:
         trades = self.ledger.trades_on(self._today())
         self._check_ledger_against_audit(self._today(), spent, trades)
         daily_limit = self._daily_limit(config, marks["day_start"])
+        if config.category_exposure_caps and not (isinstance(event.get("category"), str)
+                                                  and event["category"].strip()):
+            raise Rejected(f"event {event_ticker} has no category but category_exposure_caps are configured; "
+                           "can't apply the cap, refusing")
         category = _category(event.get("category"))
         cat_cap_pct = category_cap(config, category)
         symbols = {c.get("instrumentSymbol") for c in event["contracts"] if isinstance(c, dict)}
@@ -1589,11 +1643,13 @@ class Guardrails:
             }, error=str(e))
         order_id = resp.get("orderId") if isinstance(resp, dict) else None
         status = resp.get("status") if isinstance(resp, dict) else None
-        if order_id is None or (isinstance(resp, dict) and resp.get("result") == "error"):
-            # A 2xx without an order id (e.g. Gemini's {"result": "error"} body) is not a placed order.
-            return self._write_result(intent_id, "unconfirmed", common, None, {
+        problem = _placement_problem(resp, v.instrument_symbol, v.side, v.outcome, v.quantity, v.price)
+        if problem:
+            # Only a reply that positively confirms a live order matching the request counts as placed.
+            return self._write_result(intent_id, "unconfirmed", common, order_id, {
                 "ok": False,
-                "error": f"Gemini did not return an order id; response: {resp!r}",
+                "order_id": order_id,
+                "error": f"placement unconfirmed ({problem}); response: {resp!r}",
                 "note": "The order may or may not exist. It will NOT be retried. Check list_open_orders before "
                 "proposing again. The spend stays counted for today.",
             }, response=resp)

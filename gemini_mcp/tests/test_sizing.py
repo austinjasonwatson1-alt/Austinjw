@@ -162,8 +162,9 @@ def test_probability_not_allowed_on_sells(env):
 @pytest.mark.parametrize("setup,qty,needle", [
     (lambda e: None, "250", "max_order_pct_of_balance"),  # 250 x 0.40 = $100 > 8% of 1000
     (lambda e: e.market.positions.update(positions=[
-        {"symbol": "GEMI-FEDJAN26-UP", "outcome": "yes", "totalQuantity": "300", "avgPrice": "0.45",
-         "marketValue": "140", "contractMetadata": {"eventTicker": EVENT}}]), "100", "max_market_pct"),
+        {"symbol": "GEMI-FEDJAN26-UP", "outcome": "yes", "totalQuantity": "300", "quantityOnHold": "0",
+         "avgPrice": "0.45", "marketValue": "140",
+         "contractMetadata": {"eventTicker": EVENT, "category": "economics"}}]), "100", "max_market_pct"),
     (lambda e: e.market.balances[0].update(available="20"), "100", "available cash"),
 ])
 def test_server_percentage_caps_apply_to_manual_quantity(env, setup, qty, needle):

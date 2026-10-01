@@ -5,8 +5,8 @@ import pytest
 
 from conftest import EVENT, SYMBOL
 
-NEAR_CAP = {"symbol": SYMBOL, "outcome": "yes", "totalQuantity": "240", "avgPrice": "0.70", "marketValue": "168",
-            "contractMetadata": {"eventTicker": EVENT}}
+NEAR_CAP = {"symbol": SYMBOL, "outcome": "yes", "totalQuantity": "240", "quantityOnHold": "0", "avgPrice": "0.70",
+            "marketValue": "168", "contractMetadata": {"eventTicker": EVENT, "category": "economics"}}
 
 
 @pytest.mark.parametrize("bad", [
@@ -16,7 +16,8 @@ NEAR_CAP = {"symbol": SYMBOL, "outcome": "yes", "totalQuantity": "240", "avgPric
     {"totalQuantity": "10", "quantityOnHold": "-5", "avgPrice": "0.5", "marketValue": "5"},
 ])
 def test_negative_position_fields_fail_closed(env, bad):
-    other = {"symbol": "GEMI-FEDJAN26-OTHER", "outcome": "no", "contractMetadata": {"eventTicker": EVENT}, **bad}
+    other = {"symbol": "GEMI-FEDJAN26-OTHER", "outcome": "no", "quantityOnHold": "0",
+             "contractMetadata": {"eventTicker": EVENT, "category": "economics"}, **bad}
     env.market.positions = {"positions": [NEAR_CAP, other]}
     r = env.guard().propose(SYMBOL, "yes", "buy", "20", "0.50")
     assert not r["ok"] and "invalid" in r["reason"], r
@@ -28,6 +29,6 @@ def test_negative_position_fields_fail_closed(env, bad):
 def test_negative_or_out_of_range_open_order_fails_closed(env, bad):
     env.market.positions = {"positions": [NEAR_CAP]}
     env.market.active = {"orders": [{"orderId": 9, "symbol": "GEMI-FEDJAN26-OTHER", "outcome": "no", "side": "buy",
-                                     "contractMetadata": {"eventTicker": EVENT}, **bad}]}
+                                     "contractMetadata": {"eventTicker": EVENT, "category": "economics"}, **bad}]}
     r = env.guard().propose(SYMBOL, "yes", "buy", "20", "0.50")
     assert not r["ok"] and "invalid" in r["reason"], r

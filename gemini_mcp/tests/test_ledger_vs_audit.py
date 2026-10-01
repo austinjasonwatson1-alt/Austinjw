@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from conftest import SYMBOL
+from conftest import SYMBOL, make_position
 
 
 def buy(g, qty="4", price="0.50"):
@@ -69,7 +69,7 @@ def test_state_wiped_but_audit_shows_today_is_refused(env):
 
 
 def test_sells_count_toward_the_audit_trade_floor(env):
-    env.market.positions = {"positions": [{"symbol": SYMBOL, "outcome": "yes", "totalQuantity": "10"}]}
+    env.market.positions = {"positions": [make_position(total="10")]}
     g = env.guard()
     assert g.confirm(g.propose(SYMBOL, "yes", "sell", "5", "0.70")["confirmation_token"])["ok"]
     edit_ledger(env, lambda d: d["trades"]["sandbox:live"].update({"2026-09-21": 0}))

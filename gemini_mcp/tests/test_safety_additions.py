@@ -132,7 +132,8 @@ def test_deleting_breaker_kill_is_logged_with_its_reason(env):
 
 def test_kill_file_lists_positions_and_flags_missing_quotes(env):
     env.market.positions = {"positions": [
-        {"symbol": SYMBOL, "outcome": "yes", "totalQuantity": "10", "avgPrice": "0.5", "marketValue": "4",
+        {"symbol": SYMBOL, "outcome": "yes", "totalQuantity": "10", "quantityOnHold": "0", "avgPrice": "0.5",
+         "marketValue": "4",
          "contractMetadata": {"eventTicker": EVENT, "category": "Economics"}},
         {"symbol": "GEMI-OTHER-X", "outcome": "no", "totalQuantity": "20", "quantityOnHold": "5", "avgPrice": "0.3",
          "contractMetadata": {"eventTicker": "OTHER", "category": "sports"}},  # no marketValue = no quote
@@ -192,7 +193,8 @@ def test_sizing_category_clamp():
 def sports_market(env):
     env.market.events[EVENT] = make_event(category="Sports")
     env.market.positions = {"positions": [
-        {"symbol": "GEMI-NBA-X", "outcome": "yes", "totalQuantity": "300", "avgPrice": "0.6", "marketValue": "170",
+        {"symbol": "GEMI-NBA-X", "outcome": "yes", "totalQuantity": "300", "quantityOnHold": "0", "avgPrice": "0.6",
+         "marketValue": "170",
          "contractMetadata": {"eventTicker": "NBA1", "category": "sports"}}]}  # $180 sports exposure
 
 

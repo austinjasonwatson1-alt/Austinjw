@@ -69,7 +69,8 @@ def test_sells_also_blocked_after_trip(env):
     g = env.guard()
     g.propose(SYMBOL, "yes", "buy", "1", "0.40")
     set_equity(env, 500)
-    env.market.positions = {"positions": [{"symbol": SYMBOL, "outcome": "yes", "totalQuantity": "5"}]}
+    env.market.positions = {"positions": [{"symbol": SYMBOL, "outcome": "yes", "totalQuantity": "5",
+                                           "quantityOnHold": "0", "avgPrice": "0", "contractMetadata": {"eventTicker": EVENT, "category": "economics"}}]}
     r = g.propose(SYMBOL, "yes", "sell", "5", "0.40")
     assert not r["ok"] and "circuit breaker" in r["reason"]
 
@@ -104,7 +105,8 @@ def test_equity_lookup_failure_rejects_without_tripping(env):
 
 def test_position_value_missing_counts_as_zero(env):
     env.market.positions = {"positions": [
-        {"symbol": SYMBOL, "outcome": "yes", "totalQuantity": "100", "avgPrice": "0.5"}]}  # no marketValue
+        {"symbol": SYMBOL, "outcome": "yes", "totalQuantity": "100", "quantityOnHold": "0", "avgPrice": "0.5",
+         "contractMetadata": {"eventTicker": EVENT, "category": "economics"}}]}  # no marketValue
     s = env.guard().risk_summary()
     assert s["equity_usd"] == "1000.00" and s["event_exposure_usd"]  # exposure counts cost basis $50
 
