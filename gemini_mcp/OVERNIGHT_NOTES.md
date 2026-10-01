@@ -79,3 +79,33 @@ Every number read from Gemini is now finite, non-negative and at most 1e12 (pric
 Observed, not changed:
 - **Live double sell depends on Gemini's own view (Q5).** Two sells of the same holding are refused at the second confirm only because the exchange's open orders already show the first one; the stateful fake proves this. If Gemini's open-orders or positions view lags just after a placement, a second sell proposed in that window could pass the guardrails, and Gemini's own holding check would be the last line of defense.
 - **DRY_RUN counts real open orders.** In DRY_RUN, `max_open_orders` counts the *real account's* open orders, because paper orders never rest. This only ever blocks paper trading, never allows extra, so I left it.
+
+**Process slip, fixed.** The push after Task 4 (`dc11f02`) went out while one property test was failing. My command piped pytest into `tail`, which hid its exit code. The failure was a **test** bug: the property counted unfilled paper sells as sold, so no code was at fault. It was fixed and pinned as an `@example` in `bdb4b8e`. Since then every push is gated on pytest's own exit status.
+
+## Task 5: read-only dashboard
+
+**What it is.** `python dashboard.py` writes `dashboard.html`. The optional `python report.py --json > report.json` beforehand fills the calibration and Brier panels.
+
+The page shows:
+- Equity, peak and drawdown against the floor, with trips marked.
+- Today's spend and trade count against the limits, plus drawdown and daily-loss meters against the breaker thresholds.
+- Open positions. Paper positions come from the ledger. Live positions come from the last run's position review only, so a sold position doesn't linger.
+- A filterable decision timeline, and each contract's thesis, invalidation conditions and sources.
+- Calibration: my estimates and the market price against observed outcomes, with N per bin.
+- My Brier score against the market's, per edge bucket, with N and a low-N flag.
+- A **Needs attention** panel: KILL contents, a tripped breaker, unknown orders, breaker trips, KILL detected or deleted, failed decisions, thin-book skip counts, missing quotes, and "a breaker would trip on the next order".
+
+**Safety, all tested in `tests/test_dashboard.py`.**
+- Inputs are opened read-only. A byte-for-byte snapshot of every file is unchanged except the new `dashboard.html`.
+- Sockets are blocked during generation, and it imports no HTTP client.
+- It refuses to write over any input or inside `state/`.
+- A CSP with `default-src 'none'; connect-src 'none'` blocks all network requests.
+- Every log string is escaped. Script tags, `javascript:` and `data:` links, and `</script>` breakouts are neutralized; only http(s) source links are rendered, with `rel="noopener noreferrer nofollow"`.
+
+**Design.** It uses the validated dataviz palette, with blue for me and equity and orange for the market; both modes pass the CVD and contrast checks. Status colors appear only for bad states, always with an icon and a label. Lines are 2px, gridlines are hairline, every chart has a legend and a table view, and native tooltips plus an equity crosshair cover hover. Light, dark and auto themes are selectable. I rendered it in Chromium at 1300px, light and dark, and at 390px (phone). There's no horizontal overflow, no console errors, and no network requests.
+
+**Sample.** `samples/dashboard_sample.html` is built by `samples/make_sample.py`. It simulates two weeks of the real runner and server against the fake exchange: 24 contracts, a timed-out placement that shows up as an unknown order, and a drawdown that trips the breaker and creates KILL. Contracts are resolved with a seeded coin flip, and `report.py`'s own functions build `report.json`. `dashboard.html` and `report.json` are gitignored because they hold account data.
+
+**Two things found while building it, both fixed test-first:**
+- `report.unknown_orders` said "Gemini returned no order id" for every unconfirmed result, including timeouts. It now shows the real error (`3319a0f`). The same commit added the `points` field the calibration chart uses.
+- **Q6:** the simulation showed `max_trades_per_day` blocking risk-reducing **exits** once the day's count was used up. That's as you specified ("counting placed orders"), so I didn't change it.
