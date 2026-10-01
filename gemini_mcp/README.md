@@ -263,7 +263,7 @@ Not checked by code, so do these yourself:
 
 - **Fees:** the fee per contract is an estimate from config.
 - **Open-order count:** only the first 100 open orders are read, so `max_open_orders` is capped at 100 in config.
-- **State files:** if `state/risk_state.json` goes missing after trading, orders are refused rather than re-baselining the breakers. Restore it, or delete `state/daily_spend.json` as well to start over on purpose. Deleting `state/daily_spend.json` alone resets today's spend count.
+- **State files:** if `state/risk_state.json` goes missing after trading, orders are refused rather than re-baselining the breakers. Restore it, or delete `state/daily_spend.json` as well to start over on purpose. `state/daily_spend.json` is refused if it's missing (once used), malformed, or shows less spend or fewer trades today than the `confirmation` entries in `audit.log`. Each propose and confirm reads today's lines of `audit.log`.
 - **Exposure attribution:** positions and resting buys count toward an event when their event metadata matches *or* their symbol is one of that event's contracts.
 - **`get_order_status`:** searches up to 1,000 open and 5,000 history orders.
 - **Book filter scope:** the spread and depth check is applied by the runner only. Manual `propose_order` calls from a chat aren't filtered by it.

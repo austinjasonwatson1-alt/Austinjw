@@ -347,9 +347,12 @@ class SpendLedger:
         with self._lock, file_lock(self.path):
             raw = self._load()["spend"].get(self.mode_key, {}).get(day, "0")
         try:
-            return Decimal(raw)
+            d = Decimal(raw) if isinstance(raw, str) else None
         except InvalidOperation:
-            raise Rejected("daily spend ledger has a malformed amount; refusing to trade")
+            d = None
+        if d is None or not d.is_finite() or d < 0:
+            raise Rejected(f"daily spend ledger has a malformed amount {_clip(str(raw))!r} for {day}; refusing to trade")
+        return d
 
     def has_history(self) -> bool:
         """True if any buy was ever recorded for this mode."""
@@ -1225,6 +1228,39 @@ class Guardrails:
         for name, fields in events:
             self.audit.write(name, mode=self.mode, **fields)
 
+    def _audit_today(self, today: str) -> tuple[Decimal, int]:
+        """(buy dollars, orders) confirmed today in this mode according to audit.log. Unparseable lines are
+        skipped: the audit log is only used as a floor under the ledger."""
+        spend, count = _ZERO, 0
+        prefix = '{"ts": "' + today
+        try:
+            f = open(self.audit.path, encoding="utf-8")
+        except FileNotFoundError:
+            return spend, count
+        with f:
+            for line in f:
+                if not line.startswith(prefix):
+                    continue
+                try:
+                    e = json.loads(line)
+                    if e.get("event") != "confirmation" or e.get("mode") != self.mode:
+                        continue
+                    cost = Decimal(str(e.get("worst_case_cost_usd"))) if e.get("side") == "buy" else _ZERO
+                except (ValueError, InvalidOperation, AttributeError):
+                    continue
+                if cost.is_finite() and cost > 0:
+                    spend += cost
+                count += 1
+        return spend, count
+
+    def _check_ledger_against_audit(self, today: str, spent: Decimal, trades: int) -> None:
+        a_spend, a_trades = self._audit_today(today)
+        if spent < a_spend or trades < a_trades:
+            raise Rejected(
+                f"daily spend ledger {self.ledger.path} shows ${spent} spent / {trades} trades today (UTC), but "
+                f"audit.log shows ${a_spend} / {a_trades} confirmed orders; refusing so the daily caps aren't "
+                "bypassed. Restore the ledger (or raise today's entries to at least the audit totals).")
+
     def _daily_limit(self, config: Config, day_start: Decimal) -> Decimal:
         return min(config.max_daily_spend_usd, config.max_daily_spend_pct * max(day_start, _ZERO))
 
@@ -1258,6 +1294,8 @@ class Guardrails:
         ctx = self._context()
         marks = self._check_breakers(config, ctx)
         spent = self.ledger.spent_on(self._today())
+        trades = self.ledger.trades_on(self._today())
+        self._check_ledger_against_audit(self._today(), spent, trades)
         daily_limit = self._daily_limit(config, marks["day_start"])
         category = _category(event.get("category"))
         cat_cap_pct = category_cap(config, category)
@@ -1322,7 +1360,6 @@ class Guardrails:
             if cost > ctx.cash:
                 raise Rejected(f"order cost ${cost} exceeds available cash ${ctx.cash:.2f}", details)
 
-        trades = self.ledger.trades_on(self._today())
         if trades >= config.max_trades_per_day:
             raise Rejected(f"{trades} trades placed today (UTC); max_trades_per_day is {config.max_trades_per_day}",
                            details)
@@ -1484,8 +1521,9 @@ class Guardrails:
             resolved_event_ticker=v.event_ticker,
             sizing=pending.sizing,
         )
-        self.audit.write("confirmation", **common)
+        # Ledger first: audit.log must never show more than the ledger (that mismatch is refused).
         spent_total, _ = self.ledger.record_trade(self._today(), v.cost_usd if v.side == "buy" else _ZERO)
+        self.audit.write("confirmation", **common)
 
         if self.dry_run:
             assert self.paper is not None
