@@ -59,3 +59,23 @@ Observed and safe, not changed:
 - **Restart reusing a nonce.** A restarted process whose nonce clock didn't move past the last nonce got `InvalidNonce` from the fake, the way Gemini would. Everything was refused, so it failed closed. Real restarts take more than 1 s, so the wall-clock nonces move on. Two processes sharing one key can still collide (Q3).
 - **Breakers fire only on a proposal.** They're evaluated on propose and confirm only. If equity drops while the runner proposes nothing (everything is held or resting), no KILL is created until the next proposal. `run_start` does log `breaker_would_trip` (Q4).
 - **DRY_RUN still reads the account.** In DRY_RUN, the `get_balances`/`get_positions` tools still make read-only signed account calls to show real balances next to the paper figures. That's by design; nothing is placed.
+
+## Task 4: property tests, fuzzing and concurrency
+
+**Property tests** (`tests/test_properties.py`, hypothesis; added to requirements.txt):
+- **`size_position`:** across random balances, prices, estimates, fees, caps, grids and minimums, the stake is never negative or NaN. It always equals qty × p and sits on the grid at or above the minimum. qty × (p + fee) never exceeds any cap: Kelly, dollar ceiling, order %, market %, category %, daily, or cash.
+- **Guardrails, propose → confirm, live and DRY_RUN:** every order that gets through respects `max_order_usd`, order %, market %, the daily cap (dollar and %), cash, the trade count, the price and quantity grids, and held quantity in DRY_RUN. Garbage inputs are always a clean, logged rejection with nothing placed.
+- **Not vacuous:** I checked with hypothesis statistics. The first version placed **zero** orders in every example, so it proved nothing. After restructuring, about 20% of examples place one or more orders.
+
+**Fuzzing responses** (`tests/test_fuzz_responses.py`): random missing, extra, wrongly-typed and extreme fields in positions, open orders, balances, events and contracts. A bad required field always rejects both a buy and a sell, logged. Extra fields change nothing. Nothing crashes. Real bugs found and fixed in `20b73a8`:
+1. A USD balance of `-1` was accepted.
+2. A contract `priceIncrement` of `1e-400` was accepted, which made the price grid meaningless.
+3. A position with an empty `symbol` was accepted.
+
+Every number read from Gemini is now finite, non-negative and at most 1e12 (prices at most 1), no tinier than 1e-12, and at most 30 digits. Increments must fall within plausible ranges.
+
+**Multi-process stress** (`tests/test_stress_multiprocess.py`): six processes, each with its own key, share one file-backed fake and one state directory. Spend (at the fake and in the ledger), trade count, `max_order_usd`, and the open-order high-water mark at the exchange all stay within the caps. Every intent has a result. **I verified the test catches a violation:** with the cross-process orders lock disabled, all three trials reached 5 open orders against a cap of 4.
+
+Observed, not changed:
+- **Live double sell depends on Gemini's own view (Q5).** Two sells of the same holding are refused at the second confirm only because the exchange's open orders already show the first one; the stateful fake proves this. If Gemini's open-orders or positions view lags just after a placement, a second sell proposed in that window could pass the guardrails, and Gemini's own holding check would be the last line of defense.
+- **DRY_RUN counts real open orders.** In DRY_RUN, `max_open_orders` counts the *real account's* open orders, because paper orders never rest. This only ever blocks paper trading, never allows extra, so I left it.
