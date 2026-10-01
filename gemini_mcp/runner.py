@@ -240,8 +240,10 @@ class Runner:
         self.out(f"[{kind}] {fields.get('instrument_symbol', '')} {reason}".rstrip())
 
     def prior_for(self, symbol: str, outcome: str) -> dict[str, Any] | None:
+        # Live and paper records share paper_ledger.json; never use one mode's estimate for the other.
         recs = [r for r in self.paper.snapshot()["research"].values()
-                if r.get("instrument_symbol") == symbol and r.get("outcome") == outcome and r.get("kind") == "entry"]
+                if r.get("instrument_symbol") == symbol and r.get("outcome") == outcome and r.get("kind") == "entry"
+                and str(r.get("order_ref", "")).startswith("live:") == (not self.dry_run)]
         return max(recs, key=lambda r: r.get("ts", "")) if recs else None
 
     async def do_research(self, info: dict[str, Any], prior: dict[str, Any] | None) -> Estimate:
