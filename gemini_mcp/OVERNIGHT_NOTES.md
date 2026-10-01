@@ -397,3 +397,45 @@ Full test suite, `BASH32=<bash 3.2.57> python -m pytest -q` in `gemini_mcp/` (Py
 ..........................................                               [100%]
 690 passed in 93.98s (0:01:33)
 ```
+
+# Fast-track session (after `7c5dabf`)
+
+Five tasks, each test-first, each pushed only after the full suite passed (pytest exit code checked directly).
+
+## What changed
+
+1. **Short-dated focus.** `max_days_to_expiry` (7) and `min_hours_to_expiry` (6). The runner researches and enters only contracts inside that window. Others are logged as `no_trade` "outside expiry window" before any book fetch or research. Position review ignores the window, so held positions are always reviewed. An empty window is a `ConfigError`. Preflight *notes* (doesn't fail) `max_days_to_expiry` > 30. The test fixtures' expiry moved from 2027-01-31 to 2026-09-24, inside the window.
+2. **Research budget.**
+   - Every research call writes a `research_cost` audit entry, failed calls included. The estimate comes from tokens and searches at config prices: by default Opus 5.5 list prices ($4 / $20 per million input / output tokens) and $0.01 per web search ($10 per 1,000).
+   - The runner stops, logging `research_budget_reached` once, when the next call would pass `max_research_cost_usd_per_run` or `_per_day`. The next call is projected at the costliest call seen today.
+   - The day total is read from `audit.log` and counts DRY_RUN and live together, because research costs real money in both.
+   - `max_research_per_run` may go up to 20, but above 5 `load_config` requires the per-run cap.
+3. **micro_live profile.**
+   - `profile: <name>` applies `profiles.<name>` over the base keys. Every profile is validated even when it isn't selected.
+   - `learning_budget_usd` sets the floor to start − budget, never below 40% of the start. In paper mode the bankroll stands in for the start.
+   - Live preflight fails above the micro_live ceilings (5 / 15 / 4 / 2, auto-confirm off) or with `learning_budget_usd` unset, unless `allow_above_micro_live: true`. That flag is always printed as a note.
+4. **Paper vs live.**
+   - Each order records `paper_assumed` at confirm, in `confirmation`, `order_intent`, `order_result` and `would_place`.
+   - `report.py --live` prints the PAPER vs LIVE FILLS table (price gap, fee gap, fill shortfall; N, average, worst) and the "consistently worse" flag.
+5. **RUNBOOK §9 Fast track.** It sets the agreed gates. §8 now points to it instead of saying "no exceptions", and its "small size" line now says `profile: micro_live` instead of the old $2 / $5 caps.
+
+## Defaults taken (pick the safer option, flag it here)
+
+- **The ceilings apply to live mode whatever profile is active,** not only when `profile: micro_live` is selected. Otherwise a live config with no profile and big base limits would slip through. Going above them always needs `allow_above_micro_live: true`.
+- **Live preflight requires `learning_budget_usd`** (unless overridden). The shipped micro_live profile leaves it `null`, so you must choose it. When set, it **replaces** `equity_floor_pct`, per your formula, even when that floor is lower than the 60% default.
+- **Shipped research caps: $3 per run, $10 per day,** with `max_research_per_run: 10`. The config default for `max_research_per_run` dropped from 10 to 5, so a config that omits it still loads without a cost cap.
+- **Unknown research usage** (an API error, for example) is charged as 200k input tokens + 16k output tokens + every search, about $1.17. That over-counts rather than under-counts.
+- **A refusal fallback to another model** may cost more than the Opus 5.5 prices used in the estimate. Set the prices in `config.yaml` to the dearest model you expect.
+- **"Side by side" means the paper assumption for the same order at the same moment,** not a separate paper run. That is the only apples-to-apples comparison. A parallel DRY_RUN process still works as before.
+- **Fee gap:** Gemini's order history has no documented fee field. The report looks for `fee` / `fees` / `totalFee` / `feeAmount` and shows n/a, never zero, when none is present. This is added to `docs/real_response_check.md` to verify with a real response.
+- **The worse-fills flag** needs N ≥ 5, and then either ≥ 2/3 of orders worse (price, fee or a shortfall) or a positive average gap.
+- **A min-hours entry (6 h) is inside `exit_hours_before_expiry` (24 h).** Such an entry is sold on the next run unless it is clearly winning. I left both values as you set them and documented this in `config.yaml`.
+
+## Open questions
+
+- Should `max_research_cost_usd_per_day` also be *required* above some run count? Right now only the per-run cap is required, as you asked.
+- Should the fast-track gate counts ("about 20", "about 15") be machine-checked, for example by preflight refusing `allow_above_micro_live` until `report.py` sees 20 settled live trades? For now they are documented, human-checked gates.
+
+## Nothing outside `gemini_mcp/` changed
+
+`git diff --stat 7c5dabf..HEAD -- . ':!gemini_mcp'` is empty.

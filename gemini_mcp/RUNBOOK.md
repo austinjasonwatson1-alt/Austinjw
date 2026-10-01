@@ -151,7 +151,7 @@ Each row shows N, the average and the worst. Orders still open, or placed before
 
 ## 8. Going-live criteria (all must hold)
 
-**Failing any criterion means keep paper trading.** No exceptions, and no partial credit.
+**Failing any criterion means keep paper trading** on this track, with no partial credit. The only other route to live money is the **Fast track** (section 9), which has its own gates and stays at micro-live size until they are met.
 
 | # | Criterion | Where to check it |
 |---|---|---|
@@ -162,12 +162,31 @@ Each row shows N, the average and the worst. Orders still open, or placed before
 | 5 | **Paper drawdown never past half of `max_drawdown_pct`** at any point in the paper period (with the default 0.20, never deeper than 10%). | The dashboard's **Worst drawdown seen** tile, measured against a running peak over the whole history. The dashboard also raises a "needs attention" warning when it's past half. |
 
 Before the first live order, also:
-- `py preflight.py` with `DRY_RUN=false` must print OK. That covers `starting_balance_usd`, `fee_confirmed`, the allowlist, the risk bounds, untracked secrets and a fresh `verify_auth`.
+- `py preflight.py` with `DRY_RUN=false` must print OK. That covers `starting_balance_usd`, `fee_confirmed`, the allowlist, the risk bounds, untracked secrets, a fresh `verify_auth`, and the micro_live ceilings with `learning_budget_usd` set (section 9).
 - Accept the prediction-market terms on the website.
 - Use a key with the Trader role only (never Fund Manager).
 - Run `py capture_samples.py` and fix any ABSENT or EMPTY required field. See `docs/real_response_check.md`.
 
 **First live orders:**
 - **Manual confirmation:** run the runner from a terminal and type `yes` for each order. No schedule, no `--auto-confirm`, and `runner_auto_confirm_live: false`.
-- **Small size:** keep the tiny caps (`max_order_usd: 2`, `max_daily_spend_usd: 5`) and only a few events on the allowlist. Start in the sandbox if it works.
+- **Small size:** set `profile: micro_live` (section 9) and keep only a few events on the allowlist. Start in the sandbox if it works.
 - **A human check of the fill against Gemini's site:** after each confirmed order, open the order on the Gemini website and check the side, outcome, quantity, price, status and fill. Compare them with the `order_result` line in `audit.log` and with the dashboard. Any mismatch: `touch KILL` and investigate before anything else.
+
+## 9. Fast track
+
+A shorter route to live money than section 8: start at micro-live size early, and earn each step up with live evidence instead of weeks of paper trading. **This track still keeps every breaker, cap, and the endpoint allowlist.** Nothing is switched off: KILL, the equity floor, drawdown and daily-loss breakers, the per-order, daily-spend, trade, exit and open-order caps, the event allowlist, the endpoint allowlist, the expiry window and the research cost caps all apply as usual. Scheduled (launchd) runs stay DRY_RUN only.
+
+**micro_live** is the profile in `config.yaml` (`profile: micro_live`). Live preflight enforces its ceilings, whatever profile is active: `max_order_usd 5`, `max_daily_spend_usd 15`, `max_trades_per_day 4`, `max_open_orders 2`, `runner_auto_confirm_live false`, and `learning_budget_usd` must be set. The equity floor is then `starting_balance_usd - learning_budget_usd`, never below 40% of the starting balance: decide what you are prepared to lose while learning (for example 30 of a 100 balance gives a floor of 70). Going above any ceiling needs `allow_above_micro_live: true`, which preflight always prints.
+
+**Gates (in order; each one must hold before the next step):**
+
+1. **Micro-live may start after** all of these:
+   - **A clean dry run:** a full `DRY_RUN=true py runner.py` pass with the same config (`profile: micro_live`) that ends with `run_end`, no `run_stopped`, `entry_failed`, `exit_failed` or `review_failed`, nothing on the dashboard's **Needs attention** panel, and no orders listed as unknown in `py report.py`.
+   - **`py verify_auth.py`** succeeded for the `GEMINI_ENV` you will trade in, within the last 24 hours.
+   - **`py capture_samples.py`** ran with no ABSENT or EMPTY required field (see `docs/real_response_check.md`).
+   - `py preflight.py` with `DRY_RUN=false` prints OK, with `fee_confirmed: true` and `learning_budget_usd` set.
+   Then trade live from a terminal, typing `yes` for each order, and check every fill against Gemini's site (section 8, "A human check of the fill").
+2. **Scale up only after about 20 settled trades with no unexplained fill/fee differences.** Settled means live trades whose contracts have resolved. "No unexplained differences": `py report.py --live` shows no **LIVE FILLS CONSISTENTLY WORSE THAN PAPER ASSUMED** flag, every nonzero price or fee gap in the PAPER vs LIVE table has a reason you wrote down, and the fees you saw on Gemini's site match `fee_per_contract`. Only then raise limits above micro_live, with `allow_above_micro_live: true`, and in small steps.
+3. **Auto-confirm only after about 15 clean hand-confirmed live trades:** each one typed `yes` at the terminal, checked against Gemini's site with no mismatch, and none left unknown. Auto-confirm (`runner_auto_confirm_live: true` plus `--auto-confirm`) is above the micro_live ceilings, so it also needs `allow_above_micro_live: true`. It still never runs from the launchd schedule.
+
+If a gate fails after you've passed it (a fill mismatch, an unknown order, the worse-fills flag, a breaker trip), go back a step: set `profile: micro_live` again with `allow_above_micro_live: false` (or `touch KILL`), and investigate before trading again.

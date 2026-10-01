@@ -46,3 +46,34 @@ def test_going_live_criteria_are_the_agreed_ones():
                    "manual confirmation", "small size", "human check of the fill against Gemini's site"):
         assert needle.replace("**", "").lower() in flat, needle
     assert "Q8" not in sec  # no longer a proposal awaiting confirmation
+
+
+def _fast_track():
+    start = RUNBOOK.index("## 9. Fast track")
+    nxt = RUNBOOK.find("\n## ", start + 1)
+    return RUNBOOK[start:nxt if nxt != -1 else None]
+
+
+def test_fast_track_gates_are_the_agreed_ones():
+    flat = _fast_track().replace("**", "").replace("`", "").lower()
+    for needle in ("micro-live may start after", "clean dry run", "verify_auth", "capture_samples",
+                   "scale up only after about 20 settled trades", "no unexplained fill/fee differences",
+                   "auto-confirm only after about 15 clean hand-confirmed live trades",
+                   "still keeps every breaker, cap, and the endpoint allowlist",
+                   "profile: micro_live", "learning_budget_usd", "allow_above_micro_live",
+                   "live fills consistently worse than paper assumed"):
+        assert needle in flat, needle
+
+
+def test_fast_track_states_the_preflight_ceilings():
+    import preflight
+    flat = _fast_track().replace("`", "")
+    for key, limit in preflight.MICRO_LIVE_CEILINGS.items():
+        value = str(limit).lower() if isinstance(limit, bool) else str(limit)
+        assert f"{key} {value}" in flat or f"{key}: {value}" in flat, key
+
+
+def test_going_live_section_points_to_the_fast_track():
+    sec = RUNBOOK[RUNBOOK.index("## 8. Going-live criteria"):RUNBOOK.index("## 9. Fast track")]
+    assert "Fast track" in sec and "No exceptions" not in sec
+    assert "max_order_usd: 2" not in sec  # live size now comes from the micro_live profile
