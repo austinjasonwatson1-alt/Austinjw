@@ -2,6 +2,10 @@
 
 `com.gemini-mcp.dryrun.plist.template` runs `runner.py` three times a day in **DRY_RUN**. It ships **disabled** (`<key>Disabled</key><true/>`). Install steps are in `../RUNBOOK.md` under "Scheduling".
 
+Before `launchctl bootstrap`, validate your filled-in copy:
+- `python launchd/validate_plist.py ~/Library/LaunchAgents/com.gemini-mcp.dryrun.plist` checks it with Python's `plistlib` (works anywhere). It covers launchd's structure rules, the DRY_RUN-only rules, that no placeholders or secrets are left, and that the paths exist.
+- `plutil -lint` is macOS's own syntax check.
+
 ## Why it can't go live
 
 - It sets `DRY_RUN=true` and `GEMINI_MCP_SCHEDULE=dry_run_only` in its environment.

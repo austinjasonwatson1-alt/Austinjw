@@ -4,7 +4,7 @@ This is how to operate gemini_mcp day to day on a Mac. Run every command from th
 
 ## 1. First-time setup
 
-1. **Python 3.11+**, for example `brew install python@3.12`. Then clone the repo and `cd gemini_mcp`.
+1. **Python 3.10+**. The MCP SDK needs it; the test suite runs green on 3.10 to 3.13. macOS's Command Line Tools ship Python **3.9, which is too old**: `brew install python@3.12` (or use the python.org installer). Then clone the repo and `cd gemini_mcp`. `setup_mac.sh` finds a newer `python3.1x` on its own, or tells you exactly what to install.
 2. Run `./setup_mac.sh`. It's idempotent, so you can re-run it any time. It does the following:
    - Creates `.venv` and installs the requirements.
    - Creates `.env` from `.env.example` only if `.env` doesn't exist. It never overwrites or prints `.env`.
@@ -112,6 +112,8 @@ The order was sent, but whether it exists is unknown: a timeout, a 5xx, or a rep
 mkdir -p ~/Library/Logs/gemini_mcp
 cp launchd/com.gemini-mcp.dryrun.plist.template ~/Library/LaunchAgents/com.gemini-mcp.dryrun.plist
 # edit it: replace /ABS/PATH and YOUR_USER; set <key>Disabled</key><false/> only when you mean to start it
+.venv/bin/python launchd/validate_plist.py ~/Library/LaunchAgents/com.gemini-mcp.dryrun.plist   # must print OK
+plutil -lint ~/Library/LaunchAgents/com.gemini-mcp.dryrun.plist                                  # macOS's own check
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.gemini-mcp.dryrun.plist
 launchctl enable gui/$(id -u)/com.gemini-mcp.dryrun
 launchctl kickstart gui/$(id -u)/com.gemini-mcp.dryrun     # one run now, to test
