@@ -723,6 +723,21 @@ class RiskContext:
     positions: list[dict[str, Any]] = field(default_factory=list)
     event_exposure: dict[str, Decimal] = field(default_factory=dict)
     category_exposure: dict[str, Decimal] = field(default_factory=dict)
+    # (symbol, event_ticker, category, dollars) per position / resting buy, so exposure can also be
+    # attributed by symbol when the API leaves out the event metadata.
+    exposures: list[tuple[str, str, str, Decimal]] = field(default_factory=list)
+
+    def add(self, symbol: str, event: str, category: str, amount: Decimal) -> None:
+        self.exposures.append((symbol, event, category, amount))
+        self.event_exposure[event] = self.event_exposure.get(event, _ZERO) + amount
+        self.category_exposure[category] = self.category_exposure.get(category, _ZERO) + amount
+
+    def exposure_for(self, event_ticker: str, symbols: set[str], category: str) -> tuple[Decimal, Decimal]:
+        """(event exposure, category exposure). An entry counts toward this event (and its category) when its
+        event ticker matches OR its symbol is one of this event's contracts."""
+        ev = sum((a for s, e, _, a in self.exposures if e == event_ticker or s in symbols), _ZERO)
+        cat = sum((a for s, e, c, a in self.exposures if c == category or e == event_ticker or s in symbols), _ZERO)
+        return ev, cat
 
 
 def _to_decimal(name: str, value: Any) -> Decimal:
@@ -928,7 +943,8 @@ class Guardrails:
         raw = resp.get("positions") if isinstance(resp, dict) else None
         if not isinstance(raw, list):
             raise Rejected("positions lookup returned an unexpected shape")
-        positions, exposure, cat_exp, seen = [], {}, {}, set()
+        positions, seen = [], set()
+        exp = RiskContext("live", _ZERO, _ZERO)
         for p in raw:
             if not isinstance(p, dict) or not isinstance(p.get("symbol"), str) or p.get("outcome") not in ALLOWED_OUTCOMES:
                 raise Rejected("positions lookup returned an unexpected entry")
@@ -954,8 +970,7 @@ class Guardrails:
                 "quantity": total, "available": total - on_hold, "cost_basis": cost, "value": value,
                 "has_quote": has_quote, "expiry": meta.get("expiryDate"),
             })
-            exposure[ev] = exposure.get(ev, _ZERO) + max(cost, value)
-            cat_exp[cat] = cat_exp.get(cat, _ZERO) + max(cost, value)
+            exp.add(p["symbol"], ev, cat, max(cost, value))
 
         for o in self._active_orders():
             if isinstance(o, dict) and o.get("side") == "buy":
@@ -966,16 +981,15 @@ class Guardrails:
                 price = _dec_field(o, "price", "open orders")
                 if rem < 0 or not (_ZERO <= price <= _ONE):
                     raise Rejected("open orders lookup returned an invalid (negative or out-of-range) quantity or price")
-                resting = rem * price
-                exposure[ev] = exposure.get(ev, _ZERO) + resting
-                cat_exp[cat] = cat_exp.get(cat, _ZERO) + resting
-        return RiskContext("live", amount + sum((p["value"] for p in positions), _ZERO), cash, positions, exposure,
-                           cat_exp)
+                exp.add(str(o.get("symbol") or ""), ev, cat, rem * price)
+        exp.equity, exp.cash, exp.positions = amount + sum((p["value"] for p in positions), _ZERO), cash, positions
+        return exp
 
     def _paper_context(self) -> RiskContext:
         assert self.paper is not None
         events: dict[str, dict] = {}
-        positions, exposure, cat_exp = [], {}, {}
+        positions = []
+        exp = RiskContext("paper", _ZERO, _ZERO)
         for p in self.paper.positions():
             ev = p["event_ticker"]
             if ev not in events:
@@ -999,11 +1013,10 @@ class Guardrails:
                 "quantity": qty, "available": qty, "cost_basis": basis, "value": value,
                 "has_quote": has_quote, "expiry": (contract or {}).get("expiryDate"),
             })
-            exposure[ev] = exposure.get(ev, _ZERO) + max(basis, value)
-            cat_exp[cat] = cat_exp.get(cat, _ZERO) + max(basis, value)
+            exp.add(p["symbol"], ev, cat, max(basis, value))
         cash = self.paper.cash()
-        return RiskContext("paper", cash + sum((p["value"] for p in positions), _ZERO), cash, positions, exposure,
-                           cat_exp)
+        exp.equity, exp.cash, exp.positions = cash + sum((p["value"] for p in positions), _ZERO), cash, positions
+        return exp
 
     def _context(self) -> RiskContext:
         return self._paper_context() if self.dry_run else self._live_context()
@@ -1143,10 +1156,10 @@ class Guardrails:
         marks = self._check_breakers(config, ctx)
         spent = self.ledger.spent_on(self._today())
         daily_limit = self._daily_limit(config, marks["day_start"])
-        exposure = ctx.event_exposure.get(event_ticker, _ZERO)
         category = _category(event.get("category"))
         cat_cap_pct = category_cap(config, category)
-        cat_exposure = ctx.category_exposure.get(category, _ZERO)
+        symbols = {c.get("instrumentSymbol") for c in event["contracts"] if isinstance(c, dict)}
+        exposure, cat_exposure = ctx.exposure_for(event_ticker, symbols, category)
 
         sizing = None
         if inp.side == "buy" and inp.my_probability is not None and allow_sizing:
