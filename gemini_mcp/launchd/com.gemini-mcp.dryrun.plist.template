@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Scheduled DRY_RUN runs of gemini_mcp/runner.py. DISABLED BY DEFAULT. See RUNBOOK.md, "Scheduling".
+
+  - Replace every /ABS/PATH with the absolute path of your gemini_mcp folder, and YOUR_USER with your user name.
+  - Copy it to ~/Library/LaunchAgents/com.gemini-mcp.dryrun.plist and set Disabled to false only when you
+    mean to start the schedule.
+  - No secrets here: the runner reads gemini_mcp/.env itself. Never add keys to this file.
+
+  THIS SCHEDULE IS DRY_RUN ONLY. It sets DRY_RUN=true and GEMINI_MCP_SCHEDULE=dry_run_only, and runner.py refuses
+  to start when GEMINI_MCP_SCHEDULE is set and DRY_RUN isn't dry, so editing DRY_RUN=false here doesn't make it
+  live; the run just refuses to start. Live scheduling is deliberately not provided: see launchd/README.md for
+  what it would need (the auto-confirm flag AND runner_auto_confirm_live: true AND DRY_RUN=false).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.gemini-mcp.dryrun</string>
+
+  <key>Disabled</key>
+  <true/>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/ABS/PATH/gemini_mcp/.venv/bin/python</string>
+    <string>/ABS/PATH/gemini_mcp/runner.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/ABS/PATH/gemini_mcp</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DRY_RUN</key>
+    <string>true</string>
+    <key>GEMINI_MCP_SCHEDULE</key>
+    <string>dry_run_only</string>
+  </dict>
+
+  <!-- 09:05, 13:05 and 17:05 local time -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>5</integer></dict>
+    <dict><key>Hour</key><integer>13</integer><key>Minute</key><integer>5</integer></dict>
+    <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>5</integer></dict>
+  </array>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/YOUR_USER/Library/Logs/gemini_mcp/runner.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOUR_USER/Library/Logs/gemini_mcp/runner.err.log</string>
+</dict>
+</plist>

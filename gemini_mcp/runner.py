@@ -475,6 +475,18 @@ def main(argv: list[str] | None = None) -> int:
     from dotenv import load_dotenv
 
     load_dotenv(HERE / ".env", override=False)
+    # The launchd job (launchd/*.plist.template) sets GEMINI_MCP_SCHEDULE=dry_run_only. A scheduled run may never
+    # be live, whatever .env or the plist's DRY_RUN says.
+    sched = os.environ.get("GEMINI_MCP_SCHEDULE")
+    if sched is not None:
+        try:
+            dry = parse_dry_run(os.environ.get("DRY_RUN"))
+        except Exception:  # noqa: BLE001 - a malformed DRY_RUN is not dry
+            dry = False
+        if sched != "dry_run_only" or not dry:
+            print(f"GEMINI_MCP_SCHEDULE={sched!r} with DRY_RUN={os.environ.get('DRY_RUN')!r}: refusing to start. "
+                  "Scheduled runs are dry_run_only; live runs need a terminal (see RUNBOOK.md).", file=sys.stderr)
+            return 3
     import preflight
 
     if not preflight.enforce(os.environ):
