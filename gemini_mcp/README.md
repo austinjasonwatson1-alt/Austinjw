@@ -256,7 +256,8 @@ Not checked by code, so do these yourself:
 
 `audit.log` is JSON lines with UTC timestamps. Both the server and the runner write to it, under a file lock. Event types:
 
-- **Server:** `kill_detected`, `kill_deleted`, `proposal` and `confirmation` (both include `sizing`), `would_place` (with `paper_order_id` and `paper_filled`), `placement`, `placement_failed`, `placement_unconfirmed` (a 2xx with no order id; the order may or may not exist), `rejection` (with `reason`, and `sizing` when relevant), `cancel`, `would_cancel`, `cancel_failed`, `circuit_breaker_trip`, `breaker_reset`.
+- **Server:** `kill_detected`, `kill_deleted`, `proposal` and `confirmation` (both include `sizing`), `would_place` (with `paper_order_id` and `paper_filled`), `order_intent`, `order_result`, `rejection` (with `reason`, and `sizing` when relevant), `would_cancel`, `circuit_breaker_trip`, `breaker_reset`.
+- **Live sends:** before any placement or cancel is sent, the server writes an `order_intent` entry (`intent_id`, `action` place/cancel, the order) and fsyncs it. If that write fails, nothing is sent. After the send it writes `order_result` with the same `intent_id` and `result`: `placed`, `failed`, `unconfirmed` (a 2xx with no order id; the order may or may not exist), `cancelled` or `cancel_failed`. If the result can't be written after a send, the tool returns `ok: false` with the `order_id` in the error. `report.py` lists every intent with no result (or an `unconfirmed` one) as "unknown, check Gemini".
 - **Runner:** `decision`.
 
 ## Known limits

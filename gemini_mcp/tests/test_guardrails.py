@@ -414,7 +414,9 @@ def test_every_action_is_audited(env):
     g.cancel(1001)
     g.propose(SYMBOL, "yes", "buy", "999", "0.5")
     kinds = [e["event"] for e in env.audit()]
-    assert kinds == ["proposal", "confirmation", "placement", "cancel", "rejection"]
+    assert kinds == ["proposal", "confirmation", "order_intent", "order_result", "order_intent", "order_result",
+                     "rejection"]
+    assert [e["result"] for e in env.audit() if e["event"] == "order_result"] == ["placed", "cancelled"]
 
 
 def test_parse_order_input_canonicalizes():

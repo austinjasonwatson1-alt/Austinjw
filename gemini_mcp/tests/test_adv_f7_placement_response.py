@@ -14,12 +14,12 @@ def test_placement_without_order_id_is_not_reported_as_placed(env, resp):
     r = g.confirm(g.propose(SYMBOL, "yes", "buy", "16", "0.50")["confirmation_token"])
     assert not r["ok"], r
     assert g.ledger.spent_on(g._today()) == 8  # spend still counted (outcome unknown)
-    kinds = [e["event"] for e in env.audit()]
-    assert "placement" not in kinds and "placement_unconfirmed" in kinds
+    results = [e["result"] for e in env.audit() if e["event"] == "order_result"]
+    assert results == ["unconfirmed"]
 
 
 def test_cancel_error_body_is_not_reported_as_cancelled(env):
     env.trader.cancel_order = lambda oid: {"result": "error", "reason": "OrderNotFound"}
     r = env.guard().cancel(5)
     assert not r["ok"], r
-    assert "cancel" not in [e["event"] for e in env.audit()]
+    assert [e["result"] for e in env.audit() if e["event"] == "order_result"] == ["cancel_failed"]

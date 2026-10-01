@@ -294,7 +294,9 @@ def paper_fills(ledger: dict[str, Any]) -> list[Fill]:
 
 def live_fills(audit: list[dict[str, Any]], client: Any, fee: Decimal) -> list[Fill]:
     """Live placements from audit.log, with fills from order history (read-only)."""
-    placed = [e for e in audit if e.get("event") == "placement" and e.get("order_id") is not None]
+    placed = [e for e in audit if e.get("order_id") is not None and (
+        e.get("event") == "placement"  # audit logs written before order_intent/order_result existed
+        or (e.get("event") == "order_result" and e.get("result") == "placed"))]
     if not placed:
         return []
     history: dict[int, dict] = {}
@@ -321,6 +323,24 @@ def live_fills(audit: list[dict[str, Any]], client: Any, fee: Decimal) -> list[F
     return out
 
 
+def unknown_orders(audit: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Live sends whose outcome isn't known: an order_intent with no order_result, or an 'unconfirmed' result."""
+    results = {e.get("intent_id"): e for e in audit if e.get("event") == "order_result"}
+    out = []
+    for e in audit:
+        if e.get("event") != "order_intent":
+            continue
+        r = results.get(e.get("intent_id"))
+        if r is not None and r.get("result") != "unconfirmed":
+            continue
+        why = "no result logged" if r is None else "Gemini returned no order id"
+        out.append({"intent_id": e.get("intent_id"), "ts": e.get("ts"), "action": e.get("action"),
+                    "instrument_symbol": e.get("instrument_symbol"), "side": e.get("side"),
+                    "outcome": e.get("outcome"), "quantity": e.get("quantity"), "limit_price": e.get("limit_price"),
+                    "order_id": e.get("order_id"), "status": f"unknown, check Gemini ({why})"})
+    return out
+
+
 def make_resolver(client: Any) -> Callable[[str, str], str | None]:
     cache: dict[str, dict] = {}
 
@@ -339,14 +359,25 @@ def make_resolver(client: Any) -> Callable[[str, str], str | None]:
     return resolve
 
 
-def format_report(rows: list[dict[str, Any]], decisions: dict[str, Any], est: dict[str, Any] | None = None) -> str:
+def format_report(rows: list[dict[str, Any]], decisions: dict[str, Any], est: dict[str, Any] | None = None,
+                  unknown: list[dict[str, Any]] | None = None) -> str:
     cols = [("bucket", 10), ("trades", 6), ("closed", 6), ("open", 4), ("mean_expected_return", 9),
             ("mean_raw_expected_return", 9), ("mean_realized_return", 9), ("pnl_usd", 9), ("return_on_cost", 8),
             ("held_to_settlement", 7), ("win_rate", 8), ("mean_q_adj_settled", 8), ("n_scored", 6),
             ("brier_mine", 8), ("brier_market", 8), ("low_n", 7)]
     heads = ["bucket", "trades", "closed", "open", "exp", "exp(raw q)", "realized", "P&L $", "RoC", "settled",
              "win rate", "mean q_adj", "N", "Brier me", "Brier mkt", "flag"]
-    lines = ["REALIZED vs EXPECTED RETURN BY STATED EDGE",
+    lines = []
+    if unknown:
+        lines += [f"ORDERS WITH UNKNOWN OUTCOME ({len(unknown)}): an order or cancel was sent but its result is "
+                  "unknown, check Gemini"]
+        for u in unknown:
+            what = (f"cancel order {u['order_id']}" if u["action"] == "cancel" else
+                    f"{str(u['side']).upper()} {str(u['outcome']).upper()} x {u['quantity']} "
+                    f"{u['instrument_symbol']} @ {u['limit_price']}")
+            lines.append(f"  {u['ts']}  intent {u['intent_id']}  {what}  -> {u['status']}")
+        lines.append("")
+    lines += ["REALIZED vs EXPECTED RETURN BY STATED EDGE",
              "  ".join(h.rjust(w) for h, (_, w) in zip(heads, cols))]
     for row in rows:
         cells = {**row, "low_n": f"N<{MIN_N}" if row["low_n"] else ""}
@@ -399,11 +430,12 @@ def main(argv: list[str] | None = None) -> int:
     resolver = make_resolver(client)
     lots = build_lots(fills, ledger.get("research") or {}, resolver)
     rows, decisions, est = summarize(lots), decision_summary(audit), estimate_brier(audit, resolver)
+    unknown = unknown_orders(audit)
     if args.json:
-        print(json.dumps({"buckets": rows, "all_estimates": est, "decisions": decisions,
+        print(json.dumps({"unknown_orders": unknown, "buckets": rows, "all_estimates": est, "decisions": decisions,
                           "lots": [{**asdict(l), "closed": l.closed} for l in lots]}, default=str, indent=2))
     else:
-        print(format_report(rows, decisions, est))
+        print(format_report(rows, decisions, est, unknown))
     return 0
 
 

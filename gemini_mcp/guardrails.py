@@ -1554,29 +1554,53 @@ class Guardrails:
             reason = "kill switch activated during confirmation; order not placed"
             self.audit.write("rejection", action="confirm_order", reason=reason, **common)
             return {"ok": False, "rejected": True, "reason": reason}
+        intent_id = self._write_intent("place", spent_today_usd=spent_total, **common)
+        if intent_id is None:
+            return {"ok": False, "error": "couldn't write order_intent to audit.log; order NOT sent. "
+                    "The spend stays counted for today."}
         try:
             resp = self._trader.place_limit_order(v.instrument_symbol, v.side, v.outcome, v.quantity, v.price)
         except Exception as e:  # noqa: BLE001
-            self.audit.write("placement_failed", error=str(e), **common)
-            return {
+            return self._write_result(intent_id, "failed", common, None, {
                 "ok": False,
                 "error": str(e),
                 "note": "Placement failed or its outcome is unknown. It will NOT be retried. "
                 "Check list_open_orders before proposing again. The spend stays counted for today.",
-            }
+            }, error=str(e))
         order_id = resp.get("orderId") if isinstance(resp, dict) else None
         status = resp.get("status") if isinstance(resp, dict) else None
         if order_id is None or (isinstance(resp, dict) and resp.get("result") == "error"):
             # A 2xx without an order id (e.g. Gemini's {"result": "error"} body) is not a placed order.
-            self.audit.write("placement_unconfirmed", response=resp, spent_today_usd=spent_total, **common)
-            return {
+            return self._write_result(intent_id, "unconfirmed", common, None, {
                 "ok": False,
                 "error": f"Gemini did not return an order id; response: {resp!r}",
                 "note": "The order may or may not exist. It will NOT be retried. Check list_open_orders before "
                 "proposing again. The spend stays counted for today.",
-            }
-        self.audit.write("placement", order_id=order_id, status=status, spent_today_usd=spent_total, **common)
-        return {"ok": True, "dry_run": False, "order_id": order_id, "status": status, "response": resp}
+            }, response=resp)
+        return self._write_result(intent_id, "placed", common, order_id,
+                                  {"ok": True, "dry_run": False, "order_id": order_id, "status": status,
+                                   "response": resp}, order_id=order_id, status=status)
+
+    def _write_intent(self, action: str, **fields: Any) -> str | None:
+        """Write (and fsync) an order_intent entry before anything is sent. None if it couldn't be written."""
+        intent_id = secrets.token_hex(8)
+        try:
+            self.audit.write("order_intent", intent_id=intent_id, action=action, **fields)
+        except Exception:  # noqa: BLE001 - nothing is sent without a durable intent
+            return None
+        return intent_id
+
+    def _write_result(self, intent_id: str, result: str, fields: dict[str, Any], sent_order_id: Any,
+                      reply: dict[str, Any], **extra: Any) -> dict[str, Any]:
+        """Write the order_result entry after a send. If that fails, say so without hiding the order id."""
+        try:
+            self.audit.write("order_result", intent_id=intent_id, result=result, **fields, **extra)
+        except Exception as e:  # noqa: BLE001
+            oid = f", order_id {sent_order_id}" if sent_order_id is not None else ""
+            return {"ok": False, "order_id": sent_order_id, "intent_id": intent_id, "gemini_reply": reply,
+                    "error": f"request was sent to Gemini (result: {result}{oid}) but writing order_result to "
+                    f"audit.log failed ({type(e).__name__}: {e}). Check Gemini before doing anything else."}
+        return reply
 
     def cancel(self, order_id: Any) -> dict[str, Any]:
         with self._lock:
@@ -1597,17 +1621,23 @@ class Guardrails:
             if self.dry_run:
                 self.audit.write("would_cancel", order_id=oid, mode=self.mode)
                 return {"ok": True, "dry_run": True, "message": f"DRY RUN: would have cancelled order {oid}."}
+            fields = {"mode": self.mode, "order_id": oid}
+            intent_id = self._write_intent("cancel", **fields)
+            if intent_id is None:
+                return {"ok": False, "order_id": oid,
+                        "error": "couldn't write order_intent to audit.log; cancel NOT sent"}
             try:
                 resp = self._trader.cancel_order(oid)
             except Exception as e:  # noqa: BLE001
-                self.audit.write("cancel_failed", order_id=oid, error=str(e), mode=self.mode)
-                return {"ok": False, "error": str(e)}
+                return self._write_result(intent_id, "cancel_failed", fields, oid,
+                                          {"ok": False, "order_id": oid, "error": str(e)}, error=str(e))
             if not isinstance(resp, dict) or resp.get("result") == "error":
-                self.audit.write("cancel_failed", order_id=oid, response=resp, mode=self.mode)
-                return {"ok": False, "error": f"cancel not confirmed by Gemini; response: {resp!r}",
-                        "note": "Check get_order_status; the order may still be open."}
-            self.audit.write("cancel", order_id=oid, response=resp, mode=self.mode)
-            return {"ok": True, "dry_run": False, "response": resp}
+                return self._write_result(intent_id, "cancel_failed", fields, oid, {
+                    "ok": False, "order_id": oid, "error": f"cancel not confirmed by Gemini; response: {resp!r}",
+                    "note": "Check get_order_status; the order may still be open."}, response=resp)
+            return self._write_result(intent_id, "cancelled", fields, oid,
+                                      {"ok": True, "dry_run": False, "order_id": oid, "response": resp},
+                                      response=resp)
 
     # ---- read-only views for tools
 
