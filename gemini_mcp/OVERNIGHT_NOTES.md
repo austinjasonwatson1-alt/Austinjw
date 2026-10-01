@@ -439,3 +439,44 @@ Five tasks, each test-first, each pushed only after the full suite passed (pytes
 ## Nothing outside `gemini_mcp/` changed
 
 `git diff --stat 7c5dabf..HEAD -- . ':!gemini_mcp'` is empty.
+
+# Gates-and-economics session (after `8b4c300`)
+
+This session supersedes the fast-track session's `allow_above_micro_live` override flag: it is removed, and a config that still sets it is refused with an explanation.
+
+## What changed
+
+1. **Windows.** `load_config` refuses `min_hours_to_expiry < exit_hours_before_expiry`. The defaults and shipped values are 12 h and 6 h. A test enters a contract exactly 12 h out and checks that the next run (11 h left) holds it without any `near_expiry` reason.
+2. **Research caps.** Above 5 research calls per run, both `max_research_cost_usd_per_run` and `_per_day` are required. The shipped values are $1 per run and $2 per day.
+3. **Fast-track gates in preflight** (`preflight.fast_track_counts`; the rules are in RUNBOOK §9). Limits above micro_live need 20 settled live trades. Live auto-confirm needs 15 clean hand-confirmed live trades. A missing or unreadable `audit.log` counts as zero. To make this countable, confirmations now record `contract_expiry` and `confirmed_by`.
+4. **RESEARCH ECONOMICS** table in `report.py`, per mode, with the flag.
+5. **Optional screening stage** (`screening_enabled: false` by default). `GEMINI_MCP_SCREEN_MODEL` sets the model (default `claude-haiku-4-5`), with at most 1 web search and `screen_min_edge` 0.08.
+
+## Interpretations taken (the safer reading in each case)
+
+- **"Settled live trade"** has to be decided from `audit.log` alone, with no network. It is a live **buy** whose `order_result` is `placed` with status **`filled`** at placement, and whose recorded `contract_expiry` has passed. This deliberately under-counts:
+  - an order that rested and filled later doesn't count, because `audit.log` has no evidence of the fill;
+  - an order placed before this session doesn't count, because no expiry was recorded.
+  The runner buys at the ask, so most entries fill at placement.
+- **"Hand-confirmed"** is reported by the client: the runner sends `confirmed_by: "hand"` only after a terminal `yes`. To count, both the `order_result` and the runner's own decision must say `"hand"`. An MCP client could still claim "hand" falsely. The gate guards against process mistakes, not against a hostile client.
+- **"No unconfirmed/unknown results"** is read as a **clean streak**. The 15 are counted since the last live `unconfirmed` result, the last intent without a result, or the last corrupt line. A definite `failed` doesn't reset it. That way one old unknown doesn't block auto-confirm forever (the log is append-only), but any new one starts the count again.
+- **Sandbox history never unlocks production:** the counts are per `GEMINI_ENV`.
+- **The ceilings** are now unlocked by history only. `learning_budget_usd` stays mandatory in live mode with no exception.
+- **Research economics.** "Edge × stake" is computed as (q_adj − price) × quantity, which is the stated edge as a return on stake times the stake. The fee is subtracted once. The flag compares research cost per trade with the expected edge value **after fees**. It also flags research spent with no entries.
+- **Screening.**
+  - The screener sees the same rules and info as full research, without prices, so it isn't anchored to the market. It is compared with the market **mid**, in either direction.
+  - The request is a plain `messages.create` with the basic `web_search_20250305` tool. Haiku 4.5 rejects the newer tool version and the effort, thinking and fallback settings that full research uses.
+  - A failed screen never falls through to full research.
+  - Screens count toward the dollar caps but not toward `max_research_per_run`.
+  - The screen prices default to Haiku 4.5 list prices ($1 / $5 per million tokens). Change them if you change the model.
+- **With the shipped $1 per-run cap,** one failed call with unknown usage (charged about $1.17) ends that run's research. A typical full call is estimated at roughly $0.4–0.6, so expect about 1–2 full researches per run unless screening filters first.
+
+## Open questions
+
+- Should a resting order that fills later count as settled? That would mean recording fills, for example by having the runner log an order-status check, so preflight could see them in `audit.log`.
+- Should hand-confirmations through other MCP clients (a person approving in a chat) count? Today only the runner's terminal `yes` does.
+- Should screening also apply to position reviews to save money? I left reviews on full research, because exits are risk control.
+
+## Nothing outside `gemini_mcp/` changed
+
+`git diff --stat 8b4c300..HEAD -- . ':!gemini_mcp'` is empty.
