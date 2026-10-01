@@ -1173,6 +1173,9 @@ class Guardrails:
             q_inc = Decimal(str(contract["quantityIncrement"]))
         except (KeyError, InvalidOperation):
             raise Rejected("contract is missing price/quantity increments; can't validate the order")
+        if not all(d.is_finite() for d in (p_min, p_inc, q_min, q_inc)) or p_inc <= 0 or q_inc <= 0 \
+                or p_min < 0 or q_min < 0:
+            raise Rejected("contract has invalid price/quantity increments; can't validate the order")
         if price < p_min or not _on_grid(price, p_min, p_inc):
             raise Rejected(f"limit_price {price} is off the contract's price grid (min {p_min}, step {p_inc})")
 
