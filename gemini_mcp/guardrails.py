@@ -887,6 +887,22 @@ def _quote(v: Any) -> Decimal | None:
     return d if d.is_finite() and _ZERO <= d <= _ONE else None
 
 
+def _cancel_confirmed(resp: Any, order_id: int) -> bool:
+    """True only if Gemini's cancel reply positively confirms it. Documented success reply:
+    {"result": "ok", "message": "Order N cancelled successfully"}. Also accepted: is_cancelled: true, or an order
+    object with status "cancelled". A reply naming another order id, or saying is_cancelled: false, is not."""
+    if not isinstance(resp, dict) or resp.get("is_cancelled") is False:
+        return False
+    if "orderId" in resp:
+        try:
+            if int(resp["orderId"]) != order_id:
+                return False
+        except (TypeError, ValueError):
+            return False
+    lower = lambda k: resp[k].lower() if isinstance(resp.get(k), str) else None  # noqa: E731
+    return lower("result") == "ok" or resp.get("is_cancelled") is True or lower("status") == "cancelled"
+
+
 def _dec_field(obj: dict, key: str, what: str) -> Decimal:
     try:
         d = Decimal(str(obj[key]))
@@ -1635,10 +1651,16 @@ class Guardrails:
             except Exception as e:  # noqa: BLE001
                 return self._write_result(intent_id, "cancel_failed", fields, oid,
                                           {"ok": False, "order_id": oid, "error": str(e)}, error=str(e))
-            if not isinstance(resp, dict) or resp.get("result") == "error":
+            if isinstance(resp, dict) and resp.get("result") == "error":
                 return self._write_result(intent_id, "cancel_failed", fields, oid, {
-                    "ok": False, "order_id": oid, "error": f"cancel not confirmed by Gemini; response: {resp!r}",
+                    "ok": False, "order_id": oid, "error": f"Gemini refused the cancel; response: {resp!r}",
                     "note": "Check get_order_status; the order may still be open."}, response=resp)
+            if not _cancel_confirmed(resp, oid):
+                return self._write_result(intent_id, "unconfirmed", fields, oid, {
+                    "ok": False, "order_id": oid,
+                    "error": f"cancel of order {oid} unconfirmed: Gemini's reply doesn't positively confirm it; "
+                    f"response: {resp!r}",
+                    "note": "Treat the order as possibly still open. Check get_order_status."}, response=resp)
             return self._write_result(intent_id, "cancelled", fields, oid,
                                       {"ok": True, "dry_run": False, "order_id": oid, "response": resp},
                                       response=resp)
