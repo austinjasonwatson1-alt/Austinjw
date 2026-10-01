@@ -29,7 +29,7 @@ This is how to operate gemini_mcp day to day on a Mac. Run every command from th
 
 ## 2. Daily operations (DRY_RUN)
 
-- **Run once by hand:** `DRY_RUN=true py runner.py`. It reviews paper positions, then scans the allowlist. Each run's research budget is `max_research_per_run` calls (at most 20; above 5 it needs `max_research_cost_usd_per_run`) and the dollar caps `max_research_cost_usd_per_run` / `_per_day`. `run_end` shows the run's estimated research cost. To limit a trial to a few markets, shrink `allowed_event_tickers` and `max_research_per_run`.
+- **Run once by hand:** `DRY_RUN=true py runner.py`. It reviews paper positions, then scans the allowlist. Each run's research budget is `max_research_per_run` calls (at most 20; above 5 it needs both `max_research_cost_usd_per_run` and `max_research_cost_usd_per_day`) and the dollar caps `max_research_cost_usd_per_run` / `_per_day`. `run_end` shows the run's estimated research cost. To limit a trial to a few markets, shrink `allowed_event_tickers` and `max_research_per_run`.
 - **Scheduling (optional):** see section 6. It's DRY_RUN only.
 - **Look at it:** `py report.py --json > report.json`, then `py dashboard.py`, then open `dashboard.html`. Start with the **Needs attention** panel.
 - **Daily checks:**

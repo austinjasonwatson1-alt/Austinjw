@@ -86,12 +86,12 @@ paper_bankroll_usd: 100        # starting paper cash in DRY_RUN (delete paper_le
 runner_auto_confirm_live: false
 research_model: claude-opus-5-5
 research_max_searches: 5       # web searches per contract
-max_research_per_run: 10       # research calls per run (position reviews first); max 20; above 5 needs the cap below
+max_research_per_run: 10       # research calls per run (position reviews first); max 20; above 5 needs both caps below
 # Research cost caps in USD, estimated from each call's token and search counts at the prices below and logged
 # as "research_cost" in audit.log. Research stops (logged as research_budget_reached) when the next call,
 # projected at the costliest call seen today, would pass a cap. The day cap counts DRY_RUN and live together.
-max_research_cost_usd_per_run: 3
-max_research_cost_usd_per_day: 10
+max_research_cost_usd_per_run: 1
+max_research_cost_usd_per_day: 2
 # Anthropic list prices for claude-opus-5-5 (per million tokens) and web search ($10 per 1,000). Update them if
 # you change research_model. A refusal fallback to another model may cost more than this estimate.
 research_input_usd_per_mtok: 4

@@ -123,7 +123,7 @@ class Config:
     runner_auto_confirm_live: bool = False
     research_model: str = "claude-opus-5-5"
     research_max_searches: int = 5
-    max_research_per_run: int = 5  # up to 20, but above 5 max_research_cost_usd_per_run must be set
+    max_research_per_run: int = 5  # up to 20, but above 5 both research cost caps must be set
     min_sources: int = 2
     # Research cost caps in USD, estimated from token and search counts at the prices below. None = no cap.
     # The day cap counts every research call today (UTC) in audit.log, DRY_RUN and live alike.
@@ -308,14 +308,18 @@ def _cross_check(c: Config) -> Config:
         raise ConfigError(f"config min_hours_to_expiry {c.min_hours_to_expiry} is less than exit_hours_before_expiry "
                           f"{c.exit_hours_before_expiry}: a contract entered at the edge of the entry window would "
                           "be sold on the next run just for being near expiry")
-    if c.max_research_per_run > RESEARCH_UNCAPPED_MAX and c.max_research_cost_usd_per_run is None:
-        raise ConfigError(f"config max_research_per_run is {c.max_research_per_run}: above {RESEARCH_UNCAPPED_MAX} "
-                          "it needs max_research_cost_usd_per_run set (a dollar cap on one run's research)")
+    if c.max_research_per_run > RESEARCH_UNCAPPED_MAX:
+        missing = [k for k in ("max_research_cost_usd_per_run", "max_research_cost_usd_per_day")
+                   if getattr(c, k) is None]
+        if missing:
+            raise ConfigError(f"config max_research_per_run is {c.max_research_per_run}: above {RESEARCH_UNCAPPED_MAX} "
+                              "it needs both max_research_cost_usd_per_run and max_research_cost_usd_per_day set "
+                              f"(missing: {', '.join(missing)})")
     return c
 
 
 LEARNING_FLOOR_MIN_PCT = Decimal("0.4")  # the learning-budget floor never goes below 40% of the starting balance
-RESEARCH_UNCAPPED_MAX = 5  # max_research_per_run above this needs max_research_cost_usd_per_run
+RESEARCH_UNCAPPED_MAX = 5  # max_research_per_run above this needs both research cost caps
 
 
 def parse_dry_run(value: str | None) -> bool:

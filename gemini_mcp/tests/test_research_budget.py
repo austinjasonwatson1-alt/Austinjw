@@ -61,19 +61,24 @@ def test_defaults_and_prices():
         (D("4"), D("20"), D("0.01"))
 
 
-def test_up_to_20_research_calls_with_a_cost_cap(tmp_path):
-    assert write(tmp_path, max_research_per_run=20, max_research_cost_usd_per_run=3).max_research_per_run == 20
+BOTH = {"max_research_cost_usd_per_run": 1, "max_research_cost_usd_per_day": 2}
+
+
+def test_up_to_20_research_calls_with_both_cost_caps(tmp_path):
+    assert write(tmp_path, max_research_per_run=20, **BOTH).max_research_per_run == 20
     assert write(tmp_path, max_research_per_run=5).max_research_per_run == 5  # no cap needed at 5 or fewer
     with pytest.raises(ConfigError, match="max_research_per_run"):
-        write(tmp_path, max_research_per_run=21, max_research_cost_usd_per_run=3)
+        write(tmp_path, max_research_per_run=21, **BOTH)
 
 
 @pytest.mark.parametrize("n", [6, 10, 20])
-def test_above_5_requires_the_per_run_cost_cap(tmp_path, n):
-    with pytest.raises(ConfigError, match="max_research_cost_usd_per_run"):
+def test_above_5_requires_both_cost_caps(tmp_path, n):
+    with pytest.raises(ConfigError, match="max_research_cost_usd_per_run and max_research_cost_usd_per_day"):
         write(tmp_path, max_research_per_run=n)
+    with pytest.raises(ConfigError, match="max_research_cost_usd_per_day"):
+        write(tmp_path, max_research_per_run=n, max_research_cost_usd_per_run=1)  # the run cap alone isn't enough
     with pytest.raises(ConfigError, match="max_research_cost_usd_per_run"):
-        write(tmp_path, max_research_per_run=n, max_research_cost_usd_per_day=10)  # the day cap alone isn't enough
+        write(tmp_path, max_research_per_run=n, max_research_cost_usd_per_day=2)  # nor the day cap alone
 
 
 @pytest.mark.parametrize("key", ["max_research_cost_usd_per_run", "max_research_cost_usd_per_day"])
@@ -86,7 +91,7 @@ def test_cost_caps_must_be_positive(tmp_path, key, bad):
 def test_shipped_config_is_valid_and_capped():
     from pathlib import Path
     cfg = load_config(Path(__file__).resolve().parents[1] / "config.yaml")
-    assert cfg.max_research_cost_usd_per_run is not None and cfg.max_research_cost_usd_per_day is not None
+    assert cfg.max_research_cost_usd_per_run == D("1") and cfg.max_research_cost_usd_per_day == D("2")
 
 
 # ------------------------------------------------------------------ cost estimate
