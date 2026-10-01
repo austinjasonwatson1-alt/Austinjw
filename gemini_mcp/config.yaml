@@ -22,6 +22,9 @@ kelly_multiplier: 0.25
 min_edge: 0.05
 # Fee estimate per contract in dollars. Gemini's API docs don't state it; check your fee schedule.
 fee_per_contract: 0.02
+# Placeholder until you check it. Set true only after confirming fee_per_contract against Gemini's fee
+# schedule; preflight.py (run at server and runner startup) fails until you do.
+fee_confirmed: false
 # Caps as a share of equity (cash + positions at Gemini's mark; paper equity in DRY_RUN).
 max_order_pct_of_balance: 0.08
 max_market_pct_of_balance: 0.15   # per event, counting existing position and resting buys

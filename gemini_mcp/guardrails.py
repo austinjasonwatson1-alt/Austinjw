@@ -78,6 +78,8 @@ class Config:
     kelly_multiplier: Decimal = Decimal("0.25")
     min_edge: Decimal = Decimal("0.05")
     fee_per_contract: Decimal = Decimal("0.02")
+    # Set true only after checking fee_per_contract against Gemini's fee schedule. preflight.py fails until then.
+    fee_confirmed: bool = False
     max_order_pct_of_balance: Decimal = Decimal("0.08")
     max_market_pct_of_balance: Decimal = Decimal("0.15")
     max_daily_spend_pct: Decimal = Decimal("0.25")
@@ -117,6 +119,7 @@ _SPEC: dict[str, tuple] = {
     "kelly_multiplier": ("dec", 0, 1),
     "min_edge": ("dec", 0, 1),
     "fee_per_contract": ("dec", 0, 1),
+    "fee_confirmed": ("bool",),
     "max_order_pct_of_balance": ("dec", 0, 1),
     "max_market_pct_of_balance": ("dec", 0, 1),
     "max_daily_spend_pct": ("dec", 0, 1),

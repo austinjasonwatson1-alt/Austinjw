@@ -9,8 +9,11 @@ error. It doesn't try alternative signing schemes.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -19,6 +22,16 @@ from gemini_client import ReadOnlyClient
 from guardrails import parse_env
 
 HERE = Path(__file__).resolve().parent
+MARKER_NAME = "verify_auth_ok.json"  # under state/; preflight.py requires it to be < 24 h old in live mode
+
+
+def write_marker(env: str, here: Path | None = None) -> Path:
+    path = (here or HERE) / "state" / MARKER_NAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    path.write_text(json.dumps({"env": env, "epoch": now,
+                                "ts": datetime.fromtimestamp(now, tz=timezone.utc).isoformat(timespec="seconds")}))
+    return path
 
 
 def main() -> int:
@@ -63,6 +76,7 @@ def main() -> int:
     else:
         print(f"INFO positions limit=1 accepted (returned {len(got)}); need 2+ positions to prove the param is honored")
 
+    print(f"wrote success marker {write_marker(env).name} (preflight accepts it for 24 hours)")
     print("\nSigned read-only calls work. Prediction-market terms: check and accept them on the Gemini website;")
     print("an order will fail with TERMS_NOT_ACCEPTED otherwise.")
     return 0
