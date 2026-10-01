@@ -137,19 +137,23 @@ The **ALL RESEARCHED CONTRACTS** line scores every estimate, traded or not, one 
 
 ## 8. Going-live criteria (all must hold)
 
-These are my recommended thresholds. Confirm or change them (OVERNIGHT_NOTES.md, Q8).
+**Failing any criterion means keep paper trading.** No exceptions, and no partial credit.
 
-1. **Sample size:** at least **30 settled, scored trades** (`N ≥ 30`, no `N<30` flag) in **every edge bucket you intend to trade live**. Buckets that don't meet this stay disabled: raise `min_edge` above them.
-2. **Beats the market:** on ALL RESEARCHED CONTRACTS, with `N ≥ 100`, **Brier me < Brier market** (skill > 0). In every bucket you'll trade, Brier me ≤ Brier market.
-3. **Makes money after fees:**
-   - In every bucket you'll trade, mean **realized** return after fees is **> 0**, and ALL-bucket P&L is > 0.
-   - Realized return is at least half the expected return. If it's far below, the stated edges are overconfident: lower `estimate_weight`.
-4. **Clean operations:** at least **4 weeks** of DRY_RUN, with:
-   - no unexplained rejections;
-   - no unresolved unknown orders;
-   - no breaker trip you can't explain.
-5. **Setup:**
-   - `py preflight.py` with `DRY_RUN=false` prints OK. That covers `starting_balance_usd` set, `fee_confirmed: true`, a non-empty allowlist, sane bounds, secrets untracked, and a fresh `verify_auth`.
-   - The prediction-market terms are accepted.
-   - The key has the Trader role (no Fund Manager).
-6. **Start small:** go live in the sandbox first if it works, then production with the tiny caps. Run from a terminal and approve each order, with no schedule and no `--auto-confirm`.
+| # | Criterion | Where to check it |
+|---|---|---|
+| 1 | **At least 4 weeks of paper trading** (DRY_RUN), with the runner running normally over that time. | `audit.log` dates, or the dashboard's equity chart. |
+| 2 | **At least 30 settled trades**: paper trades whose contracts have resolved. | `py report.py`, ALL row: `N ≥ 30`, and no `N<30` flag. |
+| 3 | **My Brier score beats the market's on the traded contracts.** | `py report.py`, ALL row: `Brier me` is lower than `Brier mkt`. The ALL RESEARCHED CONTRACTS line is useful context, but this criterion is about the contracts actually traded. |
+| 4 | **A positive return after confirmed fees.** | First check `fee_per_contract` against Gemini's fee schedule and set `fee_confirmed: true`. Then, in `py report.py`, the ALL row's `P&L $` and `realized` are both above 0. Fees are charged on entry and exit. |
+| 5 | **Paper drawdown never past half of `max_drawdown_pct`** at any point in the paper period (with the default 0.20, never deeper than 10%). | The dashboard's **Worst drawdown seen** tile, measured against a running peak over the whole history. The dashboard also raises a "needs attention" warning when it's past half. |
+
+Before the first live order, also:
+- `py preflight.py` with `DRY_RUN=false` must print OK. That covers `starting_balance_usd`, `fee_confirmed`, the allowlist, the risk bounds, untracked secrets and a fresh `verify_auth`.
+- Accept the prediction-market terms on the website.
+- Use a key with the Trader role only (never Fund Manager).
+- Run `py capture_samples.py` and fix any ABSENT or EMPTY required field. See `docs/real_response_check.md`.
+
+**First live orders:**
+- **Manual confirmation:** run the runner from a terminal and type `yes` for each order. No schedule, no `--auto-confirm`, and `runner_auto_confirm_live: false`.
+- **Small size:** keep the tiny caps (`max_order_usd: 2`, `max_daily_spend_usd: 5`) and only a few events on the allowlist. Start in the sandbox if it works.
+- **A human check of the fill against Gemini's site:** after each confirmed order, open the order on the Gemini website and check the side, outcome, quantity, price, status and fill. Compare them with the `order_result` line in `audit.log` and with the dashboard. Any mismatch: `touch KILL` and investigate before anything else.

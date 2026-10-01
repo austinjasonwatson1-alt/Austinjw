@@ -33,3 +33,16 @@ def test_going_live_threshold_matches_report():
     assert f"N ≥ {report.MIN_N}" in RUNBOOK and f"N<{report.MIN_N}" in RUNBOOK
     for label, *_ in [(b[2],) for b in report.BUCKETS]:
         assert label.replace("-", "–").replace("edge < ", "under ") in RUNBOOK or label in RUNBOOK
+
+
+def test_going_live_criteria_are_the_agreed_ones():
+    sec = RUNBOOK[RUNBOOK.index("## 8. Going-live criteria"):]
+    flat = sec.replace("**", "").lower()
+    for needle in ("at least 4 weeks of paper trading", "at least 30 settled trades",
+                   "Brier score beats the market's on the traded contracts",
+                   "positive return after confirmed fees", "fee_confirmed: true",
+                   "never past half of `max_drawdown_pct`", "worst drawdown seen",
+                   "Failing any criterion means keep paper trading",
+                   "manual confirmation", "small size", "human check of the fill against Gemini's site"):
+        assert needle.replace("**", "").lower() in flat, needle
+    assert "Q8" not in sec  # no longer a proposal awaiting confirmation

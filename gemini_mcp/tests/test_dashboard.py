@@ -197,3 +197,19 @@ def test_limits_show_buys_and_exits_separately(tmp_path):
     assert (m.limits["trades"], m.limits["max_trades"], m.limits["exits"], m.limits["max_exits"]) == (2, 4, 5, 7)
     page = dashboard.render(m)
     assert "Buys placed today" in page and "Exits placed today" in page and "5 of 7" in page
+
+
+def test_worst_drawdown_seen_over_the_whole_history(tmp_path):
+    def snap(ts, eq, peak):
+        return json.dumps({"ts": ts, "event": "decision", "kind": "run_start", "mode": "dry_run",
+                           "risk": {"mode": "DRY RUN (sandbox): nothing will be placed", "equity_usd": eq,
+                                    "peak_equity_usd": peak, "equity_floor_usd": "60"}})
+    (tmp_path / "audit.log").write_text("\n".join([
+        snap("2026-09-01T10:00:00", "100", "100"), snap("2026-09-02T10:00:00", "88", "100"),   # 12% down
+        snap("2026-09-03T10:00:00", "120", "120"), snap("2026-09-04T10:00:00", "114", "120")]))  # now 5%
+    (tmp_path / "config.yaml").write_text("max_drawdown_pct: 0.2\n")
+    m = dashboard.build_model(dashboard.load_inputs(tmp_path))
+    assert abs(float(m.current["worst_drawdown"]) - 0.12) < 1e-9 and m.current["worst_drawdown_ts"].startswith("2026-09-02")
+    page = dashboard.render(m)
+    assert "Worst drawdown seen" in page and "12.0%" in page
+    assert "past half of max_drawdown_pct" in page  # 12% > 10%: the going-live criterion fails, and it says so

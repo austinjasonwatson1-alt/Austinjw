@@ -162,7 +162,9 @@ def build_model(inp: Inputs, now: datetime | None = None) -> Model:
     audit = inp.audit
 
     # ---- which mode to show: the most recent one the server logged
-    labels = [e.get("mode") for e in audit if isinstance(e.get("mode"), str) and mode_key_from_label(e.get("mode"))]
+    labels = [lab for e in audit
+              for lab in (e.get("mode"), (e.get("risk") or {}).get("mode") if isinstance(e.get("risk"), dict) else None)
+              if isinstance(lab, str) and mode_key_from_label(lab)]
     mode_label = labels[-1] if labels else None
     keys = set()
     for src in (inp.risk, (inp.spend or {}).get("spend") if isinstance(inp.spend, dict) else None):
@@ -206,7 +208,16 @@ def build_model(inp: Inputs, now: datetime | None = None) -> Model:
         daily_limit = min(max_usd, max_pct * day_start)
     elif max_usd is not None:
         daily_limit = max_usd
-    m.current = {"equity": equity, "peak": peak, "floor": floor, "day_start": day_start,
+    # Worst drawdown over the whole recorded history, against a running peak (the going-live criterion).
+    worst, worst_ts, run_peak = None, None, None
+    for p in m.equity_series:
+        run_peak = max(x for x in (run_peak, p["peak"], p["equity"]) if x is not None)
+        if run_peak and run_peak > 0:
+            dd_here = (run_peak - p["equity"]) / run_peak
+            if worst is None or dd_here > worst:
+                worst, worst_ts = dd_here, p["ts"]
+    m.current = {"worst_drawdown": worst, "worst_drawdown_ts": worst_ts,
+                 "equity": equity, "peak": peak, "floor": floor, "day_start": day_start,
                  "drawdown": (peak - equity) / peak if equity is not None and peak else None,
                  "to_floor": (equity - floor) / equity if equity and floor is not None else None,
                  "tripped": st.get("tripped"), "as_of": last.get("ts")}
@@ -358,6 +369,12 @@ def attention_items(inp: Inputs, in_mode: list[dict], mode_key: str | None, toda
     if pending:
         items.append({"level": "info", "title": "Live proposals not confirmed",
                       "detail": f"{len(pending)} (no terminal approval)"})
+    worst, max_dd = m.current.get("worst_drawdown"), m.limits.get("max_drawdown_pct")
+    if worst is not None and max_dd and worst > max_dd / 2:
+        items.append({"level": "warning", "title": "Worst drawdown seen is past half of max_drawdown_pct",
+                      "detail": f"{float(worst):.1%} on {fmt_ts(m.current.get('worst_drawdown_ts'))} vs "
+                                f"{float(max_dd) / 2:.1%}: the going-live criterion fails (RUNBOOK §8), "
+                                "keep paper trading"})
     last_risk = (m.equity_series[-1].get("risk") or {}) if m.equity_series else {}
     noquote = last_risk.get("positions_without_quote") or []
     if noquote:
@@ -605,8 +622,10 @@ def render(m: Model) -> str:
     dd = c.get("drawdown")
     eq, ds = c.get("equity"), c.get("day_start")
     day_loss = max(float((ds - eq) / ds), 0.0) if eq is not None and ds else None
+    worst, max_dd = c.get("worst_drawdown"), lim.get("max_drawdown_pct")
     tiles = [
         ("Peak", money(c.get("peak")), ""),
+        ("Worst drawdown seen", pct(worst), f"go-live limit {pct(max_dd / 2)}" if max_dd else ""),
         ("Drawdown from peak", pct(dd), f"breaker at {pct(lim.get('max_drawdown_pct'), 0)}"),
         ("Equity floor", money(c.get("floor")), f"{pct(c.get('to_floor'))} above it" if c.get("to_floor") is not None else ""),
         ("Today's start", money(c.get("day_start")), f"daily-loss breaker {pct(lim.get('max_daily_loss_pct'), 0)}"),
@@ -819,7 +838,7 @@ h2 { margin: 0 0 14px; font-size: 13px; font-weight: 650; letter-spacing: .1em; 
 .hero { display: grid; grid-template-columns: minmax(240px, 1fr) 2fr; gap: 24px; align-items: center; }
 .hero-figure { font-size: clamp(44px, 7vw, 68px); font-weight: 650; letter-spacing: -.035em; line-height: 1; margin: 4px 0 8px; }
 .sub { color: var(--ink-2); font-size: 13px; }
-.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
 .tile { border-left: 1px solid var(--grid); padding: 2px 0 2px 14px; display: flex; flex-direction: column; gap: 2px; }
 .tile .label { font-size: 13px; color: var(--ink-2); } .tile .value { font-size: 24px; font-weight: 600; letter-spacing: -.02em; }
 .attention { border-color: var(--ring); }
