@@ -129,3 +129,99 @@ The page shows:
   - 4 clean weeks of DRY_RUN, preflight OK, terms accepted, a Trader-only key.
 
   `tests/test_runbook.py` fails if the code emits an event or kind the runbook doesn't document.
+
+## Task 7: final self-review
+
+### Did anything loosen a limit or weaken a check?
+
+**No.** I re-read every removed or changed line in the non-test code and config since `origin/claude/stoic-archimedes-iacegx` (`git diff -U0 … | grep '^-'`). Each removal was replaced by an equal or stricter check:
+
+| Removed or changed | Replaced by |
+|---|---|
+| `max_open_orders` with no upper bound | ≤ 100, the page size that's actually read |
+| `SpendLedger.add` | `record_trade`: same spend math, plus a trade count, with amounts validated (finite, ≥ 0, strings only) |
+| `RiskState.read`/`update` | `_entry`: the same reads, plus validation of the mode entry and its numbers |
+| `_dec_field`: finite only | finite, ≥ 0, ≤ 1e12 (prices ≤ 1), not tinier than 1e-12, at most 30 digits |
+| Balances: no USD entry meant 0 | exactly one USD entry is required, or refuse |
+| Positions/orders: `or "0"` fallbacks for `quantityOnHold`, `avgPrice`, `remainingQuantity`; missing metadata became `""` | all required, or refuse. Side and outcome case-normalized; anything unknown refuses |
+| Exposure keyed only by event ticker | event ticker **or** symbol (a superset) |
+| Paper quotes trusted unchecked | out-of-range or garbage quotes count as no quote / not filled |
+| Contract increments: finite and > 0 | plausible ranges, logged rejection |
+| Confirm body | moved into `_confirm_locked` under a cross-process lock. Re-checked: the token is still burned first; KILL is checked at the start **and** right before the real send (`guardrails.py`, "Last-moment kill check"); spend is still recorded before sending |
+| `placement` / `placement_failed` / `cancel` / `cancel_failed` events | `order_intent` (fsync'd, written **before** sending) plus `order_result`. A send counts as `placed`/`cancelled` only on positive confirmation; timeouts and 5xx are `unconfirmed`, never `failed` |
+| `_public_get`: path-prefix check | method+path allowlist, plus a forbidden-word check, plus an httpx hook on the final URL |
+| Runner `prior_for`: any record | the current mode's records only |
+
+**Edits to tests that already existed at the base:** only fake-response fixtures gained the fields Gemini documents (same numbers), the rename, and new event names. The event-name test also got stricter: it now checks `result`. No assertion was relaxed.
+
+**Edits to tests I wrote this session:**
+- The F2 tests were rewritten, because missing metadata now refuses outright.
+- One property-test assertion (open orders) moved to the multi-process test, which can actually observe it. The live `sold <= held` check moved to the stateful end-to-end test, `test_two_sells_of_the_same_holding_cannot_both_be_placed`.
+- A timeout now asserts `unconfirmed` instead of `failed`, which is stricter.
+
+### Each guardrail and a test that proves it's still enforced
+
+| Guardrail | Test (in `tests/`) |
+|---|---|
+| Only `DRY_RUN=false` is live; any other value is an error | `test_guardrails.py::test_dry_run_parsing` |
+| DRY_RUN never builds a trading client, never sends orders | `test_guardrails.py::test_dry_run_guardrails_refuse_a_trading_client`, `test_gemini_client.py::test_dry_run_never_sends_order_or_cancel_requests`, `test_e2e_fake.py::test_dry_run_entry_is_paper_only` |
+| KILL blocks propose, confirm and cancel, including KILL created mid-confirm or mid-run | `test_guardrails.py::test_kill_switch_blocks_all_order_tools`, `::test_kill_switch_created_mid_confirmation_blocks_placement`, `test_e2e_fake.py::test_kill_created_mid_run_stops_the_rest` |
+| `max_order_usd` | `test_guardrails.py::test_over_limit_order_rejected`, `test_sizing.py::test_dollar_ceiling_overrides_percentage`, `test_properties.py::test_guardrails_never_place_an_order_that_breaks_a_cap` |
+| Order %, market %, category %, cash | `test_sizing.py::test_server_percentage_caps_apply_to_manual_quantity`, `test_safety_additions.py::test_server_category_cap_rejects_and_clamps`, `test_adv_f2_exposure_attribution.py::*`, `test_properties.py::*` |
+| Daily spend cap: persists, resets at UTC midnight, re-checked at confirm | `test_guardrails.py::test_daily_cap_accumulates`, `::test_daily_cap_persists_across_restart_and_resets_next_utc_day`, `::test_daily_cap_checked_again_at_confirm`, `test_sizing.py::test_daily_pct_cap` |
+| `max_trades_per_day` at propose and confirm | `test_trades_per_day.py::test_limit_enforced_at_propose_and_resets_next_utc_day`, `::test_limit_enforced_again_at_confirm` |
+| `max_open_orders` (≤ 100) | `test_guardrails.py::test_max_open_orders`, `test_adv_f12_open_orders_page.py::test_max_open_orders_above_page_size_is_rejected` |
+| Caps hold across concurrent processes | `test_adv_f1_cross_process_race.py::*`, `test_stress_multiprocess.py::test_concurrent_processes_never_exceed_caps` |
+| Allowlist: exact, fails closed, no child events, unique | `test_guardrails.py::test_non_allowlisted_market_rejected`, `::test_empty_allowlist_blocks_everything`, `::test_allowlist_fails_closed_when_event_lookup_fails`, `::test_allowlist_ignores_nested_child_events`, `::test_allowlist_rejects_symbol_found_in_two_events` |
+| Price and quantity grid, minimum size, input validation | `test_guardrails.py::test_off_grid_price_and_quantity_rejected`, `::test_market_orders_and_bad_prices_rejected`, `::test_outcome_must_be_exactly_yes_or_no`, `test_sizing.py::test_below_minimum_order_size_skips`, `test_adv_f13_huge_numbers.py::*`, `test_adv_f9_contract_increments.py::*` |
+| Tokens: single-use, expiring, untampered, concurrent | `test_guardrails.py::test_reused_token_rejected`, `::test_expired_token_rejected`, `::test_tampered_pending_order_rejected`, `::test_unknown_token_rejected` |
+| Sells never exceed holdings, including resting sells | `test_guardrails.py::test_sell_more_than_held_rejected`, `test_adv_f4_resting_sells.py::*`, `test_e2e_fake.py::test_two_sells_of_the_same_holding_cannot_both_be_placed` |
+| Paper and live never mixed | `test_guardrails.py::test_dry_run_spend_does_not_consume_live_budget`, `test_adv_f8_runner_mode_mixing.py::*` |
+| Floor, drawdown and daily-loss breakers; deleting KILL doesn't reset the floor | `test_breakers_and_book.py::test_drawdown_trip_creates_kill`, `::test_daily_loss_trip_creates_kill`, `::test_daily_loss_retrips_same_day_after_manual_delete`, `test_safety_additions.py::test_floor_trips_and_deleting_kill_does_not_reset_it`, `test_e2e_fake.py::test_circuit_breaker_trip_creates_kill_and_stops_orders` |
+| Missing or corrupt state files fail closed | `test_adv_f5_state_reset.py::test_deleted_risk_state_after_trading_fails_closed`, `test_adv_f11_corrupt_risk_values.py::*`, `test_ledger_vs_audit.py::*`, `test_trades_per_day.py::test_missing_ledger_after_first_use_fails_closed` |
+| Gemini fields absent or unexpected → refuse | `test_strict_fields.py::*`, `test_strict_side.py::*`, `test_fuzz_responses.py::test_bad_required_field_always_rejects`, `test_e2e_fake.py::test_bad_reads_reject_every_proposal` |
+| Placement or cancel counted only on positive confirmation; unknown outcomes surfaced | `test_strict_fields.py::test_placement_not_positively_confirmed_is_unconfirmed`, `test_cancel_confirmation.py::*`, `test_e2e_fake.py::test_outage_during_confirm_is_unknown_not_failed_and_never_retried`, `test_order_audit.py::*` |
+| Endpoint allowlist; no withdraw, deposit, transfer or similar path | `test_endpoint_allowlist.py::*`, `test_gemini_client.py::test_trading_client_has_no_withdraw_or_transfer_paths` |
+| Credentials never logged or printed | `test_guardrails.py::test_audit_log_redacts_secrets`, `test_gemini_client.py::test_errors_and_repr_never_contain_secret`, `test_adv_f6_verify_auth_key_leak.py::*` |
+| Preflight blocks live startup | `test_preflight.py::test_server_refuses_to_start_live_when_preflight_fails`, `::test_runner_refuses_to_start_live_when_preflight_fails`, `::test_each_config_failure` |
+| Scheduled runs can't be live | `test_schedule_interlock.py::test_schedule_marker_refuses_anything_but_dry_run` |
+| Runner doesn't stack entries; enters nothing if open orders can't be read; skips contracts with no expiry | `test_e2e_fake.py::test_live_entry_rests_and_is_not_restacked_next_run`, `::test_live_runner_enters_nothing_when_open_orders_cant_be_read`, `test_runner_expiry.py::test_no_expiry_is_skipped_before_research_and_logged` |
+| Dashboard is read-only and offline | `test_dashboard.py::test_never_writes_inputs_and_never_touches_the_network`, `::test_refuses_to_write_over_inputs_or_into_state` |
+
+### Skipped or not done, and why
+
+- **No real Gemini or Anthropic calls**, by your rules. The sandbox, the WebSocket host and real response shapes are **unverified** (see below).
+- **No real Mac.** `setup_mac.sh` was tested under Linux bash. The plist parses as valid XML (Python `plistlib`) but wasn't checked with `plutil` or loaded with `launchctl`.
+- **The fake doesn't model** contract settlement (`resolutionSide`) in live mode, rate limits (429), or history pagination beyond what the tests use. Resolution in the dashboard sample is a seeded coin flip.
+- **No new features** beyond what the tasks asked, plus one safety interlock (`GEMINI_MCP_SCHEDULE=dry_run_only`), which makes the DRY_RUN-only schedule enforceable.
+
+### Open questions (I took the safer option in each case)
+
+- **Q1.** A position with no `marketValue` is valued at $0, which is conservative for every cap and breaker, and not refused. Refusing would block exits whenever a quote is missing. Keep it that way?
+- **Q2.** Event tickers containing deposit, withdraw, transfer, address, fund or bank (e.g. a hypothetical `FEDFUNDS`) are refused by the endpoint allowlist, as you specified. Keep it strict, or allow those words inside the ticker segment only?
+- **Q3.** Two processes sharing one API key (runner plus Claude Desktop) can send the same time-based nonce. Gemini rejects one request: a fail-safe error, not a wrong order. Use one key per process, or add a shared nonce file?
+- **Q4.** Breakers are evaluated only on propose and confirm. If equity drops while nothing is proposed (everything held or resting), KILL isn't created until the next proposal; `run_start` does log `breaker_would_trip`. Should the runner create KILL and stop at `run_start` when `breaker_would_trip` is set?
+- **Q5.** The live double-sell guard relies on Gemini's open orders and positions reflecting a sell immediately after it's placed; Gemini's own holding check is the backstop. Add a local reservation for in-flight sells?
+- **Q6.** `max_trades_per_day` also blocks risk-reducing exits once the day's count is used up (seen in the simulation). Exempt sells?
+- **Q7.** Unknown orders stay listed in the report and dashboard forever, because the log is append-only. Add an acknowledgement file the report and dashboard honor?
+- **Q8.** Going-live criteria in RUNBOOK §8 are my proposal:
+  - N ≥ 30 scored trades in each bucket you trade;
+  - Brier mine < market with N ≥ 100;
+  - realized return after fees > 0 and at least half of expected;
+  - 4 clean weeks of DRY_RUN.
+
+  Confirm or change the thresholds.
+- **Q9.** Please run `./setup_mac.sh` once on the Mac, and `plutil -lint` on the plist.
+- **Q10.** In DRY_RUN, `max_open_orders` counts the real account's open orders, because paper orders don't rest. That only ever blocks paper trading. Fine?
+
+### Verify against a real Gemini response before going live
+
+Use `get_positions`, `list_open_orders` and one minimum-size order in the sandbox, then compare with `docs/real_response_check.md`:
+1. **Positions:** every entry has `symbol`, lowercase `outcome`, and `totalQuantity`, `quantityOnHold`, `avgPrice` (≤ 1), `marketValue`, plus `contractMetadata.eventTicker` and `.category`. **Any field that's missing makes every order refuse.**
+2. **Open orders:** `side` and `outcome` (any case), `symbol`, `remainingQuantity`, `price`, and `contractMetadata.eventTicker` and `.category`.
+3. **Placement reply:** `orderId`, and `status` exactly `open` or `filled` (case-insensitive). Check which status a **partly filled** resting order uses. Anything else becomes `unconfirmed`.
+4. **Cancel reply:** `{"result": "ok", ...}`, as documented. Anything else becomes `unconfirmed`.
+5. **Balances:** exactly one USD entry, with `amount` and `available`.
+6. **Events:** the `category` field is present if you use `category_exposure_caps`.
+7. **Sandbox WebSocket host:** `wss://ws.sandbox.gemini.com` (the docs disagree); also check that order books arrive at all.
+8. **Gemini oversell check:** Gemini itself rejects a sell beyond holdings (the backstop for Q5).
