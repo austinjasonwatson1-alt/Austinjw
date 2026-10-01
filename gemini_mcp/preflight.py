@@ -11,7 +11,8 @@ Checks:
 - fee_confirmed is true (set it after checking Gemini's fee schedule)
 - allowed_event_tickers is not empty
 - sane bounds: max_order_pct_of_balance <= 0.15, max_daily_spend_pct <= 0.5,
-  max_drawdown_pct <= 0.35, equity_floor_pct >= 0.4, kelly_multiplier <= 0.5
+  max_drawdown_pct <= 0.35, equity_floor_pct >= 0.4, kelly_multiplier <= 0.5,
+  max_trades_per_day <= 20
 - .env and key files (.env.*, *.pem, *.key, *.p12, *.pfx) are not tracked by git
   and are covered by .gitignore
 - live only: verify_auth.py succeeded for this GEMINI_ENV in the last 24 hours
@@ -42,6 +43,7 @@ BOUNDS = (  # (config key, comparison, limit, description)
     ("max_drawdown_pct", "gt", Decimal("0.35"), "must be at most 0.35"),
     ("equity_floor_pct", "lt", Decimal("0.4"), "must be at least 0.4 (floor at 40% of initial_deposit_usd)"),
     ("kelly_multiplier", "gt", Decimal("0.5"), "must be at most 0.5"),
+    ("max_trades_per_day", "gt", Decimal("20"), "must be at most 20"),
 )
 
 

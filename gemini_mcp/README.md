@@ -54,7 +54,7 @@ Endpoints follow Gemini's docs: the [Prediction Markets API](https://developer.g
 
    These apply whether the quantity came from Kelly sizing or was typed in. The runner can't exceed them.
 7. **Sells.** You can only sell what you hold: Gemini positions when live, the paper ledger in DRY_RUN. If the positions lookup fails or returns anything odd, the sell is rejected. Sells of held quantity reduce exposure, so they don't count against the dollar caps or the daily budget.
-8. **Open orders.** Rejected if the account already has `max_open_orders` or more.
+8. **Open orders and trade count.** Rejected if the account already has `max_open_orders` or more, or if `max_trades_per_day` orders (buys and sells) were already placed this UTC day. The count is kept per mode in `state/daily_spend.json`, counted at confirm and never refunded, even if the send fails.
 9. **Tokens.** Single-use, valid for 5 minutes, and used up before anything else runs. The stored order is hash-checked. At confirm the quantity is frozen: the order is never re-sized, only rejected if it no longer fits.
 
 Credentials come only from environment variables (or `.env`). They're never logged or returned, and they're redacted from `audit.log`. Hosts are fixed, redirects aren't followed, every private path is allowlisted per client class, and nothing is retried automatically. If a placement fails or times out, check `list_open_orders` before trying again.
@@ -237,7 +237,7 @@ Checked by `preflight.py`:
 1. **`initial_deposit_usd`** is set in `config.yaml` to what you deposited (not commented out, not zero). The equity floor is measured from it.
 2. **Fees:** you've checked `fee_per_contract` against Gemini's fee schedule and set **`fee_confirmed: true`**.
 3. **Allowlist:** `allowed_event_tickers` lists exactly the events you mean to trade (not empty).
-4. **Risk bounds:** `max_order_pct_of_balance` ≤ 0.15, `max_daily_spend_pct` ≤ 0.5, `max_drawdown_pct` ≤ 0.35, `equity_floor_pct` ≥ 0.4 (floor at least 40% of the deposit), `kelly_multiplier` ≤ 0.5.
+4. **Risk bounds:** `max_order_pct_of_balance` ≤ 0.15, `max_daily_spend_pct` ≤ 0.5, `max_drawdown_pct` ≤ 0.35, `equity_floor_pct` ≥ 0.4 (floor at least 40% of the deposit), `kelly_multiplier` ≤ 0.5, `max_trades_per_day` ≤ 20.
 5. **Secrets:** `.env` and any key files (`.env.*` other than `.env.example`, `*.pem`, `*.key`, `*.p12`, `*.pfx`) are not tracked by git and are covered by `.gitignore`.
 6. **Auth (live only):** `python verify_auth.py` succeeded for the same `GEMINI_ENV` in the last 24 hours. It writes `state/verify_auth_ok.json` on success.
 

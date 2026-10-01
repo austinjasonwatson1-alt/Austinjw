@@ -249,3 +249,11 @@ def test_runner_continues_in_dry_run_with_warnings(monkeypatch, capsys):
     monkeypatch.setattr(runner, "run_with_server", fake_run)
     assert runner.main([]) == 0
     assert "allowed_event_tickers" in capsys.readouterr().err
+
+
+def test_max_trades_per_day_bound(repo):
+    repo.config(max_trades_per_day=21)
+    fails = preflight.check(DRY, repo.here)
+    assert len(fails) == 1 and "max_trades_per_day" in fails[0]
+    repo.config(max_trades_per_day=20)
+    assert preflight.check(DRY, repo.here) == []
