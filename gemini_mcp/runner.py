@@ -292,6 +292,13 @@ class Runner:
         bal = await self.tools.call("get_balances")
         self.log("run_start", risk=bal.get("risk"), risk_error=bal.get("risk_error"),
                  research_budget=self.research_left)
+        # Breakers first, before any research or proposal: a breach must trip even if nothing would be proposed.
+        chk = await self.tools.call("check_circuit_breakers")
+        if not chk.get("ok"):
+            self.log("run_stopped", reason=f"circuit breaker check at run start: {chk.get('reason') or chk.get('error')}",
+                     tripped=bool(chk.get("tripped")))
+            self.log("run_end", research_left=self.research_left)
+            return self.decisions
         await self.review_positions()
         await self.scan_entries()
         self.log("run_end", research_left=self.research_left)

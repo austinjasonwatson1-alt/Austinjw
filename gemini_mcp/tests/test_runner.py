@@ -192,8 +192,8 @@ def test_dry_run_entry_end_to_end(env):
     assert calls[0][1] is None and calls[0][0]["instrument_symbol"] == SYMBOL
     # Every decision is in audit.log.
     assert [d["kind"] for d in env.audit() if d["event"] == "decision"] == [d["kind"] for d in decisions]
-    assert set(tools.calls) <= {"get_balances", "get_positions", "get_market", "get_order_book",
-                                "propose_order", "confirm_order"}
+    assert set(tools.calls) <= {"get_balances", "check_circuit_breakers", "get_positions", "get_market",
+                                "get_order_book", "propose_order", "confirm_order"}
 
 
 def test_wide_spread_skips_before_research(env):
@@ -286,9 +286,10 @@ def test_live_with_confirmation_places(env):
 def test_kill_switch_stops_runner_orders(env):
     tight_market(env)
     env.kill_path.write_text("")
-    decisions, tools, _, _ = run(env)
-    nt = by_kind(decisions, "no_trade")
-    assert nt and "kill switch" in nt[0]["reason"] and "confirm_order" not in tools.calls
+    decisions, tools, calls, _ = run(env)
+    stop = by_kind(decisions, "run_stopped")  # stopped at run start: no research, no proposals
+    assert stop and "kill switch" in stop[0]["reason"] and calls == []
+    assert "propose_order" not in tools.calls and "confirm_order" not in tools.calls
 
 
 def test_research_budget(env):

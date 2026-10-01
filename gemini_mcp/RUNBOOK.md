@@ -44,7 +44,7 @@ This is how to operate gemini_mcp day to day on a Mac. Run every command from th
 
 Do these in order. Each step is enough on its own to stop new orders.
 
-1. `touch KILL`. Every order tool (propose, confirm and cancel) refuses immediately, in every server process, and the runner won't start. The breakers also create `KILL` themselves when they trip.
+1. `touch KILL`. Every order tool (propose, confirm and cancel) refuses immediately, in every server process, and the runner won't start. The breakers also create `KILL` themselves when they trip. They're checked on every proposal and confirmation, and at the start of every runner run, before any research.
 2. **Stop the schedule:**
    - `launchctl bootout gui/$(id -u)/com.gemini-mcp.dryrun`
    - `launchctl disable gui/$(id -u)/com.gemini-mcp.dryrun`, so it won't come back at login.
@@ -90,7 +90,8 @@ The decision `kind` values:
 - `no_trade`: with the reason (spread, thin book, edge, sources, server rejection, no expiry).
 - `entry_failed` / `exit_failed` / `review_failed` / `exit_rejected`.
 - `proposed_not_confirmed`: live, with no terminal approval.
-- `run_skipped`: KILL was present.
+- `run_skipped`: KILL was present when the runner started.
+- `run_stopped`: the run-start breaker check (`check_circuit_breakers`) tripped a breaker (KILL created), found KILL, or couldn't complete (for example, balances unreadable). The run ends before any research or proposal.
 
 ## 5. An order shows "unknown, check Gemini"
 

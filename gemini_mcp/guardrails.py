@@ -1758,6 +1758,26 @@ class Guardrails:
                                       {"ok": True, "dry_run": False, "order_id": oid, "response": resp},
                                       response=resp)
 
+    def check_breakers(self) -> dict[str, Any]:
+        """Evaluate the equity floor, drawdown and daily-loss breakers right now, exactly as propose/confirm do
+        (including creating KILL on a trip). The runner calls this at the start of every run, before any research
+        or proposal, so a breach is caught even when nothing would be proposed. Fails closed: anything that keeps
+        the check from completing returns ok: False."""
+        with self._lock:
+            try:
+                self.observe_kill()
+                self._check_kill()
+                config = load_config(self.config_path)
+                ctx = self._context()
+                marks = self._check_breakers(config, ctx)
+            except Rejected as e:
+                reason = str(e)
+                self.audit.write("rejection", action="check_circuit_breakers", reason=reason, mode=self.mode)
+                return {"ok": False, "tripped": reason.startswith("circuit breaker tripped"), "reason": reason}
+            return {"ok": True, "tripped": False, "mode": self.mode, "equity_usd": _fmt(ctx.equity),
+                    "peak_usd": _fmt(marks["peak"]), "day_start_usd": _fmt(marks["day_start"]),
+                    "floor_usd": _fmt(marks["floor"])}
+
     # ---- read-only views for tools
 
     def risk_summary(self) -> dict[str, Any]:

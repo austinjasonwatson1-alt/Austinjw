@@ -249,6 +249,13 @@ def create_server(market: ReadOnlyClient, guard: Guardrails) -> FastMCP:
 
     @mcp.tool()
     @safe
+    def check_circuit_breakers() -> dict[str, Any]:
+        """Evaluate the equity floor, drawdown and daily-loss breakers now. Places nothing. If one is breached it
+        trips: KILL is created and every order tool is disabled until you delete KILL by hand."""
+        return guard.check_breakers()
+
+    @mcp.tool()
+    @safe
     def get_positions() -> dict[str, Any]:
         """Read-only. Current prediction-market positions. review_positions is the normalized list for
         the active mode: paper positions in DRY_RUN, account positions when live."""
