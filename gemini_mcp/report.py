@@ -442,6 +442,112 @@ def format_fill_gaps(g: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+MODE_LABELS = {"dry_run": "paper (DRY_RUN)", "live": "live"}
+_CENTS = Decimal("0.01")
+
+
+def _money(d: Decimal | None) -> str | None:
+    return None if d is None else format(d.quantize(_CENTS), "f")
+
+
+def pnl_by_mode(lots: list[Lot]) -> dict[str, Decimal]:
+    """Realized P&L of closed lots, split into paper ("dry_run") and live ("live:" refs)."""
+    out: dict[str, Decimal] = {}
+    for lot in lots:
+        if lot.closed:
+            mode = "live" if lot.ref.startswith("live:") else "dry_run"
+            out[mode] = out.get(mode, _ZERO) + lot.proceeds - lot.cost
+    return out
+
+
+def research_economics(audit: list[dict[str, Any]], fee_per_contract: Decimal,
+                       pnl: dict[str, Decimal]) -> dict[str, dict[str, Any]]:
+    """Per mode ("dry_run", "live"): does the research pay for itself?
+
+    research spend         sum of research_cost entries (estimated $; DRY_RUN research is real money too)
+    research per trade     research spend / trades entered (runner "entry" decisions)
+    expected edge value    per entry, edge x stake = ((q_adj - p) / p) x (p x quantity) = (q_adj - p) x quantity
+    expected net edge      expected edge value - fee (fee_per_contract x quantity) - research per trade
+    P&L after research     realized P&L of closed lots - research spend
+    Flagged when research per trade is more than the expected edge value net of fees, or research was spent and
+    nothing was entered.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    acc: dict[str, dict[str, Any]] = {}
+    for e in audit:
+        mode = e.get("mode")
+        if mode not in MODE_LABELS:
+            continue
+        if e.get("event") == "research_cost":
+            a = acc.setdefault(mode, {"spend": _ZERO, "calls": 0, "bad": 0, "entries": []})
+            c = _d(e.get("research_cost_usd"))
+            if c is None or c < 0:
+                a["bad"] += 1
+            else:
+                a["spend"] += c
+                a["calls"] += 1
+        elif e.get("event") == "decision" and e.get("kind") == "entry":
+            acc.setdefault(mode, {"spend": _ZERO, "calls": 0, "bad": 0, "entries": []})["entries"].append(e)
+    for mode, a in acc.items():
+        n = len(a["entries"])
+        values, fees, edges = [], [], []
+        for e in a["entries"]:
+            q_adj, p, qty, edge = _d(e.get("q_adj")), _d(e.get("p")), _d(e.get("quantity")), _d(e.get("edge"))
+            if edge is not None:
+                edges.append(edge)
+            if None in (q_adj, p, qty):
+                continue
+            values.append((q_adj - p) * qty)
+            fees.append(fee_per_contract * qty)
+        per_trade = a["spend"] / n if n else None
+        value = _mean(values)
+        fee = _mean(fees)
+        net = None if value is None or per_trade is None else value - fee - per_trade
+        p_l = pnl.get(mode)
+        flag, reason = False, None
+        if n == 0 and a["spend"] > 0:
+            flag, reason = True, f"${_money(a['spend'])} of research and no trades entered"
+        elif per_trade is not None and value is not None and per_trade > value - fee:
+            flag, reason = True, (f"research costs more per trade (${_money(per_trade)}) than the expected edge is "
+                                  f"worth after fees (${_money(value - fee)})")
+        out[mode] = {
+            "research_spend_usd": _money(a["spend"]), "research_calls": a["calls"], "unreadable_costs": a["bad"],
+            "trades_entered": n, "trades_with_edge_data": len(values),
+            "research_per_trade_usd": _money(per_trade),
+            "avg_stated_edge": None if not edges else format(_mean(edges).quantize(Decimal("0.0001")), "f"),
+            "expected_edge_value_per_trade_usd": _money(value), "fee_per_trade_usd": _money(fee),
+            "expected_net_edge_per_trade_usd": _money(net),
+            "pnl_usd": _money(p_l), "pnl_after_research_usd": None if p_l is None else _money(p_l - a["spend"]),
+            "flag": flag, "flag_reason": reason,
+        }
+    return out
+
+
+def format_research_economics(econ: dict[str, dict[str, Any]]) -> str:
+    lines = ["RESEARCH ECONOMICS (estimated research $ from audit.log research_cost entries)"]
+    if not econ:
+        lines.append("  (no research or entries logged yet)")
+        return "\n".join(lines)
+    rows = [("research spend $", "research_spend_usd"), ("trades entered", "trades_entered"),
+            ("research $ per trade", "research_per_trade_usd"), ("avg stated edge", "avg_stated_edge"),
+            ("expected edge value $/trade", "expected_edge_value_per_trade_usd"),
+            ("fee $/trade", "fee_per_trade_usd"),
+            ("expected net edge $/trade", "expected_net_edge_per_trade_usd"),
+            ("P&L $ (closed lots)", "pnl_usd"), ("P&L after research $", "pnl_after_research_usd")]
+    modes = [m for m in MODE_LABELS if m in econ]
+    lines.append("  " + " " * 30 + "".join(MODE_LABELS[m].rjust(18) for m in modes))
+    for label, key in rows:
+        lines.append(f"  {label:<30}" + "".join(str(econ[m][key] if econ[m][key] is not None else "-").rjust(18)
+                                                for m in modes))
+    for m in modes:
+        if econ[m]["flag"]:
+            lines.append(f"  !! {MODE_LABELS[m]}: RESEARCH COSTS MORE PER TRADE THAN THE EXPECTED EDGE: "
+                         f"{econ[m]['flag_reason']}.")
+    lines.append("  edge value = (q_adj - price) x quantity, i.e. stated edge x stake; P&L is - without --live for "
+                 "live.")
+    return "\n".join(lines)
+
+
 def unknown_orders(audit: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Live sends whose outcome isn't known: an order_intent with no order_result, or an 'unconfirmed' result."""
     results = {e.get("intent_id"): e for e in audit if e.get("event") == "order_result"}
@@ -484,7 +590,8 @@ def make_resolver(client: Any) -> Callable[[str, str], str | None]:
 
 
 def format_report(rows: list[dict[str, Any]], decisions: dict[str, Any], est: dict[str, Any] | None = None,
-                  unknown: list[dict[str, Any]] | None = None, gaps: dict[str, Any] | None = None) -> str:
+                  unknown: list[dict[str, Any]] | None = None, gaps: dict[str, Any] | None = None,
+                  economics: dict[str, dict[str, Any]] | None = None) -> str:
     cols = [("bucket", 10), ("trades", 6), ("closed", 6), ("open", 4), ("mean_expected_return", 9),
             ("mean_raw_expected_return", 9), ("mean_realized_return", 9), ("pnl_usd", 9), ("return_on_cost", 8),
             ("held_to_settlement", 7), ("win_rate", 8), ("mean_q_adj_settled", 8), ("n_scored", 6),
@@ -520,6 +627,8 @@ def format_report(rows: list[dict[str, Any]], decisions: dict[str, Any], est: di
                   f"  estimates by model: {est['estimates_by_model'] or '-'}"]
     if gaps is not None:
         lines += ["", format_fill_gaps(gaps)]
+    if economics is not None:
+        lines += ["", format_research_economics(economics)]
     lines += ["", "DECISIONS"]
     for k, n in sorted(decisions["by_kind"].items(), key=lambda kv: -kv[1]):
         lines.append(f"  {k}: {n}")
@@ -560,11 +669,13 @@ def main(argv: list[str] | None = None) -> int:
     lots = build_lots(fills, ledger.get("research") or {}, resolver)
     rows, decisions, est = summarize(lots), decision_summary(audit), estimate_brier(audit, resolver)
     unknown = unknown_orders(audit)
+    economics = research_economics(audit, config.fee_per_contract, pnl_by_mode(lots))
     if args.json:
-        print(json.dumps({"unknown_orders": unknown, "fill_gaps": gaps, "buckets": rows, "all_estimates": est, "decisions": decisions,
+        print(json.dumps({"unknown_orders": unknown, "fill_gaps": gaps, "research_economics": economics,
+                          "buckets": rows, "all_estimates": est, "decisions": decisions,
                           "lots": [{**asdict(l), "closed": l.closed} for l in lots]}, default=str, indent=2))
     else:
-        print(format_report(rows, decisions, est, unknown, gaps))
+        print(format_report(rows, decisions, est, unknown, gaps, economics))
     return 0
 
 

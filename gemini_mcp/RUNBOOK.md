@@ -149,6 +149,21 @@ The **ALL RESEARCHED CONTRACTS** line scores every estimate, traded or not, one 
 
 Each row shows N, the average and the worst. Orders still open, or placed before this was recorded, are counted under "not compared". With N ≥ 5, the report flags **LIVE FILLS CONSISTENTLY WORSE THAN PAPER ASSUMED** when at least 2 of 3 orders filled worse or the average gap is positive. Paper results then overstate live: stop scaling up and investigate (see Fast track).
 
+**RESEARCH ECONOMICS** shows, for paper (DRY_RUN) and live separately, whether the research pays for itself. The research money is real in both modes.
+
+| Row | Meaning |
+|---|---|
+| `research spend $` | Sum of the `research_cost` estimates in `audit.log`. |
+| `trades entered` | Runner `entry` decisions. |
+| `research $ per trade` | Research spend ÷ trades entered. |
+| `avg stated edge` | Mean `edge` recorded at entry (after fee, per contract). |
+| `expected edge value $/trade` | Stated edge × stake, computed as (q_adj − price) × quantity, averaged over entries. |
+| `fee $/trade` | `fee_per_contract` × quantity. |
+| `expected net edge $/trade` | Expected edge value − fee − research $ per trade. |
+| `P&L after research $` | Realized P&L of closed lots − research spend. Live P&L needs `--live`. |
+
+It flags **RESEARCH COSTS MORE PER TRADE THAN THE EXPECTED EDGE** when research $ per trade is more than the expected edge value after fees, or when research was spent and nothing was entered. Then the research is losing money before any trade does: lower `max_research_per_run` or the cost caps, turn on screening (`screening_enabled`), or narrow the allowlist.
+
 ## 8. Going-live criteria (all must hold)
 
 **Failing any criterion means keep paper trading** on this track, with no partial credit. The only other route to live money is the **Fast track** (section 9), which has its own gates and stays at micro-live size until they are met.
