@@ -53,13 +53,14 @@ def test_limit_enforced_again_at_confirm(env):
     assert len(env.trader.placed) == 2
 
 
-def test_sells_count(env):
+def test_sells_dont_use_the_trade_budget(env):
+    # Exits have their own ceiling (max_exits_per_day, tests/test_exits_per_day.py).
     write_config(env.config_path, max_trades_per_day=1)
     env.market.positions = {"positions": [make_position(total="10")]}
     g = env.guard()
     r = g.propose(SYMBOL, "yes", "sell", "5", "0.70")
     assert g.confirm(r["confirmation_token"])["ok"]
-    assert "trades placed today" in g.propose(SYMBOL, "yes", "buy", "2", "0.50")["reason"]
+    assert g.propose(SYMBOL, "yes", "buy", "2", "0.50")["ok"]
 
 
 def test_failed_placement_still_counts(env):

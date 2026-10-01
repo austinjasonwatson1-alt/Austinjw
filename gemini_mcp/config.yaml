@@ -9,8 +9,11 @@ max_order_usd: 2
 max_daily_spend_usd: 5
 # Refuse new orders when the account already has this many open orders.
 max_open_orders: 3
-# Orders placed per UTC day (buys and sells, live or paper per mode). Counted at confirm, never refunded.
+# Buys placed per UTC day (live or paper, per mode). Counted at confirm, never refunded.
 max_trades_per_day: 5
+# Sells of held quantity (exits) per UTC day. Exits don't count against max_trades_per_day, so a used-up trade
+# budget never blocks reducing a position.
+max_exits_per_day: 10
 # Exact event tickers that may be traded. Empty = nothing can trade.
 # Child events of a game must be listed by their own ticker.
 allowed_event_tickers: []

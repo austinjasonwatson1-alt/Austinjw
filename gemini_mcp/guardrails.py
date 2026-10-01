@@ -73,7 +73,8 @@ class Config:
     max_order_usd: Decimal = Decimal("10")
     max_daily_spend_usd: Decimal = Decimal("25")
     max_open_orders: int = 3
-    max_trades_per_day: int = 5
+    max_trades_per_day: int = 5  # buys only
+    max_exits_per_day: int = 10  # sells of held quantity; exempt from max_trades_per_day
     allowed_event_tickers: tuple[str, ...] = ()
     # Conviction sizing. Fractions: 0.08 means 8%.
     estimate_weight: Decimal = Decimal("0.7")
@@ -117,6 +118,7 @@ _SPEC: dict[str, tuple] = {
     "max_daily_spend_usd": ("dec", 0, None),
     "max_open_orders": ("int", 0, _ACTIVE_ORDERS_PAGE),  # only one page of open orders is read
     "max_trades_per_day": ("int", 0, None),
+    "max_exits_per_day": ("int", 0, None),
     "allowed_event_tickers": ("tickers",),
     "estimate_weight": ("dec", 0, 1),
     "kelly_multiplier": ("dec", 0, 1),
@@ -312,12 +314,15 @@ class AuditLog:
 
 
 class SpendLedger:
-    """Persisted per-UTC-day spend on buys and count of placed orders, keyed by mode so dry runs never use up
-    the live budget.
+    """Persisted per-UTC-day spend on buys, count of buys ("trades") and count of sells ("exits"), keyed by mode
+    so dry runs never use up the live budget.
 
-    Both are recorded when an order is confirmed and never refunded, even on
-    cancel or a failed placement.
+    All are recorded when an order is confirmed and never refunded, even on
+    cancel or a failed placement. Version 1 files (no "exits" section) are
+    upgraded on load; a version 2 file without one is refused.
     """
+
+    SECTIONS = ("spend", "trades", "exits")
 
     def __init__(self, path: Path, mode_key: str):
         self.path = path
@@ -325,10 +330,19 @@ class SpendLedger:
         self._lock = threading.Lock()
 
     def _load(self) -> dict[str, Any]:
-        data = _read_json(self.path, {"version": 1, "spend": {}, "trades": {}}, "daily spend ledger")
+        data = _read_json(self.path, {"version": 2, "spend": {}, "trades": {}, "exits": {}}, "daily spend ledger")
         if not isinstance(data, dict) or not isinstance(data.get("spend"), dict) \
                 or not isinstance(data.setdefault("trades", {}), dict):
             raise Rejected(f"daily spend ledger {self.path} has a bad shape; refusing to trade")
+        if "exits" not in data:
+            if data.get("version", 1) != 1:
+                raise Rejected(f"daily spend ledger {self.path} has no exits section; refusing to trade")
+            # Written before exits were counted separately: every mode it knows starts with no exits recorded.
+            # (Today's audit.log still sets a floor under the count; see _check_ledger_against_audit.)
+            data["exits"] = {mode: {} for mode in data["trades"]}
+        if not isinstance(data["exits"], dict):
+            raise Rejected(f"daily spend ledger {self.path} has a bad shape; refusing to trade")
+        data["version"] = 2
         return data
 
     def initialized(self) -> bool:
@@ -337,21 +351,29 @@ class SpendLedger:
             if not self.path.exists():
                 return False
             data = self._load()
-            return self.mode_key in data["spend"] and self.mode_key in data["trades"]
+            return all(self.mode_key in data[s] for s in self.SECTIONS)
 
     def initialize(self) -> None:
         with self._lock, file_lock(self.path):
             data = self._load()
-            data["spend"].setdefault(self.mode_key, {})
-            data["trades"].setdefault(self.mode_key, {})
+            for section in self.SECTIONS:
+                data[section].setdefault(self.mode_key, {})
             _atomic_write_json(self.path, data)
 
-    def trades_on(self, day: str) -> int:
+    def _count_on(self, section: str, day: str) -> int:
         with self._lock, file_lock(self.path):
-            n = self._load()["trades"].get(self.mode_key, {}).get(day, 0)
+            n = self._load()[section].get(self.mode_key, {}).get(day, 0)
         if isinstance(n, bool) or not isinstance(n, int) or n < 0:
-            raise Rejected("daily spend ledger has a malformed trade count; refusing to trade")
+            raise Rejected(f"daily spend ledger has a malformed {section} count; refusing to trade")
         return n
+
+    def trades_on(self, day: str) -> int:
+        """Buys placed today."""
+        return self._count_on("trades", day)
+
+    def exits_on(self, day: str) -> int:
+        """Sells (exits) placed today."""
+        return self._count_on("exits", day)
 
     def spent_on(self, day: str) -> Decimal:
         with self._lock, file_lock(self.path):
@@ -368,16 +390,17 @@ class SpendLedger:
         """True if any buy was ever recorded for this mode."""
         with self._lock, file_lock(self.path):
             data = self._load()
-            return bool(data["spend"].get(self.mode_key) or data["trades"].get(self.mode_key))
+            return any(data[s].get(self.mode_key) for s in self.SECTIONS)
 
-    def record_trade(self, day: str, amount: Decimal) -> tuple[Decimal, int]:
-        """Add one placed order and its buy spend (0 for sells). Returns (spend today, trades today)."""
+    def record_trade(self, day: str, amount: Decimal, side: str = "buy") -> tuple[Decimal, int]:
+        """Add one placed order: a buy adds its spend and one trade; a sell adds one exit (no spend).
+        Returns (spend today, that side's count today)."""
         with self._lock, file_lock(self.path):
             data = self._load()
             days = data["spend"].setdefault(self.mode_key, {})
-            total = Decimal(days.get(day, "0")) + amount
+            total = Decimal(days.get(day, "0")) + (amount if side == "buy" else _ZERO)
             days[day] = format(total, "f")
-            counts = data["trades"].setdefault(self.mode_key, {})
+            counts = data["trades" if side == "buy" else "exits"].setdefault(self.mode_key, {})
             counts[day] = int(counts.get(day, 0)) + 1
             for section in (days, counts):
                 for old in sorted(section)[:-30]:
@@ -1328,15 +1351,15 @@ class Guardrails:
         for name, fields in events:
             self.audit.write(name, mode=self.mode, **fields)
 
-    def _audit_today(self, today: str) -> tuple[Decimal, int]:
-        """(buy dollars, orders) confirmed today in this mode according to audit.log. Unparseable lines are
+    def _audit_today(self, today: str) -> tuple[Decimal, int, int]:
+        """(buy dollars, buys, sells) confirmed today in this mode according to audit.log. Unparseable lines are
         skipped: the audit log is only used as a floor under the ledger."""
-        spend, count = _ZERO, 0
+        spend, count, sells = _ZERO, 0, 0
         prefix = '{"ts": "' + today
         try:
             f = open(self.audit.path, encoding="utf-8")
         except FileNotFoundError:
-            return spend, count
+            return spend, count, sells
         with f:
             for line in f:
                 if not line.startswith(prefix):
@@ -1350,15 +1373,19 @@ class Guardrails:
                     continue
                 if cost.is_finite() and cost > 0:
                     spend += cost
-                count += 1
-        return spend, count
+                if e.get("side") == "buy":
+                    count += 1
+                else:
+                    sells += 1
+        return spend, count, sells
 
-    def _check_ledger_against_audit(self, today: str, spent: Decimal, trades: int) -> None:
-        a_spend, a_trades = self._audit_today(today)
-        if spent < a_spend or trades < a_trades:
+    def _check_ledger_against_audit(self, today: str, spent: Decimal, trades: int, exits: int) -> None:
+        a_spend, a_trades, a_exits = self._audit_today(today)
+        if spent < a_spend or trades < a_trades or exits < a_exits:
             raise Rejected(
-                f"daily spend ledger {self.ledger.path} shows ${spent} spent / {trades} trades today (UTC), but "
-                f"audit.log shows ${a_spend} / {a_trades} confirmed orders; refusing so the daily caps aren't "
+                f"daily spend ledger {self.ledger.path} shows ${spent} spent / {trades} buys / {exits} exits today "
+                f"(UTC), but audit.log shows ${a_spend} / {a_trades} buys / {a_exits} exits confirmed; refusing so "
+                "the daily caps aren't "
                 "bypassed. Restore the ledger (or raise today's entries to at least the audit totals).")
 
     def _daily_limit(self, config: Config, day_start: Decimal) -> Decimal:
@@ -1395,7 +1422,8 @@ class Guardrails:
         marks = self._check_breakers(config, ctx)
         spent = self.ledger.spent_on(self._today())
         trades = self.ledger.trades_on(self._today())
-        self._check_ledger_against_audit(self._today(), spent, trades)
+        exits = self.ledger.exits_on(self._today())
+        self._check_ledger_against_audit(self._today(), spent, trades, exits)
         daily_limit = self._daily_limit(config, marks["day_start"])
         if config.category_exposure_caps and not (isinstance(event.get("category"), str)
                                                   and event["category"].strip()):
@@ -1464,8 +1492,13 @@ class Guardrails:
             if cost > ctx.cash:
                 raise Rejected(f"order cost ${cost} exceeds available cash ${ctx.cash:.2f}", details)
 
-        if trades >= config.max_trades_per_day:
+        # Buys count against max_trades_per_day; sells of held quantity (exits) only against max_exits_per_day,
+        # so a used-up trade budget never blocks reducing a position.
+        if inp.side == "buy" and trades >= config.max_trades_per_day:
             raise Rejected(f"{trades} trades placed today (UTC); max_trades_per_day is {config.max_trades_per_day}",
+                           details)
+        if inp.side == "sell" and exits >= config.max_exits_per_day:
+            raise Rejected(f"{exits} exits placed today (UTC); max_exits_per_day is {config.max_exits_per_day}",
                            details)
 
         open_count = len(self._active_orders())
@@ -1555,6 +1588,8 @@ class Guardrails:
                     "max_open_orders": config.max_open_orders,
                     "trades_today": self.ledger.trades_on(self._today()),
                     "max_trades_per_day": config.max_trades_per_day,
+                    "exits_today": self.ledger.exits_on(self._today()),
+                    "max_exits_per_day": config.max_exits_per_day,
                 },
             }
             if v.sizing:
@@ -1626,7 +1661,7 @@ class Guardrails:
             sizing=pending.sizing,
         )
         # Ledger first: audit.log must never show more than the ledger (that mismatch is refused).
-        spent_total, _ = self.ledger.record_trade(self._today(), v.cost_usd if v.side == "buy" else _ZERO)
+        spent_total, _ = self.ledger.record_trade(self._today(), v.cost_usd if v.side == "buy" else _ZERO, v.side)
         self.audit.write("confirmation", **common)
 
         if self.dry_run:
@@ -1801,6 +1836,8 @@ class Guardrails:
             "spent_today_usd": _fmt(spent),
             "trades_today": self.ledger.trades_on(self._today()),
             "max_trades_per_day": config.max_trades_per_day,
+            "exits_today": self.ledger.exits_on(self._today()),
+            "max_exits_per_day": config.max_exits_per_day,
             "daily_limit_usd": _fmt(daily_limit.quantize(Decimal("0.01"))),
             "event_exposure_usd": {k: _fmt(v.quantize(Decimal("0.01"))) for k, v in ctx.event_exposure.items()},
             "equity_floor_usd": _fmt(floor.quantize(Decimal("0.01"))) if floor is not None else None,

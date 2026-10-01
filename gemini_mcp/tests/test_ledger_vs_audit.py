@@ -68,11 +68,11 @@ def test_state_wiped_but_audit_shows_today_is_refused(env):
     refused(env, "audit.log")
 
 
-def test_sells_count_toward_the_audit_trade_floor(env):
+def test_sells_count_toward_the_audit_exit_floor(env):
     env.market.positions = {"positions": [make_position(total="10")]}
     g = env.guard()
     assert g.confirm(g.propose(SYMBOL, "yes", "sell", "5", "0.70")["confirmation_token"])["ok"]
-    edit_ledger(env, lambda d: d["trades"]["sandbox:live"].update({"2026-09-21": 0}))
+    edit_ledger(env, lambda d: d["exits"]["sandbox:live"].update({"2026-09-21": 0}))
     refused(env, "audit.log")
 
 

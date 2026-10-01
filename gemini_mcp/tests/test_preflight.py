@@ -269,3 +269,11 @@ def test_old_starting_balance_name_passes_with_a_visible_note(repo, capsys):
     import sys
     assert preflight.enforce(DRY, repo.here, out=sys.stdout) is True
     assert "initial_deposit_usd is deprecated" in capsys.readouterr().out
+
+
+def test_max_exits_per_day_bound(repo):
+    repo.config(max_exits_per_day=31)
+    fails = preflight.check(DRY, repo.here)
+    assert len(fails) == 1 and "max_exits_per_day" in fails[0]
+    repo.config(max_exits_per_day=30)
+    assert preflight.check(DRY, repo.here) == []

@@ -21,7 +21,7 @@ This is how to operate gemini_mcp day to day on a Mac. Run every command from th
    - `starting_balance_usd`: the balance you start trading with. The equity floor is measured from it.
    - `allowed_event_tickers`: exactly the events you mean to trade. A ticker containing deposit, withdraw, transfer, address, fund or bank is refused by the client.
    - Check `fee_per_contract` against Gemini's fee schedule, then set `fee_confirmed: true`.
-   - Keep the caps tiny: `max_order_usd: 2`, `max_daily_spend_usd: 5`, `max_trades_per_day: 5`.
+   - Keep the caps tiny: `max_order_usd: 2`, `max_daily_spend_usd: 5`, `max_trades_per_day: 5` (buys). Exits have their own ceiling, `max_exits_per_day: 10`.
 5. Run `py verify_auth.py`. It makes read-only signed calls and writes `state/verify_auth_ok.json`, which preflight requires in live mode (under 24 h old, same `GEMINI_ENV`).
 6. Run `py -m pytest -q tests`. It's offline and should be all green.
 7. Run `py preflight.py`. In DRY_RUN it lists what's missing for live, and it must print `OK` before you go live.

@@ -195,6 +195,7 @@ def build_model(inp: Inputs, now: datetime | None = None) -> Model:
     spend = inp.spend if isinstance(inp.spend, dict) else {}
     spent = _d(((spend.get("spend") or {}).get(mode_key) or {}).get(today)) or Decimal(0)
     trades = ((spend.get("trades") or {}).get(mode_key) or {}).get(today) or 0
+    exits = ((spend.get("exits") or {}).get(mode_key) or {}).get(today) or 0
     last = m.equity_series[-1] if m.equity_series else {}
     equity, peak = last.get("equity"), _d(st.get("peak")) or last.get("peak")
     day_start = _d(st.get("day_start")) if st.get("day") == today else None
@@ -210,7 +211,8 @@ def build_model(inp: Inputs, now: datetime | None = None) -> Model:
                  "to_floor": (equity - floor) / equity if equity and floor is not None else None,
                  "tripped": st.get("tripped"), "as_of": last.get("ts")}
     m.limits = {"spent": spent, "daily_limit": daily_limit, "trades": trades,
-                "max_trades": cfg.get("max_trades_per_day", 5), "max_open_orders": cfg.get("max_open_orders", 3),
+                "max_trades": cfg.get("max_trades_per_day", 5), "exits": exits,
+                "max_exits": cfg.get("max_exits_per_day", 10), "max_open_orders": cfg.get("max_open_orders", 3),
                 "max_order_usd": _d(cfg.get("max_order_usd", 10)), "max_drawdown_pct": _d(cfg.get("max_drawdown_pct", 0.20)),
                 "max_daily_loss_pct": _d(cfg.get("max_daily_loss_pct", 0.08))}
 
@@ -628,7 +630,8 @@ def render(m: Model) -> str:
 
     meters = (meter("Spent today (UTC)", float(lim["spent"]), float(lim["daily_limit"]) if lim.get("daily_limit") else None,
                     "${:,.2f}")
-              + meter("Orders placed today", float(lim.get("trades") or 0), float(lim.get("max_trades") or 0), "{:,.0f}")
+              + meter("Buys placed today", float(lim.get("trades") or 0), float(lim.get("max_trades") or 0), "{:,.0f}")
+              + meter("Exits placed today", float(lim.get("exits") or 0), float(lim.get("max_exits") or 0), "{:,.0f}")
               + meter("Drawdown vs breaker", float(dd) if dd is not None else None,
                       float(lim["max_drawdown_pct"]) if lim.get("max_drawdown_pct") else None, "{:.1%}")
               + meter("Today's loss vs breaker", day_loss, float(lim["max_daily_loss_pct"])

@@ -183,3 +183,17 @@ def test_live_positions_come_from_the_latest_run_only(tmp_path):
     (tmp_path / "audit.log").write_text("\n".join(json.dumps(e) for e in entries))
     m = dashboard.build_model(dashboard.load_inputs(tmp_path))
     assert [p["symbol"] for p in m.positions] == ["NEW"]
+
+
+def test_limits_show_buys_and_exits_separately(tmp_path):
+    (tmp_path / "config.yaml").write_text("max_trades_per_day: 4\nmax_exits_per_day: 7\n")
+    (tmp_path / "state").mkdir()
+    (tmp_path / "state" / "daily_spend.json").write_text(json.dumps({
+        "version": 2, "spend": {"sandbox:live": {"2026-09-21": "3"}}, "trades": {"sandbox:live": {"2026-09-21": 2}},
+        "exits": {"sandbox:live": {"2026-09-21": 5}}}))
+    (tmp_path / "audit.log").write_text(json.dumps({"ts": "2026-09-21T10:00:00", "event": "rejection",
+                                                    "mode": "LIVE (sandbox): test funds"}))
+    m = dashboard.build_model(dashboard.load_inputs(tmp_path), now=datetime(2026, 9, 21, 12, tzinfo=timezone.utc))
+    assert (m.limits["trades"], m.limits["max_trades"], m.limits["exits"], m.limits["max_exits"]) == (2, 4, 5, 7)
+    page = dashboard.render(m)
+    assert "Buys placed today" in page and "Exits placed today" in page and "5 of 7" in page

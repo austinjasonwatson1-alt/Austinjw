@@ -102,18 +102,22 @@ def make_guard(tmp, *, live, cfg, balances, positions, orders, inc="1", minimum=
     live=st.booleans(), side=st.sampled_from(["buy", "buy", "sell"]), outcome=st.sampled_from(["yes", "no"]),
     qty=qty_s, price=price_s, prob=prob_s, cash=dec("50", "5000", 2), held=st.integers(0, 50),
     resting_buy=st.integers(0, 300), max_order=dec("0.5", "20", 2), daily=dec("1", "50", 2),
-    open_max=st.integers(1, 5), trades_max=st.integers(1, 5), order_pct=dec("0.005", "0.2", 3),
+    open_max=st.integers(1, 5), trades_max=st.integers(1, 5), exits_max=st.integers(0, 3),
+    order_pct=dec("0.005", "0.2", 3),
     market_pct=dec("0.01", "0.3", 3), daily_pct=dec("0.01", "0.6", 3), inc=st.sampled_from(["1", "5", "0.5"]),
     minimum=st.sampled_from(["1", "5"]), confirms=st.integers(1, 6),
 )
 @example(live=False, side="sell", outcome="no", qty="2", price="0.35", prob=None, cash=D("50"), held=2, resting_buy=0,
-         max_order=D("0.5"), daily=D("1"), open_max=1, trades_max=2, order_pct=D("0.005"), market_pct=D("0.01"),
+         max_order=D("0.5"), daily=D("1"), open_max=1, trades_max=2, exits_max=2, order_pct=D("0.005"),
+         market_pct=D("0.01"),
          daily_pct=D("0.01"), inc="1", minimum="1", confirms=2)  # two unfilled paper sells: not an oversell
 def test_guardrails_never_place_an_order_that_breaks_a_cap(live, side, outcome, qty, price, prob, cash, held,
                                                             resting_buy, max_order, daily, open_max, trades_max,
-                                                            order_pct, market_pct, daily_pct, inc, minimum, confirms):
+                                                            exits_max, order_pct, market_pct, daily_pct, inc, minimum,
+                                                            confirms):
     cfg = {"max_order_usd": float(max_order), "max_daily_spend_usd": float(daily), "max_open_orders": open_max,
-           "max_trades_per_day": trades_max, "max_order_pct_of_balance": float(order_pct),
+           "max_trades_per_day": trades_max, "max_exits_per_day": exits_max,
+           "max_order_pct_of_balance": float(order_pct),
            "max_market_pct_of_balance": float(market_pct), "max_daily_spend_pct": float(daily_pct),
            "allowed_event_tickers": [EVENT], "max_drawdown_pct": 1, "max_daily_loss_pct": 1, "equity_floor_pct": 0,
            "paper_bankroll_usd": 1000}
@@ -149,7 +153,8 @@ def test_guardrails_never_place_an_order_that_breaks_a_cap(live, side, outcome, 
         # Unfilled paper orders don't rest and don't change holdings, so only filled paper sells count as sold.
         sold = (sum((q for _, s, _, q, _ in sent if s == "sell"), D(0)) if live else
                 sum((D(o["quantity"]) for o in paper_orders if o["side"] == "sell" and o["filled"]), D(0)))
-        assert len(sent) <= trades_max
+        assert sum(1 for x in sent if x[1] == "buy") <= trades_max  # buys: trade budget
+        assert sum(1 for x in sent if x[1] == "sell") <= exits_max  # sells of held quantity: exit budget
         # max_open_orders needs an exchange whose open-order list grows as orders are placed: that's checked
         # against the stateful fake in test_stress_multiprocess.py.
         assert spent <= min(D(daily), daily_pct * equity) + D("1e-9")
