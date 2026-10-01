@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from conftest import EVENT, SYMBOL, make_contract, make_event, write_config
+from conftest import EVENT, SYMBOL, make_contract, make_event, make_order, write_config
 from guardrails import (
     AuditLog,
     ConfigError,
@@ -267,7 +267,7 @@ def test_allowlist_rejects_mismatched_event_ticker(env):
 
 
 def test_max_open_orders(env):
-    env.market.active = {"orders": [{"orderId": i} for i in range(3)]}
+    env.market.active = {"orders": [make_order(i) for i in range(3)]}
     r = env.guard().propose(SYMBOL, "yes", "buy", "1", "0.35")
     assert not r["ok"] and "max_open_orders" in r["reason"]
 

@@ -1031,7 +1031,11 @@ class Guardrails:
             if rem < 0:
                 raise Rejected("open orders lookup returned an invalid (negative or out-of-range) quantity or price")
             sym = str(o.get("symbol") or "")
-            if o.get("side") == "buy":
+            side = o.get("side").lower() if isinstance(o.get("side"), str) else None
+            if side not in ALLOWED_SIDES:
+                raise Rejected(f"open orders lookup returned an order with an unrecognized side "
+                               f"{_clip(str(o.get('side')))!r}; can't tell buys from sells, refusing")
+            if side == "buy":
                 meta = o.get("contractMetadata") if isinstance(o.get("contractMetadata"), dict) else {}
                 price = _dec_field(o, "price", "open orders")
                 if not (_ZERO <= price <= _ONE):

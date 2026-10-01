@@ -44,6 +44,26 @@ def make_event(ticker=EVENT, contracts=None, **over):
     return e
 
 
+def make_order(order_id=1, symbol=SYMBOL, side="buy", outcome="yes", remaining="1", price="0.50", event=EVENT,
+               category="economics", **over):
+    """An open order with every field Gemini documents for GET active orders."""
+    o = {"orderId": order_id, "status": "open", "symbol": symbol, "side": side, "outcome": outcome,
+         "orderType": "limit", "quantity": remaining, "filledQuantity": "0", "remainingQuantity": remaining,
+         "price": price, "contractMetadata": {"eventTicker": event, "category": category}}
+    o.update(over)
+    return o
+
+
+def make_position(symbol=SYMBOL, outcome="yes", total="10", on_hold="0", avg="0.50", value=None, event=EVENT,
+                  category="economics", **over):
+    """A position with every field Gemini documents for GET positions."""
+    p = {"symbol": symbol, "outcome": outcome, "totalQuantity": total, "quantityOnHold": on_hold,
+         "avgPrice": avg, "marketValue": value if value is not None else str(Decimal(total) * Decimal(avg)),
+         "contractMetadata": {"eventTicker": event, "category": category}}
+    p.update(over)
+    return p
+
+
 class Clock:
     def __init__(self, t=T0):
         self.t = t
