@@ -36,3 +36,26 @@ Any path containing `deposit|withdraw|transfer|address|fund|bank` is refused, ca
 - **Side effect (Q2):** an event whose ticker contains one of the refused words, such as a hypothetical `FEDFUNDS`, can't be read or traded. I kept the strict rule you asked for.
 
 **Rename (`starting_balance_usd`).** `initial_deposit_usd` is still read, with a `DeprecationWarning`. Preflight prints the warning as a note, so it's visible. Setting both keys is a `ConfigError`. Updated: config.yaml, preflight, README and tests.
+
+## Task 3: realistic fake Gemini and end-to-end runs
+
+**`tests/fake_gemini.py`** is a stateful local fake of the API, using the documented response shapes. It plugs in through `httpx.MockTransport` and a fake `ws_connect`, so the real signing, allowlist, parsing and guardrails all run against it.
+- **Auth:** it checks the HMAC-SHA384 signature, that the payload's `request` equals the path, and that nonces strictly increase per key.
+- **Orders:** orders rest, fill, or partially fill. Positions, `quantityOnHold`, cash and reserved cash update the way an exchange would. Cancel returns the documented `{"result": "ok", ...}`.
+- **Faults:** 503 or any status code, a timeout before or *after* the request is applied, malformed JSON, missing or overwritten fields, and an order book that never answers.
+- **Shared state:** state can live in a locked JSON file, so several processes can share one fake.
+
+**`tests/test_e2e_fake.py`** has 30 scenarios that run the real runner and MCP tools, live and DRY_RUN:
+- Trading flow: entry, resting order, partial fill, full entry → fill → exit → fill cycle, and a partially filled exit.
+- Safety stops: circuit breaker trip, KILL created mid-run, restart mid-position.
+- Failures: outages during confirm and cancel, corrupted reads, order-book timeout, research failure.
+- Reporting: live fills read by `report.py` through the real client.
+
+Real bugs it found, each fixed after a failing test:
+1. **`50af55d`: send outcome misclassified.** A placement that timed out after Gemini accepted it, or got a 5xx or an unparseable 2xx, was logged as `failed`. `report.py` never flagged it as "unknown, check Gemini", although the order was live. Now only a refusal before sending, or a 4xx answer, counts as `failed`. Everything else is `unconfirmed`. Cancels work the same way.
+2. **`a8a8391`: stacked entries.** An unfilled buy from an earlier run isn't a position, so every live run proposed another entry on the same contract, limited only by the caps. In live mode the runner now reads open orders first and skips contracts with any resting order. If it can't read open orders, it enters nothing that run.
+
+Observed and safe, not changed:
+- **Restart reusing a nonce.** A restarted process whose nonce clock didn't move past the last nonce got `InvalidNonce` from the fake, the way Gemini would. Everything was refused, so it failed closed. Real restarts take more than 1 s, so the wall-clock nonces move on. Two processes sharing one key can still collide (Q3).
+- **Breakers fire only on a proposal.** They're evaluated on propose and confirm only. If equity drops while the runner proposes nothing (everything is held or resting), no KILL is created until the next proposal. `run_start` does log `breaker_would_trip` (Q4).
+- **DRY_RUN still reads the account.** In DRY_RUN, the `get_balances`/`get_positions` tools still make read-only signed account calls to show real balances next to the paper figures. That's by design; nothing is placed.
