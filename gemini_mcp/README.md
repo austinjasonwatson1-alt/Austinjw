@@ -175,6 +175,24 @@ A second table scores **every researched contract, traded or not**: my P(YES) ag
 
 If realized return trails expected in the high-edge buckets, or my Brier score isn't below the market's, the stated edges aren't real. A decision summary (by kind, with the top reasons) follows the tables.
 
+## Dashboard
+
+```bash
+python report.py --json > report.json   # optional; fills the calibration and Brier panels (read-only Gemini calls)
+python dashboard.py                     # writes dashboard.html; open it in a browser
+```
+
+`dashboard.py` builds one self-contained HTML page from `audit.log`, `paper_ledger.json`, `state/`, `KILL`, `config.yaml` and `report.json`. The page shows:
+- Equity and drawdown against the floor.
+- Today's spend and trade count against the limits.
+- Open positions.
+- A filterable decision timeline.
+- Each contract's thesis and sources.
+- Calibration, and my Brier score against the market's, with N per bucket.
+- A "needs attention" panel: KILL, breaker trips, unknown orders, thin-book skips, missing quotes.
+
+It is read-only. It opens its inputs for reading only, never calls any API, refuses to write over its inputs or into `state/`, and the page's Content-Security-Policy blocks all network requests. Light and dark themes are included. `samples/dashboard_sample.html` is a sample built from simulated data by `samples/make_sample.py`.
+
 ## Modes
 
 | `GEMINI_ENV` | `DRY_RUN` | What happens |

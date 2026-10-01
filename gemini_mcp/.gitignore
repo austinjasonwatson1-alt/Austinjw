@@ -8,3 +8,5 @@ paper_ledger.json
 *.lock
 *.tmp
 .hypothesis/
+dashboard.html
+report.json
