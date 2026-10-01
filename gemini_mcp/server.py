@@ -333,6 +333,10 @@ def create_server(market: ReadOnlyClient, guard: Guardrails) -> FastMCP:
 
 def main() -> None:
     load_dotenv(HERE / ".env", override=False)
+    import preflight
+
+    if not preflight.enforce(os.environ, out=sys.stderr):  # stdout is the MCP protocol
+        sys.exit(1)
     market, guard = build()
     try:
         guard.observe_kill()  # log a KILL created or deleted while the server was down

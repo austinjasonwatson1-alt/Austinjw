@@ -449,6 +449,10 @@ def main(argv: list[str] | None = None) -> int:
     from dotenv import load_dotenv
 
     load_dotenv(HERE / ".env", override=False)
+    import preflight
+
+    if not preflight.enforce(os.environ):
+        return 1
     config = load_config(HERE / "config.yaml")
     dry_run = parse_dry_run(os.environ.get("DRY_RUN"))
     parse_env(os.environ.get("GEMINI_ENV"))
