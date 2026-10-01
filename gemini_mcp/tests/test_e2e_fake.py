@@ -320,3 +320,16 @@ def test_dry_run_review_and_exit(tmp_path):
     assert kinds(d, "exit") and w.posts(ORDER) == []
     paper = json.loads((tmp_path / "paper_ledger.json").read_text())
     assert paper["positions"] == {}
+
+
+def test_two_sells_of_the_same_holding_cannot_both_be_placed(tmp_path):
+    fake = FakeGemini()
+    fake.set_fill_mode(DN25, "fill")
+    w = World(tmp_path, fake, live=True, config={"allowed_event_tickers": ["FEDJAN26"]})
+    w.run()
+    held = fake.snapshot()["positions"][f"{DN25}|yes"]["totalQuantity"]
+    fake.set_fill_mode(DN25, "rest")
+    toks = [w.guard.propose(DN25, "yes", "sell", held, "0.60")["confirmation_token"] for _ in range(2)]
+    first, second = w.guard.confirm(toks[0]), w.guard.confirm(toks[1])
+    assert first["ok"] and not second["ok"] and "exceeds" in second["reason"], (first, second)
+    assert sum(1 for o in fake.open_orders() if o["side"] == "sell") == 1

@@ -5,3 +5,4 @@ python-dotenv>=1.0
 websockets>=15
 anthropic>=1.0
 pytest>=8
+hypothesis>=6.100
