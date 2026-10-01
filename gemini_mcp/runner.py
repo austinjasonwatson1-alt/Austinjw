@@ -348,7 +348,24 @@ class Runner:
                 continue
             await self._confirm_and_record("exit", prop, record)
 
+    async def _resting_symbols(self) -> set[str] | None:
+        """Live only: symbols with an open order (any side). None if the open orders can't be read."""
+        resp = await self.tools.call("list_open_orders")
+        orders = resp.get("orders") if resp.get("ok") else None
+        if not isinstance(orders, list):
+            return None
+        return {o.get("symbol") for o in orders if isinstance(o, dict)}
+
     async def scan_entries(self) -> None:
+        # A resting order from an earlier run isn't a position yet; without this the runner would stack
+        # another entry on the same contract every run (bounded only by the caps).
+        resting: set[str] = set()
+        if not self.dry_run:
+            got = await self._resting_symbols()
+            if got is None:
+                self.log("no_trade", reason="couldn't read open orders; no entries this run")
+                return
+            resting = got
         for ticker in self.config.allowed_event_tickers:
             market = await self.tools.call("get_market", event_ticker=ticker)
             if not market.get("ok"):
@@ -360,6 +377,10 @@ class Runner:
                 if c.get("status") != "active" or c.get("market_state") != "open":
                     self.log("no_trade", reason=f"contract not tradable (status {c.get('status')}, "
                                                 f"market {c.get('market_state')})", **base)
+                    continue
+                if symbol in resting:
+                    self.log("skip", reason="open order already resting on this contract; not stacking another",
+                             **base)
                     continue
                 if symbol in self.held:
                     self.log("skip", reason="held (or exited) this run; handled by position review, "
