@@ -314,3 +314,86 @@ Full test suite, `python -m pytest -q` in `gemini_mcp/`:
 | Q5 | **Changed to the safer option** (`0d9caea`). Live sells confirmed in the last 120 s stay reserved against the holding, even if Gemini's positions or open orders don't show them yet. The reservation is read from `audit.log`, so every process sees it. | It uses `max()` with what Gemini reports, so a reflected sell isn't double-counted. A sell that already *filled* within 120 s can briefly block a second, legitimate sell of the remainder. That errs on the side of refusing. Tests: `tests/test_recent_sell_reservation.py`. |
 | Q7 | **Unknown orders stay listed** in the report and dashboard; there's no acknowledgement mechanism. | Each one stays visible until the log rotates. That's annoying, but nothing unknown is ever hidden. |
 | Q10 | In DRY_RUN, `max_open_orders` keeps counting the **real account's** open orders. | It can only block paper trading, never allow more. |
+
+## This session's work
+
+Every change started with a failing test. Before every push the full suite ran, and the push was gated on pytest's own exit code (`$?`, never piped). Pushes went only to `origin/review/gemini-mcp`.
+
+| Task | Commit | What changed | Tests |
+|---|---|---|---|
+| 1. Breakers at run start | `e383778` | New read-only MCP tool `check_circuit_breakers` runs the guardrails' own floor, drawdown and daily-loss evaluation, creating KILL on a trip. `runner.py` calls it right after `run_start`, before any position review, research or proposal. It stops the run (decision `run_stopped`) if a breaker trips, KILL exists, or the check can't complete (e.g. balances unreadable). It works on paper equity in DRY_RUN too. | `tests/test_run_start_breakers.py` (8) |
+| 2. Exits | `adb37af` | `max_trades_per_day` now counts **buys only**. Sells of held quantity count against a new `max_exits_per_day` (default 10), checked at propose and at confirm. The exit count lives in `state/daily_spend.json` (version 2, `exits` section) with the same protections as the trade count. After first use, a missing file or mode entry is refused, a malformed count is refused, and a count below today's audit sells is refused. Version-1 files are upgraded in place; a version-2 file without `exits` is refused. Preflight fails above 30. Preview, risk summary and dashboard show both counts. | `tests/test_exits_per_day.py` (25), `test_preflight.py::test_max_exits_per_day_bound` |
+| 3. Defaults taken | `0d9caea`, `f829f68` | See "Defaults taken" above. Q5 got the safer behavior in code: live sells confirmed in the last 120 s stay reserved against the holding. | `tests/test_recent_sell_reservation.py` (6) |
+| 4. `capture_samples.py` | `3eef11d` | See below. | `tests/test_capture_samples.py` (18) |
+| 5. Going-live criteria | `d484e57` | RUNBOOK §8 is now exactly your five criteria, plus "failing any criterion means keep paper trading". First live orders need manual confirmation, small size, and a human check of the fill against Gemini's site. To make criterion 5 checkable, the dashboard shows **Worst drawdown seen** (running peak over the whole history) and warns when it's past half of `max_drawdown_pct`. | `test_runbook.py::test_going_live_criteria_are_the_agreed_ones`, `test_dashboard.py::test_worst_drawdown_seen_over_the_whole_history` |
+| 6. macOS | `dfb20b5` | See below. | `tests/test_setup_mac.py` (19, half of them under bash 3.2), `tests/test_validate_plist.py` (20) |
+
+### Task 4: `capture_samples.py`
+
+- **Calls:** read-only. It makes **exactly two calls**, positions and active orders, through the allowlisted, signing `ReadOnlyClient`. The tests count the requests at the fake exchange.
+- **Secret check:** before writing anything, it refuses (exit code 2) if any value looks like a secret: the configured keys, Gemini `account-`/`master-` keys, `sk-ant-` keys, private keys, JWTs, or long opaque tokens. It prints only the field path, never the value.
+- **Redaction:** values are redacted by field name (account, email, name, address, key, secret, token, password, signature, phone, user, owner), and email addresses are redacted anywhere. Every field **name**, the nesting and each value's **type** are kept (`"REDACTED"`, `0`, `0.0`, `false`).
+- **Output:** files are written 0600 into `samples/real/`, which is now in `.gitignore`. It refuses an output directory that git would track.
+- **Errors:** an API error prints only the HTTP status, never the body or any credential.
+- **Report:** it then prints, for every field in `docs/real_response_check.md`, whether it was present, ABSENT or EMPTY, with the note that **an empty list proves nothing about field names**. A sync test keeps the script's field list equal to the doc's.
+
+### Task 6: macOS
+
+- **bash 3.2.** I built the real **bash 3.2.57** (the version macOS ships) from ftp.gnu.org. Every `setup_mac.sh` test runs under it as well as under modern bash; set `BASH32=/path/to/bash` to include those cases, otherwise they skip. The script already worked under 3.2. A static test now bans bash-4-only syntax: associative arrays, `mapfile`, `${x,,}`, `|&`, `&>>`, `coproc`, `[[ -v ]]`, negative indexes, and so on.
+- **Python minimum is 3.10, not 3.11**, and I verified it both ways:
+  - `mcp>=1.20` (the MCP SDK) declares `Requires-Python >=3.10`, and `vermin` reports the code itself needs ≥ 3.9.
+  - **The full suite passes on Python 3.10.20** (690/690, bash 3.2 cases included).
+  - On Python 3.9.23, `pip`/`uv` can't resolve the requirements at all.
+- **`setup_mac.sh`** requires 3.10. If `python3` is too old (the macOS Command Line Tools' 3.9), it looks for `python3.13`…`python3.10` and Homebrew's `python3`. Otherwise it prints exactly what to install (`brew install python@3.12` or the python.org installer) and how to rerun it with `PYTHON=`.
+- **`launchd/validate_plist.py`** validates the job with `plistlib`, since `plutil` isn't available here. It checks:
+  - launchd's structure rules for every key used, with types and calendar ranges;
+  - the DRY_RUN-only rules;
+  - that there's no `--auto-confirm`, no `KeepAlive` and no secrets;
+  - for an installed copy, that the placeholders are replaced and the paths exist.
+
+  RUNBOOK §6 runs it, then `plutil -lint` on the Mac, before `launchctl bootstrap`. Writing its tests caught a bug in it: malformed XML raised `ExpatError` instead of being reported. Fixed before commit.
+
+### Bugs found this session
+
+- **`max_trades_per_day` blocked risk-reducing exits** (Q6). Fixed by Task 2.
+- **Breakers didn't fire while nothing was proposed** (Q4). Fixed by Task 1.
+- **The dashboard didn't detect the mode** from runner-only logs, so it showed no equity history. Fixed in `d484e57`.
+
+### Still open
+
+- **No real Mac run yet.** Run `./setup_mac.sh` and `plutil -lint` once on your Mac.
+- **No real Gemini response yet.** Run `python capture_samples.py` while holding a position with a resting buy and sell, and fix any ABSENT or EMPTY required field before live.
+
+### Nothing outside `gemini_mcp/` changed
+
+`git diff --stat origin/claude/stoic-archimedes-iacegx -- . ':!gemini_mcp'` is empty. The bash 3.2 build and the Python 3.10/3.9 environments live in the session scratchpad, not in the repo.
+
+### Final state of this session
+
+`git log --oneline 697f8ca..HEAD` (7 commits, plus the commit that adds this section):
+
+```
+dfb20b5 gemini_mcp: macOS compatibility: bash 3.2, Python minimum, plist validation
+d484e57 gemini_mcp: RUNBOOK going-live criteria as agreed; dashboard worst drawdown
+3eef11d gemini_mcp: capture_samples.py: read-only, redacted capture of real responses
+f829f68 gemini_mcp: overnight notes: answered questions and defaults taken
+0d9caea gemini_mcp: reserve recently confirmed live sells against the holding (Q5)
+adb37af gemini_mcp: exits exempt from max_trades_per_day; own ceiling max_exits_per_day
+e383778 gemini_mcp: evaluate circuit breakers at the start of every runner run
+```
+
+Full test suite, `BASH32=<bash 3.2.57> python -m pytest -q` in `gemini_mcp/` (Python 3.11.15; the same 690 also pass on Python 3.10.20):
+
+```
+........................................................................ [ 10%]
+........................................................................ [ 20%]
+........................................................................ [ 31%]
+........................................................................ [ 41%]
+........................................................................ [ 52%]
+........................................................................ [ 62%]
+........................................................................ [ 73%]
+........................................................................ [ 83%]
+........................................................................ [ 93%]
+..........................................                               [100%]
+690 passed in 93.98s (0:01:33)
+```
