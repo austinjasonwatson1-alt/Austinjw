@@ -13,7 +13,8 @@ It can move real money, so every limit is enforced in the server's code, not in 
 | `research.py` | Claude with web search: reads the resolution rules, then estimates P(YES). |
 | `report.py` | Realized vs expected return by edge bucket, plus a summary of decisions. |
 | `config.yaml` | Limits, sizing, breakers and runner settings. It's re-read on every propose and confirm. |
-| `verify_auth.py` | Read-only check that request signing works. |
+| `verify_auth.py` | Read-only check that request signing works. Writes `state/verify_auth_ok.json` on success. |
+| `preflight.py` | Pre-flight checks (see the going-live checklist). Run at server and runner startup. |
 
 Endpoints follow Gemini's docs: the [Prediction Markets API](https://developer.gemini.com/prediction-markets-spec), [WebSocket streams](https://developer.gemini.com/prediction-markets/websocket/streams) and [API key auth](https://developer.gemini.com/authentication/api-key).
 
@@ -229,11 +230,25 @@ The server loads `.env` from its own folder, so keep secrets out of Claude confi
 
 ## Going live checklist
 
-1. Recheck the sandbox. If it works, run the flow there with `DRY_RUN=false`.
-2. Paper-trade first, and read `python report.py`. Do the high-edge buckets actually earn more?
-3. Swap in a Trader-only key, run `verify_auth.py`, and accept the terms on the website.
-4. Keep the caps tiny: `max_order_usd: 2`, `max_daily_spend_usd: 5`. Allowlist only the events you mean to trade. Check `fee_per_contract` against your fee schedule; Gemini's API docs don't state it.
-5. Set `GEMINI_ENV=production` **and** `DRY_RUN=false`. Run the runner from a terminal and approve each order.
+`python preflight.py` checks items 1–6 and exits non-zero, listing every failure. `server.py` and `runner.py` run the same checks at startup. In live mode (`DRY_RUN=false`, or any malformed `DRY_RUN`) they **refuse to start** on any failure. In DRY_RUN they print the failures as warnings and continue.
+
+Checked by `preflight.py`:
+
+1. **`initial_deposit_usd`** is set in `config.yaml` to what you deposited (not commented out, not zero). The equity floor is measured from it.
+2. **Fees:** you've checked `fee_per_contract` against Gemini's fee schedule and set **`fee_confirmed: true`**.
+3. **Allowlist:** `allowed_event_tickers` lists exactly the events you mean to trade (not empty).
+4. **Risk bounds:** `max_order_pct_of_balance` ≤ 0.15, `max_daily_spend_pct` ≤ 0.5, `max_drawdown_pct` ≤ 0.35, `equity_floor_pct` ≥ 0.4 (floor at least 40% of the deposit), `kelly_multiplier` ≤ 0.5.
+5. **Secrets:** `.env` and any key files (`.env.*` other than `.env.example`, `*.pem`, `*.key`, `*.p12`, `*.pfx`) are not tracked by git and are covered by `.gitignore`.
+6. **Auth (live only):** `python verify_auth.py` succeeded for the same `GEMINI_ENV` in the last 24 hours. It writes `state/verify_auth_ok.json` on success.
+
+Not checked by code, so do these yourself:
+
+7. Recheck the sandbox. If it works, run the flow there with `DRY_RUN=false`.
+8. Paper-trade first, and read `python report.py`. Do the high-edge buckets actually earn more?
+9. Use a Trader-only key (never Fund Manager) and accept the prediction-market terms on the website.
+10. Keep the caps tiny: `max_order_usd: 2`, `max_daily_spend_usd: 5`.
+11. Run one server process per API key. Two processes (say, the runner plus Claude Desktop) now share caps safely, but time-based nonces can collide and fail requests.
+12. Set `GEMINI_ENV=production` **and** `DRY_RUN=false`. Run the runner from a terminal and approve each order.
 
 **Kill switch:** `touch gemini_mcp/KILL` stops every order tool immediately; `rm` it to resume. While it exists, `cancel_order` is blocked too, so cancel orders on the Gemini website.
 
@@ -241,13 +256,15 @@ The server loads `.env` from its own folder, so keep secrets out of Claude confi
 
 `audit.log` is JSON lines with UTC timestamps. Both the server and the runner write to it, under a file lock. Event types:
 
-- **Server:** `kill_detected`, `kill_deleted`, `proposal` and `confirmation` (both include `sizing`), `would_place` (with `paper_order_id` and `paper_filled`), `placement`, `placement_failed`, `rejection` (with `reason`, and `sizing` when relevant), `cancel`, `would_cancel`, `cancel_failed`, `circuit_breaker_trip`, `breaker_reset`.
+- **Server:** `kill_detected`, `kill_deleted`, `proposal` and `confirmation` (both include `sizing`), `would_place` (with `paper_order_id` and `paper_filled`), `placement`, `placement_failed`, `placement_unconfirmed` (a 2xx with no order id; the order may or may not exist), `rejection` (with `reason`, and `sizing` when relevant), `cancel`, `would_cancel`, `cancel_failed`, `circuit_breaker_trip`, `breaker_reset`.
 - **Runner:** `decision`.
 
 ## Known limits
 
 - **Fees:** the fee per contract is an estimate from config.
-- **Open-order count:** only the first 100 open orders are counted.
+- **Open-order count:** only the first 100 open orders are read, so `max_open_orders` is capped at 100 in config.
+- **State files:** if `state/risk_state.json` goes missing after trading, orders are refused rather than re-baselining the breakers. Restore it, or delete `state/daily_spend.json` as well to start over on purpose. Deleting `state/daily_spend.json` alone resets today's spend count.
+- **Exposure attribution:** positions and resting buys count toward an event when their event metadata matches *or* their symbol is one of that event's contracts.
 - **`get_order_status`:** searches up to 1,000 open and 5,000 history orders.
 - **Book filter scope:** the spread and depth check is applied by the runner only. Manual `propose_order` calls from a chat aren't filtered by it.
 - **Self-reported probability:** `my_probability` comes from the caller. The server can't verify it, only cap what it does.
