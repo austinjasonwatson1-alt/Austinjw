@@ -139,6 +139,16 @@ The job sets `DRY_RUN=true` and `GEMINI_MCP_SCHEDULE=dry_run_only`. `runner.py` 
 
 The **ALL RESEARCHED CONTRACTS** line scores every estimate, traded or not, one per contract per day. It is the best test of whether the research beats the price at all.
 
+**PAPER vs LIVE FILLS** (`--live` only). Every live order records, at confirm, the fill paper mode would have assumed at that same moment (`paper_assumed` in `confirmation`, `order_intent` and `order_result`): filled in full at the limit price if the limit was at or beyond the current price, plus `fee_per_contract`. The report compares that with the real fill in Gemini's order history, per contract, signed so that **positive = live worse**:
+
+| Row | Meaning |
+|---|---|
+| `price gap $` | Buy: real average price − assumed price. Sell: assumed − real. |
+| `fee gap $` | Real fee per contract − `fee_per_contract`. Shows n/a when order history has no fee field (the field is unverified; see `docs/real_response_check.md`). Check fees on Gemini's site by hand meanwhile. |
+| `fill shortfall` | Contracts paper assumed filled that live did not fill. |
+
+Each row shows N, the average and the worst. Orders still open, or placed before this was recorded, are counted under "not compared". With N ≥ 5, the report flags **LIVE FILLS CONSISTENTLY WORSE THAN PAPER ASSUMED** when at least 2 of 3 orders filled worse or the average gap is positive. Paper results then overstate live: stop scaling up and investigate (see Fast track).
+
 ## 8. Going-live criteria (all must hold)
 
 **Failing any criterion means keep paper trading.** No exceptions, and no partial credit.

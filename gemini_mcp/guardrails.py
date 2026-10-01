@@ -1765,6 +1765,18 @@ class Guardrails:
         except Rejected as e:
             return self._reject("confirm_order", str(e), e.details, order=asdict(pending.order))
 
+        # What paper mode assumes for this order right now: filled in full at the limit price when the limit is
+        # at or beyond the outcome's current buy (sell) price, plus fee_per_contract. Live orders record it too, so
+        # report.py --live can compare it with the real fill.
+        if v.side == "buy":
+            ref = _quote(v.outcome_buy_price)
+            filled = ref is not None and v.price >= ref
+        else:
+            ref = _quote(v.outcome_sell_price)
+            filled = ref is not None and v.price <= ref
+        paper_assumed = {"filled": filled, "price": _fmt(v.price) if filled else None,
+                         "quantity": _fmt(v.quantity) if filled else "0",
+                         "fee_per_contract": _fmt(config.fee_per_contract), "reference_price": _fmt(ref)}
         common = dict(
             mode=self.mode,
             trade=v.action,
@@ -1776,6 +1788,7 @@ class Guardrails:
             worst_case_cost_usd=v.cost_usd,
             resolved_event_ticker=v.event_ticker,
             sizing=pending.sizing,
+            paper_assumed=paper_assumed,
         )
         # Ledger first: audit.log must never show more than the ledger (that mismatch is refused).
         spent_total, _ = self.ledger.record_trade(self._today(), v.cost_usd if v.side == "buy" else _ZERO, v.side)
@@ -1783,12 +1796,6 @@ class Guardrails:
 
         if self.dry_run:
             assert self.paper is not None
-            if v.side == "buy":
-                ref = _quote(v.outcome_buy_price)
-                filled = ref is not None and v.price >= ref
-            else:
-                ref = _quote(v.outcome_sell_price)
-                filled = ref is not None and v.price <= ref
             paper_id = self.paper.record_order(
                 symbol=v.instrument_symbol, outcome=v.outcome, side=v.side, quantity=v.quantity,
                 price=v.price, fee=config.fee_per_contract, event_ticker=v.event_ticker, filled=filled,

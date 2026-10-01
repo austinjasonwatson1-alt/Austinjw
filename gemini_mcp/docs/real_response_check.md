@@ -93,4 +93,5 @@ Read in `Guardrails.cancel()` through `_cancel_confirmed()`. Documented success 
 ## Not money-affecting (left as is)
 
 - **Order history** `orders[].orderId`, `filledQuantity`, `avgExecutionPrice`: used only by `report.py --live`. Missing means the order is left out of the report.
+- **Order history fee** (`fee`, `fees`, `totalFee` or `feeAmount`; Gemini's docs name none for prediction-market orders): used only by the report's paper-vs-live fee gap. Missing means the fee gap shows n/a, never zero. Check a real history entry for the actual fee field name and units (dollars total per order is assumed) and update `report.FEE_FIELDS`.
 - **Open order `orderId`:** used only by `get_order_status`.

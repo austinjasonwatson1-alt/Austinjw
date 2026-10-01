@@ -1,7 +1,8 @@
 """Do bigger stated edges actually win more? Realized vs expected return by edge bucket.
 
     python report.py           # paper trades (and decisions) from paper_ledger.json + audit.log
-    python report.py --live    # also fetch live fills from Gemini order history (read-only calls)
+    python report.py --live    # also fetch live fills from Gemini order history (read-only calls), and
+                               # compare each with the fill paper mode assumed (slippage/fee gap table)
     python report.py --json
 
 Each buy fill is a lot. Later sells of the same contract and outcome close lots
@@ -294,13 +295,14 @@ def paper_fills(ledger: dict[str, Any]) -> list[Fill]:
     return out
 
 
-def live_fills(audit: list[dict[str, Any]], client: Any, fee: Decimal) -> list[Fill]:
-    """Live placements from audit.log, with fills from order history (read-only)."""
-    placed = [e for e in audit if e.get("order_id") is not None and (
+def _placed(audit: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [e for e in audit if e.get("order_id") is not None and (
         e.get("event") == "placement"  # audit logs written before order_intent/order_result existed
         or (e.get("event") == "order_result" and e.get("result") == "placed"))]
-    if not placed:
-        return []
+
+
+def order_history(client: Any) -> dict[int, dict]:
+    """Finished orders (filled or cancelled) from Gemini's order history, by order id (read-only, up to 5 pages)."""
     history: dict[int, dict] = {}
     for page in range(5):
         orders = (client.list_order_history(limit=1000, offset=page * 1000) or {}).get("orders") or []
@@ -311,6 +313,17 @@ def live_fills(audit: list[dict[str, Any]], client: Any, fee: Decimal) -> list[F
                 continue
         if len(orders) < 1000:
             break
+    return history
+
+
+def live_fills(audit: list[dict[str, Any]], client: Any, fee: Decimal,
+               history: dict[int, dict] | None = None) -> list[Fill]:
+    """Live placements from audit.log, with fills from order history (read-only)."""
+    placed = _placed(audit)
+    if not placed:
+        return []
+    if history is None:
+        history = order_history(client)
     out = []
     for e in placed:
         try:
@@ -323,6 +336,110 @@ def live_fills(audit: list[dict[str, Any]], client: Any, fee: Decimal) -> list[F
         out.append(Fill(f"live:{e['order_id']}", e.get("ts", ""), e["instrument_symbol"], e["outcome"], e["side"],
                         filled, avg, fee, e.get("resolved_event_ticker", "")))
     return out
+
+
+# Fee fields to look for in an order-history entry. Gemini's docs don't list one for prediction-market orders
+# (unverified; see docs/real_response_check.md): with none present the fee gap shows as n/a, never as zero.
+FEE_FIELDS = ("fee", "fees", "totalFee", "feeAmount")
+MIN_GAP_N = 5           # fewer compared orders than this: never flagged, too few to say
+WORSE_SHARE = Decimal(2) / Decimal(3)
+
+
+def _gap_stats(xs: list[Decimal]) -> dict[str, Any]:
+    if not xs:
+        return {"n": 0, "average": None, "worst": None}
+    avg = sum(xs, _ZERO) / len(xs)
+    return {"n": len(xs), "average": format(avg.quantize(Decimal("0.0001")), "f"), "worst": format(max(xs), "f")}
+
+
+def fill_gaps(audit: list[dict[str, Any]], history: dict[int, dict]) -> dict[str, Any]:
+    """Each live order's paper-assumed fill (recorded at confirm) against its real fill in order history.
+
+    Gaps are per contract and signed so that positive = live was worse than paper assumed:
+      price gap      buy: real avg price - assumed price;  sell: assumed price - real avg price
+      fee gap        real fee per contract - assumed fee_per_contract (only if history reports a fee)
+      fill shortfall assumed quantity - real filled quantity (contracts)
+    """
+    rows, no_assumption, not_in_history, unreadable = [], 0, 0, 0
+    for e in _placed(audit):
+        pa = e.get("paper_assumed")
+        if not isinstance(pa, dict):
+            no_assumption += 1
+            continue
+        try:
+            o = history.get(int(e["order_id"]))
+        except (TypeError, ValueError):
+            o = None
+        if o is None:
+            not_in_history += 1  # still open, or older than the history pages read
+            continue
+        real_qty, real_avg = _d(o.get("filledQuantity")), _d(o.get("avgExecutionPrice"))
+        a_qty, a_price, a_fee = _d(pa.get("quantity")), _d(pa.get("price")), _d(pa.get("fee_per_contract"))
+        if real_qty is None or real_qty < 0 or (real_qty > 0 and real_avg is None) or a_qty is None:
+            unreadable += 1
+            continue
+        price_gap = None
+        if pa.get("filled") is True and a_price is not None and real_qty > 0:
+            price_gap = real_avg - a_price if e.get("side") == "buy" else a_price - real_avg
+        fee_gap = None
+        fee_raw = next((o[k] for k in FEE_FIELDS if o.get(k) is not None), None)
+        real_fee = _d(fee_raw) if fee_raw is not None else None
+        if real_fee is not None and real_qty > 0 and a_fee is not None:
+            fee_gap = real_fee / real_qty - a_fee
+        shortfall = a_qty - real_qty
+        per = None if price_gap is None else price_gap + (fee_gap or _ZERO)
+        rows.append({
+            "order_id": e.get("order_id"), "ts": e.get("ts"), "instrument_symbol": e.get("instrument_symbol"),
+            "side": e.get("side"), "outcome": e.get("outcome"), "status": o.get("status"),
+            "assumed_filled": pa.get("filled"), "assumed_price": pa.get("price"), "assumed_quantity": pa.get("quantity"),
+            "real_quantity": format(real_qty, "f"), "real_avg_price": None if real_avg is None else format(real_avg, "f"),
+            "price_gap": None if price_gap is None else format(price_gap, "f"),
+            "fee_gap": None if fee_gap is None else format(fee_gap.normalize(), "f"),
+            "fill_shortfall": format(shortfall, "f"),
+            "gap_usd": None if per is None else format(per * real_qty, "f"),
+            "_per": per, "_short": shortfall, "_price": price_gap, "_fee": fee_gap,
+        })
+    worse = [r for r in rows if (r["_per"] is not None and r["_per"] > 0) or r["_short"] > 0]
+    pers = [r["_per"] for r in rows if r["_per"] is not None]
+    avg_per = sum(pers, _ZERO) / len(pers) if pers else None
+    n = len(rows)
+    flag = n >= MIN_GAP_N and (Decimal(len(worse)) / n >= WORSE_SHARE or (avg_per is not None and avg_per > 0))
+    reason = None
+    if flag:
+        reason = (f"{len(worse)} of {n} live orders filled worse than paper assumed"
+                  + (f"; average gap {avg_per.quantize(Decimal('0.0001'))} $/contract" if avg_per is not None else ""))
+    summary = {"price_gap": _gap_stats([r["_price"] for r in rows if r["_price"] is not None]),
+               "fee_gap": _gap_stats([r["_fee"] for r in rows if r["_fee"] is not None]),
+               "fill_shortfall": _gap_stats([r["_short"] for r in rows])}
+    for r in rows:
+        for k in ("_per", "_short", "_price", "_fee"):
+            r.pop(k)
+    return {"orders": rows, "summary": summary, "n": n, "worse": len(worse), "flag": flag, "flag_reason": reason,
+            "no_assumption": no_assumption, "not_in_history": not_in_history, "unreadable": unreadable}
+
+
+def format_fill_gaps(g: dict[str, Any]) -> str:
+    lines = ["PAPER vs LIVE FILLS (per contract; + = live worse than paper assumed)"]
+    if not g["n"]:
+        lines.append("  (no live orders with a recorded paper assumption and a finished fill yet)")
+    labels = {"price_gap": "price gap $", "fee_gap": "fee gap $", "fill_shortfall": "fill shortfall (contracts)"}
+    for key, label in labels.items():
+        st = g["summary"][key]
+        if st["n"]:
+            lines.append(f"  {label:<28} N {st['n']:<4} average {st['average']:>8}   worst {st['worst']:>8}")
+        elif key == "fee_gap":
+            lines.append(f"  {label:<28} n/a (order history reports no fee field)")
+    skipped = [f"{g[k]} {t}" for k, t in (("not_in_history", "not finished / not in history"),
+                                          ("no_assumption", "placed before paper assumptions were recorded"),
+                                          ("unreadable", "unreadable history entries")) if g[k]]
+    if skipped:
+        lines.append(f"  not compared: {', '.join(skipped)}")
+    if g["flag"]:
+        lines.append(f"  !! LIVE FILLS CONSISTENTLY WORSE THAN PAPER ASSUMED: {g['flag_reason']}. Paper results "
+                     "overstate live; investigate (RUNBOOK.md, Fast track) before scaling up.")
+    elif g["n"] and g["n"] < MIN_GAP_N:
+        lines.append(f"  (N<{MIN_GAP_N}: too few orders to flag)")
+    return "\n".join(lines)
 
 
 def unknown_orders(audit: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -367,7 +484,7 @@ def make_resolver(client: Any) -> Callable[[str, str], str | None]:
 
 
 def format_report(rows: list[dict[str, Any]], decisions: dict[str, Any], est: dict[str, Any] | None = None,
-                  unknown: list[dict[str, Any]] | None = None) -> str:
+                  unknown: list[dict[str, Any]] | None = None, gaps: dict[str, Any] | None = None) -> str:
     cols = [("bucket", 10), ("trades", 6), ("closed", 6), ("open", 4), ("mean_expected_return", 9),
             ("mean_raw_expected_return", 9), ("mean_realized_return", 9), ("pnl_usd", 9), ("return_on_cost", 8),
             ("held_to_settlement", 7), ("win_rate", 8), ("mean_q_adj_settled", 8), ("n_scored", 6),
@@ -401,6 +518,8 @@ def format_report(rows: list[dict[str, Any]], decisions: dict[str, Any], est: di
                   f"  N scored {est['n_scored']} of {est['n_estimates']} estimates   Brier me {est['brier_mine'] or '-'}"
                   f"   Brier market {est['brier_market'] or '-'}   skill {est['brier_skill'] or '-'}{flag}",
                   f"  estimates by model: {est['estimates_by_model'] or '-'}"]
+    if gaps is not None:
+        lines += ["", format_fill_gaps(gaps)]
     lines += ["", "DECISIONS"]
     for k, n in sorted(decisions["by_kind"].items(), key=lambda kv: -kv[1]):
         lines.append(f"  {k}: {n}")
@@ -432,17 +551,20 @@ def main(argv: list[str] | None = None) -> int:
     ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else {}
     audit = read_audit(HERE / "audit.log")
     fills = paper_fills(ledger)
+    gaps = None
     if args.live:
-        fills += live_fills(audit, client, config.fee_per_contract)
+        history = order_history(client)
+        fills += live_fills(audit, client, config.fee_per_contract, history)
+        gaps = fill_gaps(audit, history)
     resolver = make_resolver(client)
     lots = build_lots(fills, ledger.get("research") or {}, resolver)
     rows, decisions, est = summarize(lots), decision_summary(audit), estimate_brier(audit, resolver)
     unknown = unknown_orders(audit)
     if args.json:
-        print(json.dumps({"unknown_orders": unknown, "buckets": rows, "all_estimates": est, "decisions": decisions,
+        print(json.dumps({"unknown_orders": unknown, "fill_gaps": gaps, "buckets": rows, "all_estimates": est, "decisions": decisions,
                           "lots": [{**asdict(l), "closed": l.closed} for l in lots]}, default=str, indent=2))
     else:
-        print(format_report(rows, decisions, est, unknown))
+        print(format_report(rows, decisions, est, unknown, gaps))
     return 0
 
 
