@@ -1443,6 +1443,15 @@ class Guardrails:
             }
         order_id = resp.get("orderId") if isinstance(resp, dict) else None
         status = resp.get("status") if isinstance(resp, dict) else None
+        if order_id is None or (isinstance(resp, dict) and resp.get("result") == "error"):
+            # A 2xx without an order id (e.g. Gemini's {"result": "error"} body) is not a placed order.
+            self.audit.write("placement_unconfirmed", response=resp, spent_today_usd=spent_total, **common)
+            return {
+                "ok": False,
+                "error": f"Gemini did not return an order id; response: {resp!r}",
+                "note": "The order may or may not exist. It will NOT be retried. Check list_open_orders before "
+                "proposing again. The spend stays counted for today.",
+            }
         self.audit.write("placement", order_id=order_id, status=status, spent_today_usd=spent_total, **common)
         return {"ok": True, "dry_run": False, "order_id": order_id, "status": status, "response": resp}
 
@@ -1470,6 +1479,10 @@ class Guardrails:
             except Exception as e:  # noqa: BLE001
                 self.audit.write("cancel_failed", order_id=oid, error=str(e), mode=self.mode)
                 return {"ok": False, "error": str(e)}
+            if not isinstance(resp, dict) or resp.get("result") == "error":
+                self.audit.write("cancel_failed", order_id=oid, response=resp, mode=self.mode)
+                return {"ok": False, "error": f"cancel not confirmed by Gemini; response: {resp!r}",
+                        "note": "Check get_order_status; the order may still be open."}
             self.audit.write("cancel", order_id=oid, response=resp, mode=self.mode)
             return {"ok": True, "dry_run": False, "response": resp}
 
