@@ -45,6 +45,25 @@ equity_floor_pct: 0.60
 # (formerly initial_deposit_usd). Preflight requires it in live mode.
 # starting_balance_usd: 100
 
+# Learning budget (USD): when set, the floor is starting_balance_usd - learning_budget_usd, never below 40% of the
+# starting balance, and it replaces equity_floor_pct. Live preflight requires it unless allow_above_micro_live.
+# learning_budget_usd: 30
+
+# ---- Profiles. "profile: <name>" applies that profile's keys over the base keys above and below.
+# Live preflight fails when the effective limits are above the micro_live ceilings below (or learning_budget_usd
+# is unset), unless you set allow_above_micro_live: true on purpose. See RUNBOOK.md, "Fast track".
+profile: null
+allow_above_micro_live: false
+profiles:
+  micro_live:
+    max_order_usd: 5
+    max_daily_spend_usd: 15
+    max_trades_per_day: 4
+    max_open_orders: 2
+    runner_auto_confirm_live: false
+    # Set this before going live: the dollars you accept losing while learning (e.g. 30 of a 100 balance).
+    learning_budget_usd: null
+
 # ---- Optional per-category exposure caps (fraction of equity, per Gemini event category).
 # "default" applies to any category not listed. Empty = no category caps.
 # Example: {default: 0.30, sports: 0.20}

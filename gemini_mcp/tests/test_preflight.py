@@ -12,7 +12,10 @@ import yaml
 import preflight
 import verify_auth
 
-GOOD = {"allowed_event_tickers": ["FEDJAN26"], "starting_balance_usd": 100, "fee_confirmed": True}
+GOOD = {"allowed_event_tickers": ["FEDJAN26"], "starting_balance_usd": 100, "fee_confirmed": True,
+        # within the micro_live ceilings, which live preflight enforces (test_micro_live_profile.py)
+        "max_order_usd": 5, "max_daily_spend_usd": 15, "max_trades_per_day": 4, "max_open_orders": 2,
+        "learning_budget_usd": 30}
 DRY = {"DRY_RUN": "true"}
 LIVE = {"DRY_RUN": "false"}
 

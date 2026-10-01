@@ -13,6 +13,9 @@ Checks:
 - sane bounds: max_order_pct_of_balance <= 0.15, max_daily_spend_pct <= 0.5,
   max_drawdown_pct <= 0.35, equity_floor_pct >= 0.4, kelly_multiplier <= 0.5,
   max_trades_per_day <= 20, max_exits_per_day <= 30
+- live only: the effective limits (after any profile) are within the micro_live ceilings (max_order_usd 5,
+  max_daily_spend_usd 15, max_trades_per_day 4, max_open_orders 2, runner_auto_confirm_live false) and
+  learning_budget_usd is set, unless allow_above_micro_live: true (DRY_RUN prints these as notes)
 - warnings only (never fail): max_days_to_expiry > 30
 - .env and key files (.env.*, *.pem, *.key, *.p12, *.pfx) are not tracked by git
   and are covered by .gitignore
@@ -31,7 +34,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
 
-from guardrails import ConfigError, load_config, parse_dry_run, parse_env
+from guardrails import LEARNING_FLOOR_MIN_PCT, ConfigError, load_config, parse_dry_run, parse_env
 
 HERE = Path(__file__).resolve().parent
 MARKER = Path("state") / "verify_auth_ok.json"
@@ -49,10 +52,45 @@ BOUNDS = (  # (config key, comparison, limit, description)
     ("max_exits_per_day", "gt", Decimal("30"), "must be at most 30"),
 )
 
+# The micro_live profile's ceilings (config.yaml profiles.micro_live must match; a test checks it). Live mode fails
+# preflight when the effective config (after any profile) is above any of them, unless allow_above_micro_live.
+MICRO_LIVE_CEILINGS: dict[str, Any] = {
+    "max_order_usd": Decimal("5"),
+    "max_daily_spend_usd": Decimal("15"),
+    "max_trades_per_day": 4,
+    "max_open_orders": 2,
+    "runner_auto_confirm_live": False,
+}
+
 WARN_BOUNDS = (  # (config key, limit, description): above the limit is a warning (note), not a failure
     ("max_days_to_expiry", Decimal("30"), "above 30 days; the short-dated focus is off (long-dated contracts tie up "
                                           "cash and settle too slowly to learn from)"),
 )
+
+
+def _micro_live_problems(cfg: Any) -> list[str]:
+    out = []
+    fix = "lower it (profile: micro_live) or set allow_above_micro_live: true"
+    for key, limit in MICRO_LIVE_CEILINGS.items():
+        v = getattr(cfg, key)
+        if isinstance(limit, bool):
+            if v != limit:
+                out.append(f"{key} is {str(v).lower()}; micro_live requires {str(limit).lower()}: set it to "
+                           f"{str(limit).lower()} or set allow_above_micro_live: true")
+        elif v > limit:
+            out.append(f"{key} is {v}, above the micro_live ceiling {limit}: {fix}")
+    if cfg.learning_budget_usd is None:
+        out.append("learning_budget_usd is unset: micro_live sets the equity floor as starting_balance_usd - "
+                   "learning_budget_usd; set it (or set allow_above_micro_live: true)")
+    return out
+
+
+def _learning_budget_notes(cfg: Any) -> list[str]:
+    b, start = cfg.learning_budget_usd, cfg.starting_balance_usd
+    if b is None or not start or b <= start * (1 - LEARNING_FLOOR_MIN_PCT):
+        return []
+    return [f"learning_budget_usd {b} is more than {(1 - LEARNING_FLOOR_MIN_PCT) * 100:.0f}% of starting_balance_usd "
+            f"{start}; the floor is held at 40% of it (${start * LEARNING_FLOOR_MIN_PCT:.2f})"]
 
 
 def is_key_file(name: str) -> bool:
@@ -159,6 +197,15 @@ def check_with_notes(environ: Any = os.environ, here: Path = HERE, now: float | 
             v = getattr(cfg, key)
             if (op == "gt" and v > limit) or (op == "lt" and v < limit):
                 fails.append(f"{key} is {v}; {desc}")
+        notes += _learning_budget_notes(cfg)
+        ceiling = _micro_live_problems(cfg)
+        if cfg.allow_above_micro_live:
+            notes.append("allow_above_micro_live is true: live limits above the micro_live ceilings are allowed"
+                         + (f" ({'; '.join(ceiling)})" if ceiling else ""))
+        elif is_live(environ):
+            fails += ceiling
+        else:
+            notes += [f"{c} (blocks live mode)" for c in ceiling]
         for key, limit, desc in WARN_BOUNDS:
             v = getattr(cfg, key)
             if v > limit:

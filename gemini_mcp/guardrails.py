@@ -30,7 +30,7 @@ import warnings
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
-from decimal import ROUND_FLOOR, Decimal, InvalidOperation
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -98,6 +98,13 @@ class Config:
     # Live starting balance in USD (formerly initial_deposit_usd). Unset: the first positive equity the server
     # observed (kept forever). DRY_RUN always uses the paper bankroll.
     starting_balance_usd: Decimal | None = None
+    # Learning budget: when set, the floor is starting balance - learning_budget_usd, never below
+    # LEARNING_FLOOR_MIN_PCT (40%) of the starting balance. It replaces equity_floor_pct (even when that is 0).
+    learning_budget_usd: Decimal | None = None
+    # Name of the profile applied from config.yaml's "profiles" section (None = base keys only).
+    profile: str | None = None
+    # Live preflight refuses limits above the micro_live ceilings unless this is true.
+    allow_above_micro_live: bool = False
     # Optional per-category exposure caps as a share of equity, e.g. {default: 0.30, sports: 0.20}.
     # Empty = no category caps. Categories come from Gemini's event "category" field.
     category_exposure_caps: dict[str, Decimal] = field(default_factory=dict)
@@ -148,6 +155,9 @@ _SPEC: dict[str, tuple] = {
     "max_daily_loss_pct": ("frac+",),
     "equity_floor_pct": ("dec", 0, 1),
     "starting_balance_usd": ("opt_dec",),
+    "learning_budget_usd": ("opt_dec",),
+    "profile": ("profile",),
+    "allow_above_micro_live": ("bool",),
     "category_exposure_caps": ("caps",),
     "max_spread": ("dec", 0, 1),
     "min_depth_multiple": ("dec", 0, None),
@@ -184,6 +194,10 @@ def _cfg_decimal(name: str, value: Any) -> Decimal:
 
 def _cfg_value(name: str, value: Any) -> Any:
     kind = _SPEC[name][0]
+    if kind == "profile":
+        if value is not None and (not isinstance(value, str) or not value):
+            raise ConfigError(f"config {name} must be a profile name (or null)")
+        return value
     if kind == "opt_dec":
         if value is None:
             return None
@@ -258,10 +272,30 @@ def load_config(path: Path) -> Config:
                 raise ConfigError(f"config sets both {old} and {new}; remove {old}")
             warnings.warn(f"config key {old} is deprecated; rename it to {new}", DeprecationWarning, stacklevel=2)
             raw[new] = raw.pop(old)
+    profiles = raw.pop("profiles", None)
+    profiles = {} if profiles is None else profiles
+    if not isinstance(profiles, dict):
+        raise ConfigError("config profiles must be a mapping of profile name -> config keys")
+    checked: dict[str, dict[str, Any]] = {}
+    for pname, over in profiles.items():
+        if not isinstance(pname, str) or not isinstance(over, dict):
+            raise ConfigError(f"config profiles.{pname} must be a mapping of config keys")
+        if "profile" in over or "profiles" in over:
+            raise ConfigError(f"config profiles.{pname} can't set profile or profiles (no nesting)")
+        bad = set(over) - set(_SPEC)
+        if bad:
+            raise ConfigError(f"unknown config keys in profiles.{pname} (typo?): {sorted(bad)}")
+        checked[pname] = {k: _cfg_value(k, v) for k, v in over.items()}  # validated even when not selected
     unknown = set(raw) - set(_SPEC)
     if unknown:
         raise ConfigError(f"unknown config keys (typo?): {sorted(unknown)}")
-    return _cross_check(Config(**{name: _cfg_value(name, value) for name, value in raw.items()}))
+    values = {name: _cfg_value(name, value) for name, value in raw.items()}
+    chosen = values.get("profile")
+    if chosen is not None:
+        if chosen not in checked:
+            raise ConfigError(f"config profile {chosen!r} is not defined under profiles")
+        values.update(checked[chosen])  # the profile's keys win over the base keys
+    return _cross_check(Config(**values))
 
 
 def _cross_check(c: Config) -> Config:
@@ -275,6 +309,7 @@ def _cross_check(c: Config) -> Config:
     return c
 
 
+LEARNING_FLOOR_MIN_PCT = Decimal("0.4")  # the learning-budget floor never goes below 40% of the starting balance
 RESEARCH_UNCAPPED_MAX = 5  # max_research_per_run above this needs max_research_cost_usd_per_run
 
 
@@ -1347,7 +1382,8 @@ class Guardrails:
 
     def _floor(self, config: Config, st: dict[str, Any]) -> tuple[Decimal | None, Decimal | None, str]:
         """(floor, basis, where the basis came from). Paper: bankroll. Live: config, else first equity seen."""
-        if config.equity_floor_pct <= 0:
+        budget = config.learning_budget_usd
+        if config.equity_floor_pct <= 0 and budget is None:
             return None, None, "disabled"
         if self.dry_run and self.paper is not None:
             basis, source = Decimal(self.paper.snapshot().get("bankroll_usd") or "0"), "paper_bankroll"
@@ -1357,6 +1393,9 @@ class Guardrails:
             basis, source = Decimal(st["initial_equity"]), "first_observed_equity"
         else:
             return None, None, "no positive equity observed yet"
+        if budget is not None:
+            floor = max(basis - budget, LEARNING_FLOOR_MIN_PCT * basis)
+            return floor.quantize(Decimal("0.01"), rounding=ROUND_CEILING), basis, source
         return config.equity_floor_pct * basis, basis, source
 
     # ---- KILL deletion log
