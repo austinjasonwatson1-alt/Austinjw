@@ -968,13 +968,21 @@ def _cancel_confirmed(resp: Any, order_id: int) -> bool:
     return lower("result") == "ok" or resp.get("is_cancelled") is True or lower("status") == "cancelled"
 
 
-def _dec_field(obj: dict, key: str, what: str) -> Decimal:
+_API_MAX = Decimal("1e12")
+
+
+def _dec_field(obj: dict, key: str, what: str, *, lo: Decimal = _ZERO, hi: Decimal = _API_MAX) -> Decimal:
+    """A number from a Gemini response: finite, within [lo, hi], and not absurdly precise or tiny. Every amount,
+    quantity and price Gemini returns is non-negative, so negatives are refused by default."""
     try:
         d = Decimal(str(obj[key]))
     except (KeyError, InvalidOperation, TypeError):
         raise Rejected(f"{what} returned an unparseable {key}")
     if not d.is_finite():
         raise Rejected(f"{what} returned an unparseable {key}")
+    if d < lo or d > hi or (d != 0 and d.adjusted() < -12) or len(d.as_tuple().digits) > 30:
+        raise Rejected(f"{what} returned an invalid (negative or out-of-range) {key} {_clip(str(obj[key]))!r}; "
+                       "refusing")
     return d
 
 
@@ -1128,7 +1136,7 @@ class Guardrails:
                 raise Rejected("open orders lookup returned an invalid (negative or out-of-range) quantity or price")
             ev, cat = _metadata(o, "open orders lookup")
             if side == "buy":
-                price = _dec_field(o, "price", "open orders")
+                price = _dec_field(o, "price", "open orders", hi=_ONE)
                 if not (_ZERO <= price <= _ONE):
                     raise Rejected("open orders lookup returned an invalid (negative or out-of-range) quantity or price")
                 exp.add(sym, ev, cat, rem * price)
@@ -1136,7 +1144,8 @@ class Guardrails:
                 resting_sells[(sym, outcome)] = resting_sells.get((sym, outcome), _ZERO) + rem
 
         for p in raw:
-            if not isinstance(p, dict) or not isinstance(p.get("symbol"), str) or p.get("outcome") not in ALLOWED_OUTCOMES:
+            if not isinstance(p, dict) or not isinstance(p.get("symbol"), str) or not p["symbol"] \
+                    or p.get("outcome") not in ALLOWED_OUTCOMES:
                 raise Rejected("positions lookup returned an unexpected entry")
             key = (p["symbol"], p["outcome"])
             if key in seen:
@@ -1144,7 +1153,7 @@ class Guardrails:
             seen.add(key)
             total = _dec_field(p, "totalQuantity", "positions lookup")
             on_hold = _dec_field(p, "quantityOnHold", "positions lookup")
-            avg = _dec_field(p, "avgPrice", "positions lookup")
+            avg = _dec_field(p, "avgPrice", "positions lookup", hi=_ONE)
             # Gemini omits marketValue when there's no live sell quote; count that as $0.
             has_quote = p.get("marketValue") is not None
             value = _dec_field(p, "marketValue", "positions lookup") if has_quote else _ZERO
@@ -1369,16 +1378,16 @@ class Guardrails:
         if contract.get("marketState") != "open":
             raise Rejected(f"contract marketState is {contract.get('marketState')!r}, not 'open'")
 
-        try:
-            p_min = Decimal(str(contract["priceMinimum"]))
-            p_inc = Decimal(str(contract["priceIncrement"]))
-            q_min = Decimal(str(contract["quantityMinimum"]))
-            q_inc = Decimal(str(contract["quantityIncrement"]))
-        except (KeyError, InvalidOperation):
+        if any(k not in contract for k in ("priceMinimum", "priceIncrement", "quantityMinimum", "quantityIncrement")):
             raise Rejected("contract is missing price/quantity increments; can't validate the order")
-        if not all(d.is_finite() for d in (p_min, p_inc, q_min, q_inc)) or p_inc <= 0 or q_inc <= 0 \
-                or p_min < 0 or q_min < 0:
-            raise Rejected("contract has invalid price/quantity increments; can't validate the order")
+        try:
+            # Plausible ranges only: a 1e-400 tick or a 0 step would make the grid meaningless.
+            p_min = _dec_field(contract, "priceMinimum", "contract", hi=Decimal("0.99"))
+            p_inc = _dec_field(contract, "priceIncrement", "contract", lo=Decimal("0.000001"), hi=_ONE)
+            q_min = _dec_field(contract, "quantityMinimum", "contract", hi=Decimal("1e6"))
+            q_inc = _dec_field(contract, "quantityIncrement", "contract", lo=Decimal("0.000001"), hi=Decimal("1e6"))
+        except Rejected as e:
+            raise Rejected(f"contract has invalid price/quantity increments ({e}); can't validate the order")
         if price < p_min or not _on_grid(price, p_min, p_inc):
             raise Rejected(f"limit_price {price} is off the contract's price grid (min {p_min}, step {p_inc})")
 
