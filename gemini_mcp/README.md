@@ -82,7 +82,7 @@ Equity is cash plus positions at Gemini's mark. Gemini's `marketValue` is the cu
 
 - **Max drawdown:** equity falls `max_drawdown_pct` (20%) below its peak.
 - **Max daily loss:** equity falls `max_daily_loss_pct` (8%) below the start of the UTC day.
-- **Absolute equity floor:** equity falls below `equity_floor_pct` (60%) of the initial deposit. The deposit is `initial_deposit_usd` if you set it (recommended for live). Otherwise it's the first positive equity the server ever saw in live mode, or the paper bankroll in DRY_RUN. **Deleting `KILL` never resets the floor:** while equity stays below it, every order trips it again. Set `equity_floor_pct: 0` to disable it.
+- **Absolute equity floor:** equity falls below `equity_floor_pct` (60%) of the starting balance. That's `starting_balance_usd` if you set it (required for live by preflight) (formerly initial_deposit_usd). The old name is still read, with a deprecation warning. Otherwise it's the first positive equity the server ever saw in live mode, or the paper bankroll in DRY_RUN. **Deleting `KILL` never resets the floor:** while equity stays below it, every order trips it again. Set `equity_floor_pct: 0` to disable it.
 
 They're checked on every `propose_order` and `confirm_order`, for buys and sells.
 
@@ -235,10 +235,10 @@ The server loads `.env` from its own folder, so keep secrets out of Claude confi
 
 Checked by `preflight.py`:
 
-1. **`initial_deposit_usd`** is set in `config.yaml` to what you deposited (not commented out, not zero). The equity floor is measured from it.
+1. **`starting_balance_usd`** is set in `config.yaml` to the account balance you start trading with (not commented out, not zero). The equity floor is measured from it.
 2. **Fees:** you've checked `fee_per_contract` against Gemini's fee schedule and set **`fee_confirmed: true`**.
 3. **Allowlist:** `allowed_event_tickers` lists exactly the events you mean to trade (not empty).
-4. **Risk bounds:** `max_order_pct_of_balance` ≤ 0.15, `max_daily_spend_pct` ≤ 0.5, `max_drawdown_pct` ≤ 0.35, `equity_floor_pct` ≥ 0.4 (floor at least 40% of the deposit), `kelly_multiplier` ≤ 0.5, `max_trades_per_day` ≤ 20.
+4. **Risk bounds:** `max_order_pct_of_balance` ≤ 0.15, `max_daily_spend_pct` ≤ 0.5, `max_drawdown_pct` ≤ 0.35, `equity_floor_pct` ≥ 0.4 (floor at least 40% of the starting balance), `kelly_multiplier` ≤ 0.5, `max_trades_per_day` ≤ 20.
 5. **Secrets:** `.env` and any key files (`.env.*` other than `.env.example`, `*.pem`, `*.key`, `*.p12`, `*.pfx`) are not tracked by git and are covered by `.gitignore`.
 6. **Auth (live only):** `python verify_auth.py` succeeded for the same `GEMINI_ENV` in the last 24 hours. It writes `state/verify_auth_ok.json` on success.
 

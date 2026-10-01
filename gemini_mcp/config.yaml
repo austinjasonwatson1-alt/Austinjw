@@ -35,12 +35,12 @@ max_daily_spend_pct: 0.25          # of start-of-day equity
 # ---- Circuit breakers (trip -> KILL file created; delete it by hand to resume)
 max_drawdown_pct: 0.20     # from peak equity; peak restarts from current equity when you delete KILL
 max_daily_loss_pct: 0.08   # from start-of-UTC-day equity
-# Absolute floor: trips when equity < equity_floor_pct x initial deposit. Deleting KILL never resets it;
+# Absolute floor: trips when equity < equity_floor_pct x starting balance. Deleting KILL never resets it;
 # while equity stays below the floor, every order trips it again. 0 disables.
 equity_floor_pct: 0.60
-# Live only (DRY_RUN uses paper_bankroll_usd). Set this to what you deposited. If omitted, the server
-# uses the first positive equity it ever observed for live mode and keeps it.
-# initial_deposit_usd: 100
+# Live only (DRY_RUN uses paper_bankroll_usd). Set this to the account balance you start trading with
+# (formerly initial_deposit_usd). Preflight requires it in live mode.
+# starting_balance_usd: 100
 
 # ---- Optional per-category exposure caps (fraction of equity, per Gemini event category).
 # "default" applies to any category not listed. Empty = no category caps.

@@ -26,6 +26,7 @@ import re
 import secrets
 import threading
 import time
+import warnings
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
@@ -87,12 +88,12 @@ class Config:
     # Circuit breakers.
     max_drawdown_pct: Decimal = Decimal("0.20")
     max_daily_loss_pct: Decimal = Decimal("0.08")
-    # Absolute floor: equity below equity_floor_pct x initial deposit trips the breaker. Deleting
+    # Absolute floor: equity below equity_floor_pct x starting balance trips the breaker. Deleting
     # KILL never moves the floor. 0 disables it.
     equity_floor_pct: Decimal = Decimal("0.60")
-    # Live initial deposit in USD. Unset: the first positive equity the server observed (kept forever).
-    # DRY_RUN always uses the paper bankroll.
-    initial_deposit_usd: Decimal | None = None
+    # Live starting balance in USD (formerly initial_deposit_usd). Unset: the first positive equity the server
+    # observed (kept forever). DRY_RUN always uses the paper bankroll.
+    starting_balance_usd: Decimal | None = None
     # Optional per-category exposure caps as a share of equity, e.g. {default: 0.30, sports: 0.20}.
     # Empty = no category caps. Categories come from Gemini's event "category" field.
     category_exposure_caps: dict[str, Decimal] = field(default_factory=dict)
@@ -128,7 +129,7 @@ _SPEC: dict[str, tuple] = {
     "max_drawdown_pct": ("frac+",),
     "max_daily_loss_pct": ("frac+",),
     "equity_floor_pct": ("dec", 0, 1),
-    "initial_deposit_usd": ("opt_dec",),
+    "starting_balance_usd": ("opt_dec",),
     "category_exposure_caps": ("caps",),
     "max_spread": ("dec", 0, 1),
     "min_depth_multiple": ("dec", 0, None),
@@ -209,6 +210,9 @@ def _cfg_value(name: str, value: Any) -> Any:
     return d
 
 
+_RENAMED = {"initial_deposit_usd": "starting_balance_usd"}  # old key -> new key, still read with a warning
+
+
 def load_config(path: Path) -> Config:
     """Read config.yaml. Missing file, unknown keys or bad values are errors, not silent defaults."""
     if not path.is_file():
@@ -219,6 +223,12 @@ def load_config(path: Path) -> Config:
         raise ConfigError(f"config file is not valid YAML: {e}")
     if not isinstance(raw, dict):
         raise ConfigError("config file must be a YAML mapping")
+    for old, new in _RENAMED.items():
+        if old in raw:
+            if new in raw:
+                raise ConfigError(f"config sets both {old} and {new}; remove {old}")
+            warnings.warn(f"config key {old} is deprecated; rename it to {new}", DeprecationWarning, stacklevel=2)
+            raw[new] = raw.pop(old)
     unknown = set(raw) - set(_SPEC)
     if unknown:
         raise ConfigError(f"unknown config keys (typo?): {sorted(unknown)}")
@@ -1257,8 +1267,8 @@ class Guardrails:
             return None, None, "disabled"
         if self.dry_run and self.paper is not None:
             basis, source = Decimal(self.paper.snapshot().get("bankroll_usd") or "0"), "paper_bankroll"
-        elif config.initial_deposit_usd is not None:
-            basis, source = config.initial_deposit_usd, "initial_deposit_usd"
+        elif config.starting_balance_usd is not None:
+            basis, source = config.starting_balance_usd, "starting_balance_usd"
         elif st.get("initial_equity"):
             basis, source = Decimal(st["initial_equity"]), "first_observed_equity"
         else:

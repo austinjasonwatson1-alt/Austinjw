@@ -34,7 +34,7 @@ def test_evaluate_breakers_floor_first():
 
 
 def test_floor_trips_and_deleting_kill_does_not_reset_it(env):
-    write_config(env.config_path, initial_deposit_usd=1000)
+    write_config(env.config_path, starting_balance_usd=1000)
     g = env.guard()
     assert propose(g)["ok"]                     # day 1 at $1000
     env.clock.t += 86400
@@ -42,7 +42,7 @@ def test_floor_trips_and_deleting_kill_does_not_reset_it(env):
     r = propose(g)
     assert not r["ok"] and "equity floor" in r["reason"] and env.kill_path.exists()
     kill = json.loads(env.kill_path.read_text())
-    assert kill["floor"] == "600.00" and kill["floor_basis_source"] == "initial_deposit_usd"
+    assert kill["floor"] == "600.00" and kill["floor_basis_source"] == "starting_balance_usd"
 
     env.kill_path.unlink()                      # manual delete: drawdown peak re-baselines to 590...
     r = propose(g)
@@ -173,7 +173,7 @@ def test_category_caps_config():
         p.write_text("{}\n")
         assert load_config(p).category_exposure_caps == {}
         for bad in ("category_exposure_caps: [0.2]\n", "category_exposure_caps: {sports: 1.5}\n",
-                    "category_exposure_caps: {'a/b': 0.1}\n", "initial_deposit_usd: -5\n"):
+                    "category_exposure_caps: {'a/b': 0.1}\n", "starting_balance_usd: -5\n"):
             p.write_text(bad)
             with pytest.raises(ConfigError):
                 load_config(p)

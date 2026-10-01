@@ -12,7 +12,7 @@ import yaml
 import preflight
 import verify_auth
 
-GOOD = {"allowed_event_tickers": ["FEDJAN26"], "initial_deposit_usd": 100, "fee_confirmed": True}
+GOOD = {"allowed_event_tickers": ["FEDJAN26"], "starting_balance_usd": 100, "fee_confirmed": True}
 DRY = {"DRY_RUN": "true"}
 LIVE = {"DRY_RUN": "false"}
 
@@ -51,7 +51,7 @@ def test_good_setup_passes_dry_and_live(repo):
 
 
 @pytest.mark.parametrize("over,needle", [
-    ({"initial_deposit_usd": None}, "initial_deposit_usd"),
+    ({"starting_balance_usd": None}, "starting_balance_usd"),
     ({"fee_confirmed": False}, "fee_confirmed"),
     ({"allowed_event_tickers": []}, "allowed_event_tickers"),
     ({"max_order_pct_of_balance": 0.16}, "max_order_pct_of_balance"),
@@ -77,9 +77,9 @@ def test_bounds_are_inclusive(repo):
 
 
 def test_zero_deposit_is_rejected(repo):
-    repo.config(initial_deposit_usd=0)  # config itself refuses <= 0
+    repo.config(starting_balance_usd=0)  # config itself refuses <= 0
     fails = preflight.check(DRY, repo.here)
-    assert fails and "initial_deposit_usd" in fails[0]
+    assert fails and "starting_balance_usd" in fails[0]
 
 
 def test_verify_auth_marker_required_only_live(repo):
@@ -160,7 +160,7 @@ def test_enforce_blocks_live_and_warns_dry(repo, capsys):
 def test_shipped_config_fails_preflight():
     here = Path(preflight.__file__).resolve().parent
     fails = " ".join(preflight.check(DRY, here))
-    for needle in ("initial_deposit_usd", "fee_confirmed", "allowed_event_tickers"):
+    for needle in ("starting_balance_usd", "fee_confirmed", "allowed_event_tickers"):
         assert needle in fails
 
 
@@ -257,3 +257,15 @@ def test_max_trades_per_day_bound(repo):
     assert len(fails) == 1 and "max_trades_per_day" in fails[0]
     repo.config(max_trades_per_day=20)
     assert preflight.check(DRY, repo.here) == []
+
+
+def test_old_starting_balance_name_passes_with_a_visible_note(repo, capsys):
+    import yaml
+    cfg = {**GOOD, "initial_deposit_usd": 100}
+    cfg.pop("starting_balance_usd")
+    (repo.here / "config.yaml").write_text(yaml.safe_dump(cfg))
+    fails, notes = preflight.check_with_notes(DRY, repo.here)
+    assert fails == [] and any("initial_deposit_usd is deprecated" in n for n in notes)
+    import sys
+    assert preflight.enforce(DRY, repo.here, out=sys.stdout) is True
+    assert "initial_deposit_usd is deprecated" in capsys.readouterr().out

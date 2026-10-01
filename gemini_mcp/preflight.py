@@ -7,7 +7,7 @@ failure stops them from starting. In DRY_RUN they print the failures as warnings
 and continue.
 
 Checks:
-- config.yaml loads; initial_deposit_usd is set and positive
+- config.yaml loads; starting_balance_usd is set and positive
 - fee_confirmed is true (set it after checking Gemini's fee schedule)
 - allowed_event_tickers is not empty
 - sane bounds: max_order_pct_of_balance <= 0.15, max_daily_spend_pct <= 0.5,
@@ -25,6 +25,7 @@ import os
 import subprocess
 import sys
 import time
+import warnings
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
@@ -41,7 +42,7 @@ BOUNDS = (  # (config key, comparison, limit, description)
     ("max_order_pct_of_balance", "gt", Decimal("0.15"), "must be at most 0.15"),
     ("max_daily_spend_pct", "gt", Decimal("0.5"), "must be at most 0.5"),
     ("max_drawdown_pct", "gt", Decimal("0.35"), "must be at most 0.35"),
-    ("equity_floor_pct", "lt", Decimal("0.4"), "must be at least 0.4 (floor at 40% of initial_deposit_usd)"),
+    ("equity_floor_pct", "lt", Decimal("0.4"), "must be at least 0.4 (floor at 40% of starting_balance_usd)"),
     ("kelly_multiplier", "gt", Decimal("0.5"), "must be at most 0.5"),
     ("max_trades_per_day", "gt", Decimal("20"), "must be at most 20"),
 )
@@ -111,6 +112,12 @@ def _marker_failure(here: Path, env: str | None, now: float) -> str | None:
 def check(environ: Any = os.environ, here: Path = HERE, now: float | None = None,
           git: Callable[..., subprocess.CompletedProcess] = _git) -> list[str]:
     """Every failure as a human-readable line. Empty list = all checks passed."""
+    return check_with_notes(environ, here, now, git)[0]
+
+
+def check_with_notes(environ: Any = os.environ, here: Path = HERE, now: float | None = None,
+                     git: Callable[..., subprocess.CompletedProcess] = _git) -> tuple[list[str], list[str]]:
+    """(failures, notes). Notes never fail the check (e.g. deprecated config key names)."""
     now = time.time() if now is None else now
     fails: list[str] = []
     env: str | None = None
@@ -124,13 +131,18 @@ def check(environ: Any = os.environ, here: Path = HERE, now: float | None = None
         fails.append(str(e))
 
     try:
-        cfg = load_config(here / "config.yaml")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            cfg = load_config(here / "config.yaml")
+        notes = [str(w.message) for w in caught if issubclass(w.category, DeprecationWarning)]
     except ConfigError as e:
+        notes = []
         cfg = None
         fails.append(f"config.yaml: {e}")
     if cfg is not None:
-        if not cfg.initial_deposit_usd:
-            fails.append("initial_deposit_usd is unset or zero: set it in config.yaml to what you deposited")
+        if not cfg.starting_balance_usd:
+            fails.append("starting_balance_usd is unset or zero: set it in config.yaml to the account balance "
+                         "you start trading with")
         if not cfg.fee_confirmed:
             fails.append(f"fee_confirmed is false: check fee_per_contract ({cfg.fee_per_contract}) against "
                          "Gemini's fee schedule, then set fee_confirmed: true in config.yaml")
@@ -147,13 +159,15 @@ def check(environ: Any = os.environ, here: Path = HERE, now: float | None = None
         m = _marker_failure(here, env, now)
         if m:
             fails.append(m)
-    return fails
+    return fails, notes
 
 
 def enforce(environ: Any = os.environ, here: Path = HERE, out: Any = None) -> bool:
     """Run at startup. Returns False (caller must exit) when checks fail in live mode."""
     out = out or sys.stderr
-    fails = check(environ, here)
+    fails, notes = check_with_notes(environ, here)
+    for n in notes:
+        print(f"preflight note: {n}", file=out)
     if not fails:
         return True
     live = is_live(environ)
@@ -169,7 +183,9 @@ def main() -> int:
     from dotenv import load_dotenv
 
     load_dotenv(HERE / ".env", override=False)
-    fails = check(os.environ)
+    fails, notes = check_with_notes(os.environ)
+    for n in notes:
+        print(f"NOTE: {n}")
     mode = "live" if is_live(os.environ) else "dry run"
     for f in fails:
         print(f"FAIL: {f}")

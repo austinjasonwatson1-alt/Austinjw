@@ -1,5 +1,5 @@
 """F5: deleting state/risk_state.json silently re-baselined the drawdown peak and day-start equity
-(and, without initial_deposit_usd, the floor) to whatever equity is now."""
+(and, without starting_balance_usd, the floor) to whatever equity is now."""
 
 from conftest import SYMBOL
 
