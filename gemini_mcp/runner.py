@@ -257,7 +257,11 @@ class Runner:
         return {"estimate": e["probability_yes"], "thesis": e["thesis"],
                 "invalidation_conditions": e["invalidation_conditions"], "key_facts": e["key_facts"],
                 "resolution_rules_summary": e["resolution_rules_summary"], "sources": e["sources"],
-                "research_model": e["model"], "searches": e["searches"], "usage": e["usage"]}
+                "research_model": e["model"],
+                "research_model_requested": e["model_requested"] or self.config.research_model,
+                "research_models_used": e["models_used"] or ([e["model"]] if e["model"] else []),
+                "research_fallback_used": e["fallback_used"],
+                "searches": e["searches"], "usage": e["usage"]}
 
     async def _confirm_and_record(self, kind: str, prop: dict[str, Any], record: dict[str, Any]) -> None:
         preview = prop["preview"]

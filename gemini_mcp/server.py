@@ -334,6 +334,10 @@ def create_server(market: ReadOnlyClient, guard: Guardrails) -> FastMCP:
 def main() -> None:
     load_dotenv(HERE / ".env", override=False)
     market, guard = build()
+    try:
+        guard.observe_kill()  # log a KILL created or deleted while the server was down
+    except Exception as e:  # noqa: BLE001
+        log.warning("KILL watch failed at startup: %s", type(e).__name__)
     create_server(market, guard).run()
 
 

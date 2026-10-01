@@ -76,9 +76,12 @@ class Estimate:
     thesis_invalidated: bool
     invalidation_reason: str
     sources: list[dict[str, Any]] = field(default_factory=list)
-    model: str = ""
+    model: str = ""                      # model that produced the final estimate (response.model)
     searches: int = 0
     usage: dict[str, int] = field(default_factory=dict)
+    model_requested: str = ""            # model the runner asked for
+    models_used: list[str] = field(default_factory=list)  # every model that answered a turn, in order
+    fallback_used: bool = False          # a refusal fallback model took over at some point
 
     def as_log(self) -> dict[str, Any]:
         d = asdict(self)
@@ -135,6 +138,14 @@ def _collect_sources(content: list[Any], sources: dict[str, dict], counts: dict[
                                         "page_age": getattr(r, "page_age", None), "via": "web_search"}
 
 
+def _fallback_ran(resp: Any) -> bool:
+    """True if a server-side refusal fallback served part of this response."""
+    if any(getattr(b, "type", None) == "fallback" for b in resp.content):
+        return True
+    iterations = getattr(getattr(resp, "usage", None), "iterations", None) or []
+    return any(getattr(it, "type", None) == "fallback_message" for it in iterations)
+
+
 def _parse_submission(data: Any) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ResearchError("submit_estimate input is not an object")
@@ -179,6 +190,8 @@ def research_contract(
     sources: dict[str, dict] = {}
     counts: dict[str, int] = {}
     usage = {"input_tokens": 0, "output_tokens": 0}
+    models: list[str] = []
+    fallback = False
     nudged = False
     for _ in range(max_turns):
         resp = client.beta.messages.create(
@@ -195,13 +208,18 @@ def research_contract(
         for k in usage:
             usage[k] += int(getattr(u, k, 0) or 0)
         _collect_sources(resp.content, sources, counts)
+        served = str(getattr(resp, "model", "") or "")
+        if served and (not models or models[-1] != served):
+            models.append(served)
+        fallback = fallback or _fallback_ran(resp)
         if resp.stop_reason == "refusal":
             raise ResearchError("the model declined to research this contract")
         submit = next((b for b in resp.content
                        if getattr(b, "type", None) == "tool_use" and getattr(b, "name", None) == "submit_estimate"), None)
         if submit is not None:
             parsed = _parse_submission(submit.input)
-            return Estimate(**parsed, sources=list(sources.values()), model=getattr(resp, "model", model),
+            return Estimate(**parsed, sources=list(sources.values()), model=served or model, model_requested=model,
+                            models_used=models, fallback_used=fallback or any(m != model for m in models),
                             searches=counts.get("web_search", 0), usage=usage)
         if resp.stop_reason == "max_tokens":
             raise ResearchError("research response hit max_tokens before an estimate")

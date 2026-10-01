@@ -47,6 +47,7 @@ Endpoints follow Gemini's docs: the [Prediction Markets API](https://developer.g
    - the absolute dollar ceiling `max_order_usd`;
    - `max_order_pct_of_balance` of equity;
    - `max_market_pct_of_balance` per event, counting the existing position (the larger of cost basis and current value) and any resting buys;
+   - optional per-category caps (`category_exposure_caps`, e.g. `{default: 0.30, sports: 0.20}`) as a share of equity, using Gemini's event `category`. Existing positions and resting buys in that category count;
    - the daily cap, which is the lower of `max_daily_spend_usd` and `max_daily_spend_pct` × start-of-day equity;
    - available cash.
 
@@ -67,6 +68,7 @@ edge         = q_adj - p - fee_per_contract   below min_edge -> no trade
 kelly f      = edge / (1 - p)
 kelly stake  = equity * f * kelly_multiplier  (0.25 = quarter Kelly)
 stake        = min(kelly stake, 8% of equity, 15% of equity minus existing event exposure,
+                   category cap minus existing category exposure (if configured),
                    remaining daily budget, max_order_usd, available cash)
 quantity     = stake / (p + fee), rounded down to the contract's step; below the minimum -> no trade
 ```
@@ -79,15 +81,18 @@ Equity is cash plus positions at Gemini's mark. Gemini's `marketValue` is the cu
 
 - **Max drawdown:** equity falls `max_drawdown_pct` (20%) below its peak.
 - **Max daily loss:** equity falls `max_daily_loss_pct` (8%) below the start of the UTC day.
+- **Absolute equity floor:** equity falls below `equity_floor_pct` (60%) of the initial deposit. The deposit is `initial_deposit_usd` if you set it (recommended for live). Otherwise it's the first positive equity the server ever saw in live mode, or the paper bankroll in DRY_RUN. **Deleting `KILL` never resets the floor:** while equity stays below it, every order trips it again. Set `equity_floor_pct: 0` to disable it.
 
 They're checked on every `propose_order` and `confirm_order`, for buys and sells.
 
 On a trip, the server:
-- creates `KILL` with the reason and figures;
+- creates `KILL` with the reason and figures (equity, peak, start of day, floor), plus **every open position** (quantity, cost basis, value, category). Positions with no live quote are marked `NO LIVE QUOTE (valued at $0)` and listed again under `positions_without_quote`;
 - logs `circuit_breaker_trip`;
 - rejects the order.
 
 From then on, every order tool refuses until you delete `KILL` by hand.
+
+**Every KILL deletion is logged** as `kill_deleted`, with what the file said, when it appeared and when the deletion was noticed. That covers files the breaker created and files you created yourself. Deletion happens outside the server, so it's noticed on the next order tool call, the next `get_balances`, or server startup. Each new KILL file is logged as `kill_detected`.
 
 Deleting `KILL` resets the drawdown peak to current equity (logged as `breaker_reset`). The daily-loss baseline doesn't reset, so if you delete `KILL` on the same UTC day while still 8% down, it trips again. Deposits and withdrawals move equity too: a withdrawal can trip a breaker, and a deposit raises the peak.
 
@@ -126,6 +131,7 @@ Every condition that fired is logged. A contract exited this run isn't re-entere
 
 - **Model:** `research_model` (`claude-opus-5-5`), with the server-side web search and web fetch tools. Up to `research_max_searches` searches per contract.
 - **Order:** it reads the contract's resolution text and terms link first, then estimates **P(this contract resolves YES under those rules)**. Market prices are deliberately left out of the prompt, so the estimate is independent; the shrinkage step blends in the price afterwards.
+- **Model provenance:** every estimate records `research_model` (the model that produced the final answer), `research_model_requested`, `research_models_used` (every model that answered a turn) and `research_fallback_used`. These appear in each `decision` entry in `audit.log` and in each research record in `paper_ledger.json`.
 - **Output:** a strict `submit_estimate` tool. Sources are taken from the actual search and fetch results, not from the model's text.
 - **Refusals:** refusal fallback is on (`fallbacks: "default"`). A refusal, a malformed estimate or an API error becomes a logged `no_trade` or `hold`.
 - **Untrusted web content:** the model is told to ignore instructions inside pages. Any one estimate can only do bounded damage, because of the shrinkage toward the market, quarter-Kelly and the server's caps.
@@ -156,7 +162,16 @@ python report.py --json
 - P&L and return on cost;
 - win rate against mean q_adj.
 
-If realized return trails expected in the high-edge buckets, the stated edges are overconfident. A decision summary (by kind, with the top reasons) follows the table.
+Each bucket also shows Brier scores, where lower is better:
+- `Brier me` scores my raw estimate q. `brier_mine_q_adj` in `--json` scores the shrunk one.
+- `Brier mkt` scores the market's probability on the same contracts: the book mid logged at decision time, falling back to the fill price.
+- `N` is the number of resolved contracts scored. A contract counts once it resolves, even if the position was sold earlier.
+- **Buckets with N < 30 are flagged `N<30`;** that's too few to conclude anything.
+- `brier_skill` = 1 − mine/market. Above 0 means the estimates beat the price.
+
+A second table scores **every researched contract, traded or not**: my P(YES) against the YES mid at the time, with one sample per contract per UTC day. It also counts estimates by model.
+
+If realized return trails expected in the high-edge buckets, or my Brier score isn't below the market's, the stated edges aren't real. A decision summary (by kind, with the top reasons) follows the tables.
 
 ## Modes
 
@@ -226,7 +241,7 @@ The server loads `.env` from its own folder, so keep secrets out of Claude confi
 
 `audit.log` is JSON lines with UTC timestamps. Both the server and the runner write to it, under a file lock. Event types:
 
-- **Server:** `proposal` and `confirmation` (both include `sizing`), `would_place` (with `paper_order_id` and `paper_filled`), `placement`, `placement_failed`, `rejection` (with `reason`, and `sizing` when relevant), `cancel`, `would_cancel`, `cancel_failed`, `circuit_breaker_trip`, `breaker_reset`.
+- **Server:** `kill_detected`, `kill_deleted`, `proposal` and `confirmation` (both include `sizing`), `would_place` (with `paper_order_id` and `paper_filled`), `placement`, `placement_failed`, `rejection` (with `reason`, and `sizing` when relevant), `cancel`, `would_cancel`, `cancel_failed`, `circuit_breaker_trip`, `breaker_reset`.
 - **Runner:** `decision`.
 
 ## Known limits

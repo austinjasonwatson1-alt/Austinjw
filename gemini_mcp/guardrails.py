@@ -41,6 +41,7 @@ ALLOWED_SIDES = ("buy", "sell")
 _SYMBOL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,120}$")
 _TICKER_RE = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
 _MODEL_RE = re.compile(r"^claude-[a-z0-9.-]{1,60}$")
+_CATEGORY_RE = re.compile(r"^[A-Za-z0-9_ -]{1,60}$")
 _ACTIVE_ORDERS_PAGE = 100
 _ZERO = Decimal(0)
 _ONE = Decimal(1)
@@ -83,6 +84,15 @@ class Config:
     # Circuit breakers.
     max_drawdown_pct: Decimal = Decimal("0.20")
     max_daily_loss_pct: Decimal = Decimal("0.08")
+    # Absolute floor: equity below equity_floor_pct x initial deposit trips the breaker. Deleting
+    # KILL never moves the floor. 0 disables it.
+    equity_floor_pct: Decimal = Decimal("0.60")
+    # Live initial deposit in USD. Unset: the first positive equity the server observed (kept forever).
+    # DRY_RUN always uses the paper bankroll.
+    initial_deposit_usd: Decimal | None = None
+    # Optional per-category exposure caps as a share of equity, e.g. {default: 0.30, sports: 0.20}.
+    # Empty = no category caps. Categories come from Gemini's event "category" field.
+    category_exposure_caps: dict[str, Decimal] = field(default_factory=dict)
     # Order book quality (runner entry filter).
     max_spread: Decimal = Decimal("0.04")
     min_depth_multiple: Decimal = Decimal("1")
@@ -112,6 +122,9 @@ _SPEC: dict[str, tuple] = {
     "max_daily_spend_pct": ("dec", 0, 1),
     "max_drawdown_pct": ("frac+",),
     "max_daily_loss_pct": ("frac+",),
+    "equity_floor_pct": ("dec", 0, 1),
+    "initial_deposit_usd": ("opt_dec",),
+    "category_exposure_caps": ("caps",),
     "max_spread": ("dec", 0, 1),
     "min_depth_multiple": ("dec", 0, None),
     "exit_hours_before_expiry": ("dec", 0, None),
@@ -140,6 +153,26 @@ def _cfg_decimal(name: str, value: Any) -> Decimal:
 
 def _cfg_value(name: str, value: Any) -> Any:
     kind = _SPEC[name][0]
+    if kind == "opt_dec":
+        if value is None:
+            return None
+        d = _cfg_decimal(name, value)
+        if d <= 0:
+            raise ConfigError(f"config {name} must be a positive number of dollars (or omitted)")
+        return d
+    if kind == "caps":
+        value = {} if value is None else value
+        if not isinstance(value, dict):
+            raise ConfigError(f"config {name} must be a mapping of category -> fraction, e.g. {{sports: 0.2}}")
+        caps = {}
+        for k, v in value.items():
+            if not isinstance(k, str) or not _CATEGORY_RE.match(k):
+                raise ConfigError(f"config {name} has a bad category name {k!r}")
+            d = _cfg_decimal(f"{name}.{k}", v)
+            if not (_ZERO <= d <= _ONE):
+                raise ConfigError(f"config {name}.{k} must be between 0 and 1 (0.20 = 20%)")
+            caps[k.lower()] = d
+        return caps
     if kind == "tickers":
         value = [] if value is None else value
         if not isinstance(value, list) or not all(isinstance(t, str) and _TICKER_RE.match(t) for t in value):
@@ -422,9 +455,13 @@ class RiskState:
 
 
 def evaluate_breakers(
-    equity: Decimal, peak: Decimal, day_start: Decimal, max_drawdown_pct: Decimal, max_daily_loss_pct: Decimal
+    equity: Decimal, peak: Decimal, day_start: Decimal, max_drawdown_pct: Decimal, max_daily_loss_pct: Decimal,
+    floor: Decimal | None = None,
 ) -> str | None:
-    """Return a trip reason, or None. Drawdown is from peak; daily loss from start-of-day equity."""
+    """Return a trip reason, or None. The absolute floor is checked first, then drawdown from peak,
+    then loss from start-of-day equity."""
+    if floor is not None and floor > 0 and equity < floor:
+        return f"equity floor: equity ${equity:.2f} is below the absolute floor ${floor:.2f}"
     if peak > 0:
         dd = (peak - equity) / peak
         if dd >= max_drawdown_pct:
@@ -450,7 +487,7 @@ def edge_after_fee(q_adj: Decimal, p: Decimal, fee: Decimal) -> Decimal:
 
 
 # On a tie, report the explicit cap rather than Kelly.
-_LIMIT_ORDER = ("dollar_ceiling", "daily_budget", "market_pct", "order_pct", "cash", "kelly")
+_LIMIT_ORDER = ("dollar_ceiling", "daily_budget", "market_pct", "category_pct", "order_pct", "cash", "kelly")
 
 
 @dataclass(frozen=True)
@@ -503,6 +540,8 @@ def size_position(
     available_cash: Decimal | None,
     quantity_increment: Decimal,
     quantity_minimum: Decimal,
+    max_category_pct: Decimal | None = None,
+    existing_category_exposure: Decimal = _ZERO,
 ) -> SizingResult:
     """Fractional-Kelly stake for buying one outcome of a binary contract.
 
@@ -536,6 +575,8 @@ def size_position(
     }
     if available_cash is not None:
         limits["cash"] = max(available_cash, _ZERO)
+    if max_category_pct is not None:
+        limits["category_pct"] = max(max(balance, _ZERO) * max_category_pct - existing_category_exposure, _ZERO)
     binding = min((k for k in _LIMIT_ORDER if k in limits), key=lambda k: (limits[k], _LIMIT_ORDER.index(k)))
     stake = limits[binding]
 
@@ -681,6 +722,7 @@ class RiskContext:
     cash: Decimal
     positions: list[dict[str, Any]] = field(default_factory=list)
     event_exposure: dict[str, Decimal] = field(default_factory=dict)
+    category_exposure: dict[str, Decimal] = field(default_factory=dict)
 
 
 def _to_decimal(name: str, value: Any) -> Decimal:
@@ -735,6 +777,24 @@ def parse_order_input(
 def order_cost(side: str, quantity: Decimal, price: Decimal) -> Decimal:
     """Worst-case dollars: buys cost q*p; sells are shown as q*(1-p) (informational, not capped)."""
     return quantity * price if side == "buy" else quantity * (_ONE - price)
+
+
+def _category(raw: Any) -> str:
+    return str(raw).strip().lower() if isinstance(raw, str) and raw.strip() else "unknown"
+
+
+def category_cap(config: Config, category: str) -> Decimal | None:
+    caps = config.category_exposure_caps
+    return caps.get(category, caps.get("default"))
+
+
+def _position_summary(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{
+        "symbol": p["symbol"], "outcome": p["outcome"], "event_ticker": p["event_ticker"],
+        "category": p.get("category"), "quantity": _fmt(p["quantity"]), "available": _fmt(p["available"]),
+        "cost_basis": _fmt(p["cost_basis"]), "value": _fmt(p["value"]),
+        "quote": "ok" if p.get("has_quote") else "NO LIVE QUOTE (valued at $0)",
+    } for p in positions]
 
 
 def _dec_field(obj: dict, key: str, what: str) -> Decimal:
@@ -868,7 +928,7 @@ class Guardrails:
         raw = resp.get("positions") if isinstance(resp, dict) else None
         if not isinstance(raw, list):
             raise Rejected("positions lookup returned an unexpected shape")
-        positions, exposure, seen = [], {}, set()
+        positions, exposure, cat_exp, seen = [], {}, {}, set()
         for p in raw:
             if not isinstance(p, dict) or not isinstance(p.get("symbol"), str) or p.get("outcome") not in ALLOWED_OUTCOMES:
                 raise Rejected("positions lookup returned an unexpected entry")
@@ -880,29 +940,36 @@ class Guardrails:
             on_hold = _dec_field({"v": p.get("quantityOnHold") or "0"}, "v", "positions lookup")
             avg = _dec_field({"v": p.get("avgPrice") or "0"}, "v", "positions lookup")
             # Gemini omits marketValue when there's no live sell quote; count that as $0.
-            value = _dec_field(p, "marketValue", "positions lookup") if p.get("marketValue") is not None else _ZERO
+            has_quote = p.get("marketValue") is not None
+            value = _dec_field(p, "marketValue", "positions lookup") if has_quote else _ZERO
             meta = p.get("contractMetadata") if isinstance(p.get("contractMetadata"), dict) else {}
             ev = str(meta.get("eventTicker") or "")
+            cat = _category(meta.get("category"))
             cost = total * avg
             positions.append({
-                "symbol": p["symbol"], "outcome": p["outcome"], "event_ticker": ev,
+                "symbol": p["symbol"], "outcome": p["outcome"], "event_ticker": ev, "category": cat,
                 "quantity": total, "available": total - on_hold, "cost_basis": cost, "value": value,
-                "expiry": meta.get("expiryDate"),
+                "has_quote": has_quote, "expiry": meta.get("expiryDate"),
             })
             exposure[ev] = exposure.get(ev, _ZERO) + max(cost, value)
+            cat_exp[cat] = cat_exp.get(cat, _ZERO) + max(cost, value)
 
         for o in self._active_orders():
             if isinstance(o, dict) and o.get("side") == "buy":
                 meta = o.get("contractMetadata") if isinstance(o.get("contractMetadata"), dict) else {}
                 ev = str(meta.get("eventTicker") or "")
+                cat = _category(meta.get("category"))
                 rem = _dec_field({"v": o.get("remainingQuantity") or o.get("quantity") or "0"}, "v", "open orders")
-                exposure[ev] = exposure.get(ev, _ZERO) + rem * _dec_field(o, "price", "open orders")
-        return RiskContext("live", amount + sum((p["value"] for p in positions), _ZERO), cash, positions, exposure)
+                resting = rem * _dec_field(o, "price", "open orders")
+                exposure[ev] = exposure.get(ev, _ZERO) + resting
+                cat_exp[cat] = cat_exp.get(cat, _ZERO) + resting
+        return RiskContext("live", amount + sum((p["value"] for p in positions), _ZERO), cash, positions, exposure,
+                           cat_exp)
 
     def _paper_context(self) -> RiskContext:
         assert self.paper is not None
         events: dict[str, dict] = {}
-        positions, exposure = [], {}
+        positions, exposure, cat_exp = [], {}, {}
         for p in self.paper.positions():
             ev = p["event_ticker"]
             if ev not in events:
@@ -913,20 +980,24 @@ class Guardrails:
             contract = next((c for c in events[ev].get("contracts") or []
                              if isinstance(c, dict) and c.get("instrumentSymbol") == p["symbol"]), None)
             qty, basis = Decimal(p["quantity"]), Decimal(p["cost_basis"])
-            value = _ZERO
+            value, has_quote = _ZERO, False
             if contract and contract.get("resolutionSide") in ALLOWED_OUTCOMES:
-                value = qty if contract["resolutionSide"] == p["outcome"] else _ZERO
+                value, has_quote = (qty if contract["resolutionSide"] == p["outcome"] else _ZERO), True
             elif contract:
                 sell = ((contract.get("prices") or {}).get("sell") or {}).get(p["outcome"])
-                value = qty * Decimal(str(sell)) if sell is not None else _ZERO
+                if sell is not None:
+                    value, has_quote = qty * Decimal(str(sell)), True
+            cat = _category(events[ev].get("category"))
             positions.append({
-                "symbol": p["symbol"], "outcome": p["outcome"], "event_ticker": ev,
+                "symbol": p["symbol"], "outcome": p["outcome"], "event_ticker": ev, "category": cat,
                 "quantity": qty, "available": qty, "cost_basis": basis, "value": value,
-                "expiry": (contract or {}).get("expiryDate"),
+                "has_quote": has_quote, "expiry": (contract or {}).get("expiryDate"),
             })
             exposure[ev] = exposure.get(ev, _ZERO) + max(basis, value)
+            cat_exp[cat] = cat_exp.get(cat, _ZERO) + max(basis, value)
         cash = self.paper.cash()
-        return RiskContext("paper", cash + sum((p["value"] for p in positions), _ZERO), cash, positions, exposure)
+        return RiskContext("paper", cash + sum((p["value"] for p in positions), _ZERO), cash, positions, exposure,
+                           cat_exp)
 
     def _context(self) -> RiskContext:
         return self._paper_context() if self.dry_run else self._live_context()
@@ -949,6 +1020,9 @@ class Guardrails:
         notes: list[dict] = []
 
         def step(st: dict[str, Any]) -> dict[str, Any]:
+            # The floor baseline is set once and never reset (not even by deleting KILL).
+            if not st.get("initial_equity") and ctx.equity > 0:
+                st["initial_equity"] = _fmt(ctx.equity)
             if st.get("tripped") and not self.kill_switch_active():
                 # KILL was deleted by hand: acknowledge the trip and restart the drawdown peak from here.
                 notes.append({"event": "breaker_reset", "previous_trip": st["tripped"], "equity": _fmt(ctx.equity)})
@@ -964,10 +1038,16 @@ class Guardrails:
         for n in notes:
             self.audit.write(n.pop("event"), mode=self.mode, **n)
         peak, day_start = Decimal(st["peak"]), Decimal(st["day_start"])
-        reason = evaluate_breakers(ctx.equity, peak, day_start, config.max_drawdown_pct, config.max_daily_loss_pct)
+        floor, floor_basis, floor_source = self._floor(config, st)
+        reason = evaluate_breakers(ctx.equity, peak, day_start, config.max_drawdown_pct, config.max_daily_loss_pct,
+                                   floor)
         if reason:
+            positions = _position_summary(ctx.positions)
             trip = {"reason": reason, "equity": _fmt(ctx.equity), "peak": _fmt(peak), "day_start": _fmt(day_start),
-                    "source": ctx.source}
+                    "floor": _fmt(floor), "floor_basis": _fmt(floor_basis), "floor_basis_source": floor_source,
+                    "source": ctx.source, "open_positions": positions,
+                    "positions_without_quote": [p["symbol"] + "|" + p["outcome"] for p in positions
+                                                if p["quote"] != "ok"]}
             try:
                 with open(self.kill_path, "x") as f:
                     json.dump({"created_by": "circuit_breaker", "ts": time.time(), **trip}, f, indent=2)
@@ -977,7 +1057,54 @@ class Guardrails:
             self.audit.write("circuit_breaker_trip", mode=self.mode, **trip)
             raise Rejected(f"circuit breaker tripped ({reason}); created {self.kill_path.name}. "
                            "Delete it by hand to resume.")
-        return {"peak": peak, "day_start": day_start}
+        return {"peak": peak, "day_start": day_start, "floor": floor}
+
+    def _floor(self, config: Config, st: dict[str, Any]) -> tuple[Decimal | None, Decimal | None, str]:
+        """(floor, basis, where the basis came from). Paper: bankroll. Live: config, else first equity seen."""
+        if config.equity_floor_pct <= 0:
+            return None, None, "disabled"
+        if self.dry_run and self.paper is not None:
+            basis, source = Decimal(self.paper.snapshot().get("bankroll_usd") or "0"), "paper_bankroll"
+        elif config.initial_deposit_usd is not None:
+            basis, source = config.initial_deposit_usd, "initial_deposit_usd"
+        elif st.get("initial_equity"):
+            basis, source = Decimal(st["initial_equity"]), "first_observed_equity"
+        else:
+            return None, None, "no positive equity observed yet"
+        return config.equity_floor_pct * basis, basis, source
+
+    # ---- KILL deletion log
+
+    def observe_kill(self) -> None:
+        """Log when a KILL file appears and every time one is deleted (deletion is always manual)."""
+        present = self.kill_switch_active()
+        info: Any = None
+        if present:
+            try:
+                raw = self.kill_path.read_text()[:4000]
+                try:
+                    info = json.loads(raw)
+                    info = {k: info.get(k) for k in ("created_by", "reason", "ts")} if isinstance(info, dict) else raw
+                except ValueError:
+                    info = {"created_by": "manual", "content": raw}
+            except OSError:
+                info = {"created_by": "unknown"}
+        events: list[tuple[str, dict]] = []
+        now = datetime.fromtimestamp(self._clock(), tz=timezone.utc).isoformat(timespec="seconds")
+        watch = self.risk.path.with_name("kill_watch.json")
+        with file_lock(watch):
+            prev = _read_json(watch, {}, "kill watch")
+            if not isinstance(prev, dict):
+                prev = {}
+            if prev.get("present") and not present:
+                events.append(("kill_deleted", {"kill": prev.get("info"), "present_since": prev.get("since"),
+                                                "noticed_at": now}))
+            elif present and not prev.get("present"):
+                events.append(("kill_detected", {"kill": info, "noticed_at": now}))
+            if bool(prev.get("present")) != present or not watch.exists():
+                _atomic_write_json(watch, {"present": present, "info": info, "since": now if present else None})
+        for name, fields in events:
+            self.audit.write(name, mode=self.mode, **fields)
 
     def _daily_limit(self, config: Config, day_start: Decimal) -> Decimal:
         return min(config.max_daily_spend_usd, config.max_daily_spend_pct * max(day_start, _ZERO))
@@ -1011,6 +1138,9 @@ class Guardrails:
         spent = self.ledger.spent_on(self._today())
         daily_limit = self._daily_limit(config, marks["day_start"])
         exposure = ctx.event_exposure.get(event_ticker, _ZERO)
+        category = _category(event.get("category"))
+        cat_cap_pct = category_cap(config, category)
+        cat_exposure = ctx.category_exposure.get(category, _ZERO)
 
         sizing = None
         if inp.side == "buy" and inp.my_probability is not None and allow_sizing:
@@ -1021,6 +1151,7 @@ class Guardrails:
                 max_market_pct=config.max_market_pct_of_balance, existing_market_exposure=exposure,
                 daily_budget_remaining=daily_limit - spent, dollar_ceiling=config.max_order_usd,
                 available_cash=ctx.cash, quantity_increment=q_inc, quantity_minimum=q_min,
+                max_category_pct=cat_cap_pct, existing_category_exposure=cat_exposure,
             )
             sizing = sz.as_log()
             if sz.quantity <= 0:
@@ -1057,6 +1188,11 @@ class Guardrails:
             if exposure + cost > market_cap:
                 raise Rejected(f"event {event_ticker} exposure ${exposure:.2f} + ${cost} exceeds "
                                f"max_market_pct_of_balance cap ${market_cap:.2f}", details)
+            if cat_cap_pct is not None:
+                cat_cap = cat_cap_pct * max(ctx.equity, _ZERO)
+                if cat_exposure + cost > cat_cap:
+                    raise Rejected(f"category {category!r} exposure ${cat_exposure:.2f} + ${cost} exceeds its "
+                                   f"category_exposure_caps limit ${cat_cap:.2f} ({cat_cap_pct} of equity)", details)
             if spent + cost > daily_limit:
                 raise Rejected(f"daily cap: ${spent} already spent today (UTC) + ${cost} would exceed the daily "
                                f"limit ${daily_limit:.2f} (lower of max_daily_spend_usd and max_daily_spend_pct)",
@@ -1105,6 +1241,7 @@ class Guardrails:
         }
         with self._lock:
             try:
+                self.observe_kill()
                 self._check_kill()
                 inp = parse_order_input(instrument_symbol, outcome, side, quantity, limit_price, my_probability)
                 config = load_config(self.config_path)
@@ -1189,6 +1326,7 @@ class Guardrails:
                     raise Rejected("token expired (tokens are valid for 5 minutes); propose the order again")
                 if pending.order.digest() != pending.digest:
                     raise Rejected("stored order does not match its token; refusing")
+                self.observe_kill()
                 self._check_kill()
                 config = load_config(self.config_path)
                 v = self._validate(pending.order, config, allow_sizing=False)
@@ -1259,6 +1397,7 @@ class Guardrails:
     def cancel(self, order_id: Any) -> dict[str, Any]:
         with self._lock:
             try:
+                self.observe_kill()
                 self._check_kill()
                 if isinstance(order_id, bool):
                     raise Rejected("order_id must be a positive integer")
@@ -1286,9 +1425,11 @@ class Guardrails:
 
     def risk_summary(self) -> dict[str, Any]:
         """Equity, caps and breaker status for the active mode. Doesn't trip or persist anything."""
+        self.observe_kill()
         config = load_config(self.config_path)
         ctx = self._context()
         st = self.risk.read()
+        floor, floor_basis, floor_source = self._floor(config, st)
         peak = max(Decimal(st.get("peak") or ctx.equity), ctx.equity)
         day_start = Decimal(st["day_start"]) if st.get("day") == self._today() else ctx.equity
         spent = self.ledger.spent_on(self._today())
@@ -1303,8 +1444,14 @@ class Guardrails:
             "spent_today_usd": _fmt(spent),
             "daily_limit_usd": _fmt(daily_limit.quantize(Decimal("0.01"))),
             "event_exposure_usd": {k: _fmt(v.quantize(Decimal("0.01"))) for k, v in ctx.event_exposure.items()},
+            "equity_floor_usd": _fmt(floor.quantize(Decimal("0.01"))) if floor is not None else None,
+            "equity_floor_basis": {"usd": _fmt(floor_basis), "source": floor_source},
+            "category_exposure_usd": {k: _fmt(v.quantize(Decimal("0.01"))) for k, v in ctx.category_exposure.items()},
+            "category_caps": {k: _fmt(v) for k, v in config.category_exposure_caps.items()},
+            "positions_without_quote": [p["symbol"] + "|" + p["outcome"] for p in ctx.positions
+                                        if not p.get("has_quote")],
             "breaker_would_trip": evaluate_breakers(ctx.equity, peak, day_start, config.max_drawdown_pct,
-                                                    config.max_daily_loss_pct),
+                                                    config.max_daily_loss_pct, floor),
             "breaker_tripped": st.get("tripped"),
             "kill_switch_active": self.kill_switch_active(),
         }
