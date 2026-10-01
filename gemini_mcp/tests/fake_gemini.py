@@ -261,6 +261,8 @@ class FakeGemini:
              "createdAt": "2026-09-21T12:00:00.000Z", "updatedAt": "2026-09-21T12:00:00.000Z",
              "cancelledAt": None}
         st["orders"][str(oid)] = o
+        n_open = sum(1 for x in st["orders"].values() if x["status"] == "open")
+        st["max_open_seen"] = max(st.get("max_open_seen", 0), n_open)  # high-water mark, before any fill
         if mode == "fill":
             self._apply_fill(st, o, qty)
         elif mode.startswith("partial:"):
