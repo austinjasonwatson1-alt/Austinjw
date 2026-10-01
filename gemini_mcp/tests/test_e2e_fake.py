@@ -278,3 +278,45 @@ def test_live_runner_enters_nothing_when_open_orders_cant_be_read(tmp_path):
     d = w.run()
     assert w.posts(ORDER) == [] and not kinds(d, "entry")
     assert any("open orders" in (x.get("reason") or "") for x in kinds(d, "no_trade"))
+
+
+def test_partially_filled_exit_sells_only_the_rest_next_run(tmp_path):
+    fake = FakeGemini()
+    fake.set_fill_mode(DN25, "fill")
+    w = World(tmp_path, fake, live=True, config={"allowed_event_tickers": ["FEDJAN26"]})
+    w.run()
+    held = Decimal(fake.snapshot()["positions"][f"{DN25}|yes"]["totalQuantity"])
+    fake.set_fill_mode(DN25, "partial:2")
+    bad = lambda info, prior: estimate(0.85, invalidated=info["instrument_symbol"] == DN25)  # noqa: E731
+    w.run(research=bad)
+    pos = fake.snapshot()["positions"][f"{DN25}|yes"]
+    assert Decimal(pos["totalQuantity"]) == held - 2
+    sell = next(o for o in fake.open_orders() if o["side"] == "sell")
+    assert Decimal(sell["remainingQuantity"]) == held - 2
+    d = w.run(research=bad)  # everything left is committed to the resting sell: no second sell
+    assert not kinds(d, "exit")
+    assert sum(1 for o in fake.open_orders() if o["side"] == "sell") == 1
+
+
+def test_report_live_fills_through_the_real_client(tmp_path):
+    fake = FakeGemini()
+    fake.set_fill_mode(DN25, "partial:4")
+    w = World(tmp_path, fake, live=True, config={"allowed_event_tickers": ["FEDJAN26"]})
+    w.run()
+    oid = next(o for o in fake.open_orders() if o["symbol"] == DN25)["orderId"]
+    fake.fill(oid)  # now fully filled -> in order history
+    fills = report.live_fills(w.audit(), w.market, Decimal("0.02"))
+    f = next(f for f in fills if f.ref == f"live:{oid}")
+    assert f.symbol == DN25 and f.quantity > 4
+
+
+def test_dry_run_review_and_exit(tmp_path):
+    fake = FakeGemini()
+    w = World(tmp_path, fake, live=False, config={"allowed_event_tickers": ["FEDJAN26"]})
+    w.run()
+    paper = json.loads((tmp_path / "paper_ledger.json").read_text())
+    assert paper["positions"]
+    d = w.run(research=lambda info, prior: estimate(0.85, invalidated=True))
+    assert kinds(d, "exit") and w.posts(ORDER) == []
+    paper = json.loads((tmp_path / "paper_ledger.json").read_text())
+    assert paper["positions"] == {}
