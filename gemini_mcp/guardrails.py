@@ -37,6 +37,9 @@ from typing import Any, Callable, Iterator
 import yaml
 
 TOKEN_TTL_SECONDS = 300
+# Live sells confirmed this recently stay reserved against the holding even if Gemini's positions/open orders
+# haven't reflected them yet (read from audit.log, so the reservation is shared by every server process).
+RECENT_SELL_WINDOW_S = 120
 ALLOWED_OUTCOMES = ("yes", "no")
 ALLOWED_SIDES = ("buy", "sell")
 _SYMBOL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,120}$")
@@ -1379,6 +1382,34 @@ class Guardrails:
                     sells += 1
         return spend, count, sells
 
+    def _recent_sells(self, symbol: str, outcome: str) -> Decimal:
+        """Quantity of sells of this contract+outcome confirmed (this mode) within RECENT_SELL_WINDOW_S."""
+        now = self._clock()
+        days = {datetime.fromtimestamp(t, tz=timezone.utc).strftime("%Y-%m-%d")
+                for t in (now - RECENT_SELL_WINDOW_S, now)}
+        prefixes = tuple('{"ts": "' + d for d in days)
+        total = _ZERO
+        try:
+            f = open(self.audit.path, encoding="utf-8")
+        except FileNotFoundError:
+            return total
+        with f:
+            for line in f:
+                if not line.startswith(prefixes):
+                    continue
+                try:
+                    e = json.loads(line)
+                    if (e.get("event") != "confirmation" or e.get("mode") != self.mode or e.get("side") != "sell"
+                            or e.get("instrument_symbol") != symbol or e.get("outcome") != outcome):
+                        continue
+                    ts = datetime.fromisoformat(e["ts"]).timestamp()
+                    q = Decimal(str(e.get("quantity")))
+                except (ValueError, KeyError, InvalidOperation, TypeError):
+                    continue
+                if now - RECENT_SELL_WINDOW_S <= ts <= now + 5 and q.is_finite() and q > 0:
+                    total += q
+        return total
+
     def _check_ledger_against_audit(self, today: str, spent: Decimal, trades: int, exits: int) -> None:
         a_spend, a_trades, a_exits = self._audit_today(today)
         if spent < a_spend or trades < a_trades or exits < a_exits:
@@ -1462,9 +1493,18 @@ class Guardrails:
         if inp.side == "sell":
             match = [p for p in ctx.positions if p["symbol"] == inp.instrument_symbol and p["outcome"] == inp.outcome]
             held = match[0]["available"] if match else _ZERO
+            note = ""
+            if not self.dry_run and match:
+                # Reserve recently confirmed sells too, in case Gemini's view lags. max(), not a sum, with what
+                # Gemini already reports as committed, so a reflected sell isn't counted twice.
+                total = match[0]["quantity"]
+                recent = self._recent_sells(inp.instrument_symbol, inp.outcome)
+                if total - recent < held:
+                    held = max(total - recent, _ZERO)
+                    note = f"; {recent} recently confirmed in the last {RECENT_SELL_WINDOW_S}s are reserved"
             if qty > held:
                 raise Rejected(f"sell quantity {qty} exceeds the {held} {inp.outcome.upper()} contracts you hold "
-                               f"({ctx.source} positions)")
+                               f"({ctx.source} positions{note})")
 
         cost = order_cost(inp.side, qty, price)
         details = {"sizing": sizing} if sizing else None
