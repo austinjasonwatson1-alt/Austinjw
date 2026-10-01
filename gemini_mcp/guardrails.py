@@ -112,11 +112,12 @@ class Config:
     max_spread: Decimal = Decimal("0.04")
     min_depth_multiple: Decimal = Decimal("1")
     # Runner.
-    exit_hours_before_expiry: Decimal = Decimal("24")
+    exit_hours_before_expiry: Decimal = Decimal("6")
     # Entry window: the runner only researches/enters contracts expiring between min_hours_to_expiry hours and
     # max_days_to_expiry days from now (inclusive). Held positions are reviewed whatever their expiry.
     max_days_to_expiry: Decimal = Decimal("7")
-    min_hours_to_expiry: Decimal = Decimal("6")
+    # Must be >= exit_hours_before_expiry, so an entry is never sold on the next run just for being near expiry.
+    min_hours_to_expiry: Decimal = Decimal("12")
     clearly_winning_price: Decimal = Decimal("0.85")
     paper_bankroll_usd: Decimal = Decimal("100")
     runner_auto_confirm_live: bool = False
@@ -303,6 +304,10 @@ def _cross_check(c: Config) -> Config:
     if c.min_hours_to_expiry > c.max_days_to_expiry * 24:
         raise ConfigError(f"config expiry window is empty: min_hours_to_expiry {c.min_hours_to_expiry} is more than "
                           f"max_days_to_expiry {c.max_days_to_expiry} x 24 h")
+    if c.min_hours_to_expiry < c.exit_hours_before_expiry:
+        raise ConfigError(f"config min_hours_to_expiry {c.min_hours_to_expiry} is less than exit_hours_before_expiry "
+                          f"{c.exit_hours_before_expiry}: a contract entered at the edge of the entry window would "
+                          "be sold on the next run just for being near expiry")
     if c.max_research_per_run > RESEARCH_UNCAPPED_MAX and c.max_research_cost_usd_per_run is None:
         raise ConfigError(f"config max_research_per_run is {c.max_research_per_run}: above {RESEARCH_UNCAPPED_MAX} "
                           "it needs max_research_cost_usd_per_run set (a dollar cap on one run's research)")

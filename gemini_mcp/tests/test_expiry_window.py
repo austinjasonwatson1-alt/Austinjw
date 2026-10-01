@@ -31,7 +31,7 @@ def market(env, *hours):
 
 def test_defaults():
     c = Config()
-    assert c.max_days_to_expiry == D("7") and c.min_hours_to_expiry == D("6")
+    assert c.max_days_to_expiry == D("7") and c.min_hours_to_expiry == D("12")
 
 
 def test_only_contracts_inside_the_window_are_researched(env):
@@ -41,21 +41,22 @@ def test_only_contracts_inside_the_window_are_researched(env):
     assert researched == [f"GEMI-{EVENT}-C1"]
     skips = [d for d in by_kind(decisions, "no_trade") if "expiry window" in (d.get("reason") or "")]
     assert [d["instrument_symbol"] for d in skips] == [f"GEMI-{EVENT}-C0", f"GEMI-{EVENT}-C2"]
-    assert "min_hours_to_expiry 6" in skips[0]["reason"] and "max_days_to_expiry 7" in skips[1]["reason"]
+    assert "min_hours_to_expiry 12" in skips[0]["reason"] and "max_days_to_expiry 7" in skips[1]["reason"]
     assert all(d.get("hours_to_expiry") for d in skips)
     logged = [e for e in env.audit() if e["event"] == "decision" and "expiry window" in (e.get("reason") or "")]
     assert len(logged) == 2
 
 
 def test_window_boundaries_are_inclusive(env):
-    market(env, 6, 7 * 24, 5.9, 7 * 24 + 0.1)
+    market(env, 12, 7 * 24, 11.9, 7 * 24 + 0.1)
     _, _, calls, _ = run(env, max_order_usd=1)
     assert sorted(info["instrument_symbol"] for info, _ in calls) == [f"GEMI-{EVENT}-C0", f"GEMI-{EVENT}-C1"]
 
 
 def test_window_is_configurable(env):
     market(env, 3, 20 * 24)
-    _, _, calls, _ = run(env, max_order_usd=1, min_hours_to_expiry=1, max_days_to_expiry=30)
+    _, _, calls, _ = run(env, max_order_usd=1, min_hours_to_expiry=1, exit_hours_before_expiry=1,
+                         max_days_to_expiry=30)
     assert len(calls) == 2
 
 
@@ -80,6 +81,7 @@ def test_position_review_ignores_the_window(env):
     ({"max_days_to_expiry": -1}, "max_days_to_expiry"),
     ({"min_hours_to_expiry": -1}, "min_hours_to_expiry"),
     ({"min_hours_to_expiry": 200, "max_days_to_expiry": 7}, "empty"),
+    ({"min_hours_to_expiry": 5, "exit_hours_before_expiry": 6}, "exit_hours_before_expiry"),
     ({"max_days_to_expiry": "x"}, "max_days_to_expiry"),
 ])
 def test_bad_window_config_is_refused(tmp_path, over, needle):
@@ -104,4 +106,4 @@ def test_preflight_warns_above_30_days(tmp_path):
 def test_shipped_config_sets_the_window():
     from pathlib import Path
     raw = yaml.safe_load((Path(__file__).resolve().parents[1] / "config.yaml").read_text())
-    assert raw["max_days_to_expiry"] == 7 and raw["min_hours_to_expiry"] == 6
+    assert raw["max_days_to_expiry"] == 7 and raw["min_hours_to_expiry"] == 12

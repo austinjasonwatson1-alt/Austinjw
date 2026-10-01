@@ -113,7 +113,7 @@ The runner starts `server.py` as an MCP subprocess and calls only its tools. Eac
 - **`price_reached_estimate`:** the sell price is at or above the current `q_adj`. The value is gone.
 - **`edge_gone`:** the estimate fell below its entry value, and the current edge (`q_adj − buy price − fee`) is ≤ 0.
 - **`thesis_invalidated`:** the model reports the thesis invalidated by new information. Its reason is logged.
-- **`near_expiry_not_winning`:** expiry is within `exit_hours_before_expiry` (24h), and the sell price is below `clearly_winning_price` (0.85).
+- **`near_expiry_not_winning`:** expiry is within `exit_hours_before_expiry` (6 h), and the sell price is below `clearly_winning_price` (0.85).
 
 Every condition that fired is logged. A contract exited this run isn't re-entered in the same run.
 

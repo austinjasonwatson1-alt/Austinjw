@@ -11,7 +11,7 @@ from guardrails import Config, check_book
 from research import Estimate, ResearchError
 from runner import Runner, choose_entry, decide_exit, hours_until, make_confirm, outcome_prices
 
-CFG = Config()  # defaults: w 0.7, fee 0.02, min_edge 0.05, exit 24h, clearly winning 0.85
+CFG = Config()  # defaults: w 0.7, fee 0.02, min_edge 0.05, exit 6h, clearly winning 0.85
 
 
 def exit_(**over):
@@ -52,18 +52,18 @@ def test_exit_when_thesis_invalidated():
 
 
 def test_exit_near_expiry_when_not_clearly_winning():
-    d = exit_(hours_to_expiry=D("10"))
+    d = exit_(hours_to_expiry=D("5"))
     assert d.sell and d.reasons[0].startswith("near_expiry_not_winning")
 
 
 def test_near_expiry_but_clearly_winning_holds():
-    d = exit_(hours_to_expiry=D("10"), q_yes_now=D("0.97"), buy_price=D("0.92"), sell_price=D("0.90"))
+    d = exit_(hours_to_expiry=D("5"), q_yes_now=D("0.97"), buy_price=D("0.92"), sell_price=D("0.90"))
     assert not d.sell
 
 
 def test_near_expiry_boundary():
-    assert exit_(hours_to_expiry=D("24")).sell
-    assert not exit_(hours_to_expiry=D("24.1")).sell
+    assert exit_(hours_to_expiry=D("6")).sell
+    assert not exit_(hours_to_expiry=D("6.1")).sell
 
 
 def test_exit_conditions_for_no_side():
