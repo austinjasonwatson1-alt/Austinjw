@@ -30,7 +30,9 @@ def main() -> int:
     if not client.has_credentials:
         print("FAIL: GEMINI_API_KEY and GEMINI_API_SECRET must both be set.")
         return 1
-    print(f"key type: {key.split('-', 1)[0]}-...")  # prefix only (account/master); never the key itself
+    # Only a known prefix is ever printed; a key without one would otherwise be printed whole.
+    prefix = next((p for p in ("account-", "master-") if key.startswith(p)), None)
+    print(f"key type: {prefix + '...' if prefix else 'unrecognized prefix (expected account- or master-)'}")
 
     steps = [
         ("balances (POST /v1/balances)", lambda: client.get_balances()),
