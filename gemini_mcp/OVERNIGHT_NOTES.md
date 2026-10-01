@@ -109,3 +109,23 @@ The page shows:
 **Two things found while building it, both fixed test-first:**
 - `report.unknown_orders` said "Gemini returned no order id" for every unconfirmed result, including timeouts. It now shows the real error (`3319a0f`). The same commit added the `points` field the calibration chart uses.
 - **Q6:** the simulation showed `max_trades_per_day` blocking risk-reducing **exits** once the day's count was used up. That's as you specified ("counting placed orders"), so I didn't change it.
+
+## Task 6: Mac setup and runbook
+
+- **`setup_mac.sh`:** idempotent and secret-free.
+  - It checks for Python 3.11+, creates `.venv` and installs the requirements.
+  - It creates `.env` from the example **only if it's missing**. It never overwrites or prints `.env`, and refuses a symlinked one.
+  - It runs `chmod 600 .env` and `chmod 700 state/`, checks that `.env` is gitignored and no key file is tracked, then shows DRY_RUN preflight.
+  - Tested in `tests/test_setup_mac.py` on Linux bash. **It has never run on a real Mac (Q9).**
+- **`launchd/com.gemini-mcp.dryrun.plist.template`:**
+  - It ships **disabled**, holds no secrets, and runs three times a day.
+  - It sets `DRY_RUN=true` plus a new marker, `GEMINI_MCP_SCHEDULE=dry_run_only`. `runner.py` now refuses to start (exit 3) if that marker is set while DRY_RUN isn't dry, so an edited schedule can't go live.
+  - `launchd/README.md` explains what live scheduling would need: `--auto-confirm`, `runner_auto_confirm_live: true`, and `DRY_RUN=false`. It also explains how to stop the schedule.
+  - The plist parses as valid XML. It is **not** validated with `plutil`, which isn't available on Linux.
+- **`RUNBOOK.md`:** first-time setup, daily operations, stopping everything, every audit event, `order_result` value and decision kind, what to do with an unknown order, reading the report, and **going-live criteria (Q8)**:
+  - N ≥ 30 scored trades in every bucket traded;
+  - Brier mine < market with N ≥ 100;
+  - after-fee realized return > 0 in every traded bucket, and at least half of expected;
+  - 4 clean weeks of DRY_RUN, preflight OK, terms accepted, a Trader-only key.
+
+  `tests/test_runbook.py` fails if the code emits an event or kind the runbook doesn't document.
