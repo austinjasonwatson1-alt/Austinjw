@@ -63,7 +63,13 @@ SUBMIT_TOOL = {
 
 
 class ResearchError(Exception):
-    pass
+    """No usable estimate. usage/searches are what the failed attempt used, when known (None = unknown), so the
+    runner can still charge it to the research cost budget."""
+
+    def __init__(self, message: str = "", usage: dict[str, int] | None = None, searches: int | None = None):
+        super().__init__(message)
+        self.usage = usage
+        self.searches = searches
 
 
 @dataclass
@@ -191,6 +197,16 @@ def research_contract(
     counts: dict[str, int] = {}
     usage = {"input_tokens": 0, "output_tokens": 0}
     models: list[str] = []
+    try:
+        return _research_loop(client, model, tools, messages, sources, counts, usage, models, max_turns)
+    except ResearchError as e:
+        if e.usage is None:
+            e.usage, e.searches = dict(usage), counts.get("web_search", 0)
+        raise
+
+
+def _research_loop(client: Any, model: str, tools: list, messages: list, sources: dict, counts: dict,
+                   usage: dict, models: list, max_turns: int) -> Estimate:
     fallback = False
     nudged = False
     for _ in range(max_turns):

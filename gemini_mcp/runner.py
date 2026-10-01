@@ -35,7 +35,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable
 
@@ -170,6 +170,31 @@ def hours_until(expiry: Any, now: float) -> Decimal | None:
     return Decimal(str(round((dt.timestamp() - now) / 3600, 3)))
 
 
+# Charged when a research call's token usage is unknown or malformed (e.g. the API call itself failed): more than
+# a typical call, so an unknown cost never under-counts the budget. Searches are charged at research_max_searches.
+UNKNOWN_USAGE = {"input_tokens": 200_000, "output_tokens": 16_000}
+_CENT = Decimal("0.01")
+
+
+def _usage_ok(usage: Any) -> bool:
+    return (isinstance(usage, dict) and all(isinstance(v, int) and not isinstance(v, bool) and v >= 0
+                                            for v in usage.values()))
+
+
+def research_cost_usd(usage: Any, searches: Any, config: Config) -> Decimal:
+    """Estimated dollars for one research call, rounded up to the cent. Unknown or malformed usage is charged
+    UNKNOWN_USAGE; unknown searches are charged research_max_searches."""
+    if not _usage_ok(usage):
+        usage, searches = UNKNOWN_USAGE, None
+    if isinstance(searches, bool) or not isinstance(searches, int) or searches < 0:
+        searches = config.research_max_searches
+    m = Decimal(1_000_000)
+    cost = (Decimal(usage.get("input_tokens", 0)) * config.research_input_usd_per_mtok / m
+            + Decimal(usage.get("output_tokens", 0)) * config.research_output_usd_per_mtok / m
+            + Decimal(searches) * config.research_usd_per_search)
+    return cost.quantize(_CENT, rounding=ROUND_CEILING)
+
+
 def contract_info(market: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
     """What the research step sees: the resolution rules, not prices."""
     return {
@@ -227,6 +252,10 @@ class Runner:
         self.now = now
         self.out = out
         self.research_left = config.max_research_per_run
+        self.run_cost = Decimal(0)        # estimated research dollars this run
+        self.day_cost = Decimal(0)        # ... today (UTC), all runs and modes, read from audit.log at run start
+        self.max_call_cost = Decimal(0)   # costliest single research call seen today: the next call's projection
+        self.budget_logged = False
         self.held: set[str] = set()
         self.decisions: list[dict[str, Any]] = []
 
@@ -248,7 +277,82 @@ class Runner:
 
     async def do_research(self, info: dict[str, Any], prior: dict[str, Any] | None) -> Estimate:
         self.research_left -= 1
-        return await asyncio.to_thread(self.research, info, prior)
+        try:
+            est = await asyncio.to_thread(self.research, info, prior)
+        except ResearchError as e:
+            self._charge(info, e.usage, e.searches, ok=False, model=None)
+            raise
+        except Exception:
+            self._charge(info, None, None, ok=False, model=None)
+            raise
+        self._charge(info, est.usage, est.searches, ok=True, model=est.model)
+        return est
+
+    def _charge(self, info: dict[str, Any], usage: Any, searches: Any, *, ok: bool, model: str | None) -> None:
+        cost = research_cost_usd(usage, searches, self.config)
+        self.run_cost += cost
+        self.day_cost += cost
+        self.max_call_cost = max(self.max_call_cost, cost)
+        self.audit.write("research_cost", mode="dry_run" if self.dry_run else "live",
+                         instrument_symbol=info.get("instrument_symbol"), ok=ok, model=model,
+                         usage=usage if _usage_ok(usage) else None, usage_known=_usage_ok(usage), searches=searches,
+                         research_cost_usd=format(cost, "f"), run_cost_usd=format(self.run_cost, "f"),
+                         day_cost_usd=format(self.day_cost, "f"))
+
+    def _load_day_cost(self) -> None:
+        """Today's research dollars from audit.log (every mode: research is real money in DRY_RUN too). A
+        research_cost line with an unreadable amount is charged the unknown-usage estimate."""
+        today = datetime.fromtimestamp(self.now(), tz=timezone.utc).date().isoformat()
+        prefix = '{"ts": "' + today
+        unknown = research_cost_usd(None, None, self.config)
+        total, biggest = Decimal(0), Decimal(0)
+        try:
+            f = open(self.audit.path, encoding="utf-8")
+        except FileNotFoundError:
+            f = None
+        if f is not None:
+            with f:
+                for line in f:
+                    if not line.startswith(prefix) or '"research_cost"' not in line:
+                        continue
+                    try:
+                        e = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(e, dict) or e.get("event") != "research_cost":
+                        continue
+                    try:
+                        c = Decimal(str(e.get("research_cost_usd")))
+                        if not c.is_finite() or c < 0:
+                            raise InvalidOperation
+                    except (InvalidOperation, ValueError):
+                        c = unknown
+                    total += c
+                    biggest = max(biggest, c)
+        self.day_cost, self.max_call_cost = total, biggest
+
+    def research_block(self) -> str | None:
+        """Why no more research may run now, or None. A cost cap stops research when the next call, projected at
+        the costliest call seen today, would pass it; the first time that happens it is logged once."""
+        if self.research_left <= 0:
+            return "research budget exhausted for this run (max_research_per_run)"
+        nxt = self.max_call_cost
+        why = None
+        cap = self.config.max_research_cost_usd_per_run
+        if cap is not None and self.run_cost + nxt > cap:
+            why = (f"this run spent ~${self.run_cost} and another call (~${nxt}) would pass "
+                   f"max_research_cost_usd_per_run {cap}")
+        cap = self.config.max_research_cost_usd_per_day
+        if why is None and cap is not None and self.day_cost + nxt > cap:
+            why = (f"today's research spent ~${self.day_cost} and another call (~${nxt}) would pass "
+                   f"max_research_cost_usd_per_day {cap}")
+        if why is None:
+            return None
+        if not self.budget_logged:
+            self.budget_logged = True
+            self.log("research_budget_reached", reason=f"research cost budget reached: {why}; no more research "
+                     "this run", run_cost_usd=format(self.run_cost, "f"), day_cost_usd=format(self.day_cost, "f"))
+        return f"research cost budget reached ({why})"
 
     @staticmethod
     def _find_contract(market: dict[str, Any], symbol: str) -> dict[str, Any] | None:
@@ -289,19 +393,20 @@ class Runner:
     # ---- phases
 
     async def run(self) -> list[dict[str, Any]]:
+        self._load_day_cost()
         bal = await self.tools.call("get_balances")
         self.log("run_start", risk=bal.get("risk"), risk_error=bal.get("risk_error"),
-                 research_budget=self.research_left)
+                 research_budget=self.research_left, research_cost_today_usd=format(self.day_cost, "f"))
         # Breakers first, before any research or proposal: a breach must trip even if nothing would be proposed.
         chk = await self.tools.call("check_circuit_breakers")
         if not chk.get("ok"):
             self.log("run_stopped", reason=f"circuit breaker check at run start: {chk.get('reason') or chk.get('error')}",
                      tripped=bool(chk.get("tripped")))
-            self.log("run_end", research_left=self.research_left)
+            self.log("run_end", research_left=self.research_left, research_cost_usd=format(self.run_cost, "f"))
             return self.decisions
         await self.review_positions()
         await self.scan_entries()
-        self.log("run_end", research_left=self.research_left)
+        self.log("run_end", research_left=self.research_left, research_cost_usd=format(self.run_cost, "f"))
         return self.decisions
 
     async def review_positions(self) -> None:
@@ -319,8 +424,9 @@ class Runner:
             if available <= 0:
                 self.log("hold", reason="nothing available to sell (all on hold)", **base)
                 continue
-            if self.research_left <= 0:
-                self.log("hold", reason="research budget exhausted; position not reviewed this run", **base)
+            block = self.research_block()
+            if block:
+                self.log("hold", reason=f"{block}; position not reviewed this run", **base)
                 continue
             market = await self.tools.call("get_market", event_ticker=ev)
             contract = self._find_contract(market, symbol) if market.get("ok") else None
@@ -413,8 +519,9 @@ class Runner:
                 if window:
                     self.log("no_trade", reason=window, hours_to_expiry=format(hours, "f"), **base)
                     continue
-                if self.research_left <= 0:
-                    self.log("no_trade", reason="research budget exhausted for this run", **base)
+                block = self.research_block()
+                if block:
+                    self.log("no_trade", reason=block, **base)
                     continue
                 book = await self.tools.call("get_order_book", instrument_symbol=symbol)
                 bc = check_book(book if book.get("ok") else None, "yes", max_spread=self.config.max_spread)

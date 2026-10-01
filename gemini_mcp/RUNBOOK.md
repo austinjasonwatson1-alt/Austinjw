@@ -29,7 +29,7 @@ This is how to operate gemini_mcp day to day on a Mac. Run every command from th
 
 ## 2. Daily operations (DRY_RUN)
 
-- **Run once by hand:** `DRY_RUN=true py runner.py`. It reviews paper positions, then scans the allowlist. Each run's research budget is `max_research_per_run`. To limit a trial to a few markets, shrink `allowed_event_tickers` and `max_research_per_run`.
+- **Run once by hand:** `DRY_RUN=true py runner.py`. It reviews paper positions, then scans the allowlist. Each run's research budget is `max_research_per_run` calls (at most 20; above 5 it needs `max_research_cost_usd_per_run`) and the dollar caps `max_research_cost_usd_per_run` / `_per_day`. `run_end` shows the run's estimated research cost. To limit a trial to a few markets, shrink `allowed_event_tickers` and `max_research_per_run`.
 - **Scheduling (optional):** see section 6. It's DRY_RUN only.
 - **Look at it:** `py report.py --json > report.json`, then `py dashboard.py`, then open `dashboard.html`. Start with the **Needs attention** panel.
 - **Daily checks:**
@@ -74,6 +74,7 @@ Each line of `audit.log` is one JSON record, with timestamps in UTC.
 | `circuit_breaker_trip` | The floor, drawdown or daily-loss breaker tripped and created `KILL`. It includes the equity, the thresholds and the open positions. |
 | `breaker_reset` | `KILL` was deleted after a trip, and the drawdown peak was re-baselined. |
 | `kill_detected` / `kill_deleted` | A KILL file appeared or was removed. Deletions are always manual. |
+| `research_cost` | Runner only. One per research call (DRY_RUN or live, succeeded or failed): the estimated cost (`research_cost_usd`) from token and search counts at the config prices, plus the run's and the day's totals so far. Unknown usage is charged a conservative estimate (`usage_known: false`). |
 | `decision` | Runner only. Every run decision is a `decision` event; its `kind` field is listed below. |
 
 The `order_result` values:
@@ -91,6 +92,7 @@ The decision `kind` values:
 - `entry_failed` / `exit_failed` / `review_failed` / `exit_rejected`.
 - `proposed_not_confirmed`: live, with no terminal approval.
 - `run_skipped`: KILL was present when the runner started.
+- `research_budget_reached`: logged once per run when the next research call would pass `max_research_cost_usd_per_run` or `max_research_cost_usd_per_day` (projected at the costliest call seen today). No more research runs that run; later contracts are logged as `no_trade` and positions as `hold` ("research cost budget reached").
 - `run_stopped`: the run-start breaker check (`check_circuit_breakers`) tripped a breaker (KILL created), found KILL, or couldn't complete (for example, balances unreadable). The run ends before any research or proposal.
 
 ## 5. An order shows "unknown, check Gemini"

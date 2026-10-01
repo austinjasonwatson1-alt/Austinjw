@@ -115,8 +115,17 @@ class Config:
     runner_auto_confirm_live: bool = False
     research_model: str = "claude-opus-5-5"
     research_max_searches: int = 5
-    max_research_per_run: int = 10
+    max_research_per_run: int = 5  # up to 20, but above 5 max_research_cost_usd_per_run must be set
     min_sources: int = 2
+    # Research cost caps in USD, estimated from token and search counts at the prices below. None = no cap.
+    # The day cap counts every research call today (UTC) in audit.log, DRY_RUN and live alike.
+    max_research_cost_usd_per_run: Decimal | None = None
+    max_research_cost_usd_per_day: Decimal | None = None
+    # Prices for the estimate: Anthropic list prices for claude-opus-5-5 ($4 / $20 per million input / output
+    # tokens) and web search ($10 per 1,000 searches). Update them if you change research_model.
+    research_input_usd_per_mtok: Decimal = Decimal("4")
+    research_output_usd_per_mtok: Decimal = Decimal("20")
+    research_usd_per_search: Decimal = Decimal("0.01")
 
 
 # name -> (kind, low, high). Bounds are inclusive; "frac+" excludes 0.
@@ -150,8 +159,13 @@ _SPEC: dict[str, tuple] = {
     "runner_auto_confirm_live": ("bool",),
     "research_model": ("model",),
     "research_max_searches": ("int", 1, 50),
-    "max_research_per_run": ("int", 0, None),
+    "max_research_per_run": ("int", 0, 20),
     "min_sources": ("int", 0, None),
+    "max_research_cost_usd_per_run": ("opt_dec",),
+    "max_research_cost_usd_per_day": ("opt_dec",),
+    "research_input_usd_per_mtok": ("dec", 0, None),
+    "research_output_usd_per_mtok": ("dec", 0, None),
+    "research_usd_per_search": ("dec", 0, None),
 }
 assert set(_SPEC) == {f.name for f in fields(Config)}
 
@@ -175,7 +189,7 @@ def _cfg_value(name: str, value: Any) -> Any:
             return None
         d = _cfg_decimal(name, value)
         if d <= 0:
-            raise ConfigError(f"config {name} must be a positive number of dollars (or omitted)")
+            raise ConfigError(f"config {name} must be a positive number of dollars (or omitted/null)")
         return d
     if kind == "caps":
         value = {} if value is None else value
@@ -255,7 +269,13 @@ def _cross_check(c: Config) -> Config:
     if c.min_hours_to_expiry > c.max_days_to_expiry * 24:
         raise ConfigError(f"config expiry window is empty: min_hours_to_expiry {c.min_hours_to_expiry} is more than "
                           f"max_days_to_expiry {c.max_days_to_expiry} x 24 h")
+    if c.max_research_per_run > RESEARCH_UNCAPPED_MAX and c.max_research_cost_usd_per_run is None:
+        raise ConfigError(f"config max_research_per_run is {c.max_research_per_run}: above {RESEARCH_UNCAPPED_MAX} "
+                          "it needs max_research_cost_usd_per_run set (a dollar cap on one run's research)")
     return c
+
+
+RESEARCH_UNCAPPED_MAX = 5  # max_research_per_run above this needs max_research_cost_usd_per_run
 
 
 def parse_dry_run(value: str | None) -> bool:
