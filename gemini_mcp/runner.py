@@ -368,6 +368,11 @@ class Runner:
                 if self.research_left <= 0:
                     self.log("no_trade", reason="research budget exhausted for this run", **base)
                     continue
+                expiry = c.get("expiry") or market.get("expiry")
+                if hours_until(expiry, self.now()) is None:
+                    self.log("no_trade", reason=f"no expiry date (got {expiry!r}); the near-expiry exit rule "
+                                                "can't apply, so the contract isn't entered", **base)
+                    continue
                 book = await self.tools.call("get_order_book", instrument_symbol=symbol)
                 bc = check_book(book if book.get("ok") else None, "yes", max_spread=self.config.max_spread)
                 if not bc.ok:

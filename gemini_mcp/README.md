@@ -117,12 +117,13 @@ The runner starts `server.py` as an MCP subprocess and calls only its tools. Eac
 Every condition that fired is logged. A contract exited this run isn't re-entered in the same run.
 
 **2. Entry scan.** This runs for every open contract in an allowlisted event that you don't hold:
-1. Fetch the order book. A spread above `max_spread`, or an empty side, means no trade. This check comes before research, so no research money is spent on it.
-2. Research the contract. Fewer than `min_sources` sources means no trade.
-3. Compute the edge for both YES (`p` = ask) and NO (`p` = 1 − YES bid), and take the better side. Below `min_edge` means no trade.
-4. `propose_order(..., my_probability=q)`. The server sizes the order and applies every cap.
-5. Depth check: there must be at least `min_depth_multiple` × quantity contracts at or better than the price. Otherwise no trade, and the proposal is left to expire.
-6. Confirm. DRY_RUN confirms automatically. Live asks `Type 'yes'` on the terminal. It confirms without asking only with `--auto-confirm` **and** `runner_auto_confirm_live: true`. Under cron there's no terminal, so live proposals are logged as `proposed_not_confirmed`.
+1. Skip contracts with no usable expiry date (contract or event); the near-expiry exit can't apply to them.
+2. Fetch the order book. A spread above `max_spread`, or an empty side, means no trade. This check comes before research, so no research money is spent on it.
+3. Research the contract. Fewer than `min_sources` sources means no trade.
+4. Compute the edge for both YES (`p` = ask) and NO (`p` = 1 − YES bid), and take the better side. Below `min_edge` means no trade.
+5. `propose_order(..., my_probability=q)`. The server sizes the order and applies every cap.
+6. Depth check: there must be at least `min_depth_multiple` × quantity contracts at or better than the price. Otherwise no trade, and the proposal is left to expire.
+7. Confirm. DRY_RUN confirms automatically. Live asks `Type 'yes'` on the terminal. It confirms without asking only with `--auto-confirm` **and** `runner_auto_confirm_live: true`. Under cron there's no terminal, so live proposals are logged as `proposed_not_confirmed`.
 
 **Logging.** Every decision is written to `audit.log` as `{"event": "decision", "kind": ...}`, including `no_trade`, `hold`, `skip` and `review_failed`. Each entry carries the reason, the estimate, the thesis, the sources, both sides' edge math, the book, and the sizing. Every trade's research record is also stored in `paper_ledger.json` under `research`, keyed by the paper order id or `live:<order_id>`.
 

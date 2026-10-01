@@ -197,6 +197,7 @@ def test_dry_run_entry_end_to_end(env):
 
 
 def test_wide_spread_skips_before_research(env):
+    env.market.events[EVENT] = make_event(contracts=[make_contract(expiryDate="2027-01-31T00:00:00Z")])
     env.market.book = {"bids": [["0.02", "157"]], "asks": [["0.99", "100"]]}
     decisions, tools, calls, _ = run(env)
     nt = by_kind(decisions, "no_trade")
