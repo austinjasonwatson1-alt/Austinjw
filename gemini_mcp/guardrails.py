@@ -322,6 +322,11 @@ class SpendLedger:
         except InvalidOperation:
             raise Rejected("daily spend ledger has a malformed amount; refusing to trade")
 
+    def has_history(self) -> bool:
+        """True if any buy was ever recorded for this mode."""
+        with self._lock, file_lock(self.path):
+            return bool(self._load()["spend"].get(self.mode_key))
+
     def add(self, day: str, amount: Decimal) -> Decimal:
         with self._lock, file_lock(self.path):
             data = self._load()
@@ -1051,6 +1056,13 @@ class Guardrails:
         notes: list[dict] = []
 
         def step(st: dict[str, Any]) -> dict[str, Any]:
+            if not st.get("peak") and self.ledger.has_history():
+                # A missing risk state after trading would silently re-baseline peak, day start and floor.
+                raise Rejected(
+                    f"risk state for {self.ledger.mode_key} is missing from {self.risk.path} but the daily spend "
+                    "ledger shows past trades; refusing so the drawdown peak and equity floor aren't silently "
+                    "reset. Restore the file, or deliberately start over by also deleting "
+                    f"{self.ledger.path}.")
             # The floor baseline is set once and never reset (not even by deleting KILL).
             if not st.get("initial_equity") and ctx.equity > 0:
                 st["initial_equity"] = _fmt(ctx.equity)
