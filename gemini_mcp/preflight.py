@@ -13,6 +13,7 @@ Checks:
 - sane bounds: max_order_pct_of_balance <= 0.15, max_daily_spend_pct <= 0.5,
   max_drawdown_pct <= 0.35, equity_floor_pct >= 0.4, kelly_multiplier <= 0.5,
   max_trades_per_day <= 20, max_exits_per_day <= 30
+- warnings only (never fail): max_days_to_expiry > 30
 - .env and key files (.env.*, *.pem, *.key, *.p12, *.pfx) are not tracked by git
   and are covered by .gitignore
 - live only: verify_auth.py succeeded for this GEMINI_ENV in the last 24 hours
@@ -46,6 +47,11 @@ BOUNDS = (  # (config key, comparison, limit, description)
     ("kelly_multiplier", "gt", Decimal("0.5"), "must be at most 0.5"),
     ("max_trades_per_day", "gt", Decimal("20"), "must be at most 20"),
     ("max_exits_per_day", "gt", Decimal("30"), "must be at most 30"),
+)
+
+WARN_BOUNDS = (  # (config key, limit, description): above the limit is a warning (note), not a failure
+    ("max_days_to_expiry", Decimal("30"), "above 30 days; the short-dated focus is off (long-dated contracts tie up "
+                                          "cash and settle too slowly to learn from)"),
 )
 
 
@@ -153,6 +159,10 @@ def check_with_notes(environ: Any = os.environ, here: Path = HERE, now: float | 
             v = getattr(cfg, key)
             if (op == "gt" and v > limit) or (op == "lt" and v < limit):
                 fails.append(f"{key} is {v}; {desc}")
+        for key, limit, desc in WARN_BOUNDS:
+            v = getattr(cfg, key)
+            if v > limit:
+                notes.append(f"{key} is {v}; {desc}")
 
     fails += _git_checks(here, git)
 

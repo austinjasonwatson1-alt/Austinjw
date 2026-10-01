@@ -67,7 +67,7 @@ def fmt(d: Decimal) -> str:
     return s if s not in ("-0",) else "0"
 
 
-def contract(symbol: str, label: str, bid: str, ask: str, expiry: str = "2027-01-31T00:00:00Z", **over: Any) -> dict:
+def contract(symbol: str, label: str, bid: str, ask: str, expiry: str = "2026-09-24T00:00:00Z", **over: Any) -> dict:
     """A contract in Gemini's event shape. YES bid/ask; NO prices are complements."""
     b, a = D(bid), D(ask)
     c = {"instrumentSymbol": symbol, "label": label, "status": "active", "marketState": "open",
@@ -82,7 +82,7 @@ def contract(symbol: str, label: str, bid: str, ask: str, expiry: str = "2027-01
 
 def event(ticker: str, title: str, contracts: list[dict], category: str = "Economics", **over: Any) -> dict:
     e = {"ticker": ticker, "title": title, "description": f"{title}. Settles per the terms.", "status": "active",
-         "type": "binary", "category": category, "expiryDate": "2027-01-31T00:00:00Z", "resolvedAt": None,
+         "type": "binary", "category": category, "expiryDate": "2026-09-24T00:00:00Z", "resolvedAt": None,
          "termsLink": None, "contracts": contracts, "events": []}
     e.update(over)
     return e

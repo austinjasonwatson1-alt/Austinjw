@@ -56,6 +56,12 @@ min_depth_multiple: 1      # contracts available at or better than our price >= 
 
 # ---- Runner
 exit_hours_before_expiry: 24   # near expiry, exit unless clearly winning
+# Entry window (short-dated focus): only contracts expiring between min_hours_to_expiry hours and
+# max_days_to_expiry days from now are researched or entered; others are logged as no_trade and skipped.
+# Held positions are always reviewed. Preflight warns above 30 days. Note: an entry inside
+# exit_hours_before_expiry (24 h) is sold on the next run unless it is clearly winning.
+max_days_to_expiry: 7
+min_hours_to_expiry: 6
 clearly_winning_price: 0.85    # "clearly winning" = current sell price at or above this
 paper_bankroll_usd: 100        # starting paper cash in DRY_RUN (delete paper_ledger.json to reset)
 runner_auto_confirm_live: false

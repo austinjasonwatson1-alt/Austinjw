@@ -363,6 +363,16 @@ class Runner:
             return None
         return {o.get("symbol") for o in orders if isinstance(o, dict)}
 
+    def _outside_window(self, hours: Decimal) -> str | None:
+        """Why a contract expiring in `hours` is outside the entry window, or None if it's inside."""
+        lo, hi_days = self.config.min_hours_to_expiry, self.config.max_days_to_expiry
+        if hours < lo:
+            return f"outside expiry window: expires in {hours:.1f} h, sooner than min_hours_to_expiry {lo}"
+        if hours > hi_days * 24:
+            return (f"outside expiry window: expires in {hours / 24:.1f} days, later than "
+                    f"max_days_to_expiry {hi_days}")
+        return None
+
     async def scan_entries(self) -> None:
         # A resting order from an earlier run isn't a position yet; without this the runner would stack
         # another entry on the same contract every run (bounded only by the caps).
@@ -393,13 +403,18 @@ class Runner:
                     self.log("skip", reason="held (or exited) this run; handled by position review, "
                                             "not re-entered", **base)
                     continue
-                if self.research_left <= 0:
-                    self.log("no_trade", reason="research budget exhausted for this run", **base)
-                    continue
                 expiry = c.get("expiry") or market.get("expiry")
-                if hours_until(expiry, self.now()) is None:
+                hours = hours_until(expiry, self.now())
+                if hours is None:
                     self.log("no_trade", reason=f"no expiry date (got {expiry!r}); the near-expiry exit rule "
                                                 "can't apply, so the contract isn't entered", **base)
+                    continue
+                window = self._outside_window(hours)
+                if window:
+                    self.log("no_trade", reason=window, hours_to_expiry=format(hours, "f"), **base)
+                    continue
+                if self.research_left <= 0:
+                    self.log("no_trade", reason="research budget exhausted for this run", **base)
                     continue
                 book = await self.tools.call("get_order_book", instrument_symbol=symbol)
                 bc = check_book(book if book.get("ok") else None, "yes", max_spread=self.config.max_spread)

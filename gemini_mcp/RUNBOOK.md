@@ -87,7 +87,7 @@ The decision `kind` values:
 - `run_start` (with a risk snapshot) and `run_end`.
 - `entry`, `exit`, `hold`.
 - `skip`: held, or an order is already resting.
-- `no_trade`: with the reason (spread, thin book, edge, sources, server rejection, no expiry).
+- `no_trade`: with the reason (spread, thin book, edge, sources, server rejection, no expiry, "outside expiry window": the contract expires sooner than `min_hours_to_expiry` or later than `max_days_to_expiry`; such contracts are never researched).
 - `entry_failed` / `exit_failed` / `review_failed` / `exit_rejected`.
 - `proposed_not_confirmed`: live, with no terminal approval.
 - `run_skipped`: KILL was present when the runner started.

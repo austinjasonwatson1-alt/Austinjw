@@ -33,12 +33,12 @@ def test_unparseable_expiry_is_skipped(env):
 
 
 def test_event_level_expiry_is_enough(env):
-    market(env, event_expiry="2027-01-31T00:00:00Z")
+    market(env, event_expiry="2026-09-24T00:00:00Z")
     decisions, _, calls, _ = run(env)
     assert calls and by_kind(decisions, "entry")
 
 
 def test_contract_expiry_entry_still_works(env):
-    market(env, contract_expiry="2027-01-31T00:00:00Z")
+    market(env, contract_expiry="2026-09-24T00:00:00Z")
     decisions, _, _, _ = run(env)
     assert by_kind(decisions, "entry")

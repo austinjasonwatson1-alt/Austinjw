@@ -106,6 +106,10 @@ class Config:
     min_depth_multiple: Decimal = Decimal("1")
     # Runner.
     exit_hours_before_expiry: Decimal = Decimal("24")
+    # Entry window: the runner only researches/enters contracts expiring between min_hours_to_expiry hours and
+    # max_days_to_expiry days from now (inclusive). Held positions are reviewed whatever their expiry.
+    max_days_to_expiry: Decimal = Decimal("7")
+    min_hours_to_expiry: Decimal = Decimal("6")
     clearly_winning_price: Decimal = Decimal("0.85")
     paper_bankroll_usd: Decimal = Decimal("100")
     runner_auto_confirm_live: bool = False
@@ -139,6 +143,8 @@ _SPEC: dict[str, tuple] = {
     "max_spread": ("dec", 0, 1),
     "min_depth_multiple": ("dec", 0, None),
     "exit_hours_before_expiry": ("dec", 0, None),
+    "max_days_to_expiry": ("dec+",),
+    "min_hours_to_expiry": ("dec", 0, None),
     "clearly_winning_price": ("dec", 0, 1),
     "paper_bankroll_usd": ("dec", 0, None),
     "runner_auto_confirm_live": ("bool",),
@@ -205,6 +211,10 @@ def _cfg_value(name: str, value: Any) -> Any:
             raise ConfigError(f"config {name} must be between {lo} and {hi if hi is not None else 'any'}")
         return value
     d = _cfg_decimal(name, value)
+    if kind == "dec+":
+        if d <= _ZERO:
+            raise ConfigError(f"config {name} must be greater than 0")
+        return d
     if kind == "frac+":
         if not (_ZERO < d <= _ONE):
             raise ConfigError(f"config {name} must be greater than 0 and at most 1 (0.20 = 20%)")
@@ -237,7 +247,15 @@ def load_config(path: Path) -> Config:
     unknown = set(raw) - set(_SPEC)
     if unknown:
         raise ConfigError(f"unknown config keys (typo?): {sorted(unknown)}")
-    return Config(**{name: _cfg_value(name, value) for name, value in raw.items()})
+    return _cross_check(Config(**{name: _cfg_value(name, value) for name, value in raw.items()}))
+
+
+def _cross_check(c: Config) -> Config:
+    """Rules that involve more than one key."""
+    if c.min_hours_to_expiry > c.max_days_to_expiry * 24:
+        raise ConfigError(f"config expiry window is empty: min_hours_to_expiry {c.min_hours_to_expiry} is more than "
+                          f"max_days_to_expiry {c.max_days_to_expiry} x 24 h")
+    return c
 
 
 def parse_dry_run(value: str | None) -> bool:
