@@ -1326,73 +1326,82 @@ class Guardrails:
                     raise Rejected("token expired (tokens are valid for 5 minutes); propose the order again")
                 if pending.order.digest() != pending.digest:
                     raise Rejected("stored order does not match its token; refusing")
-                self.observe_kill()
-                self._check_kill()
-                config = load_config(self.config_path)
-                v = self._validate(pending.order, config, allow_sizing=False)
             except Rejected as e:
                 order = asdict(pending.order) if pending else None
                 return self._reject("confirm_order", str(e), e.details, order=order)
+            # Other server processes share the state files. Hold one cross-process lock from validation
+            # through recording spend and placing, so two processes can't both pass the same cap.
+            with file_lock(self.ledger.path.with_name("orders")):
+                return self._confirm_locked(pending)
 
-            common = dict(
-                mode=self.mode,
-                trade=v.action,
-                instrument_symbol=v.instrument_symbol,
-                side=v.side,
-                outcome=v.outcome,
-                quantity=v.quantity,
-                limit_price=v.price,
-                worst_case_cost_usd=v.cost_usd,
-                resolved_event_ticker=v.event_ticker,
-                sizing=pending.sizing,
+    def _confirm_locked(self, pending: PendingOrder) -> dict[str, Any]:
+        try:
+            self.observe_kill()
+            self._check_kill()
+            config = load_config(self.config_path)
+            v = self._validate(pending.order, config, allow_sizing=False)
+        except Rejected as e:
+            return self._reject("confirm_order", str(e), e.details, order=asdict(pending.order))
+
+        common = dict(
+            mode=self.mode,
+            trade=v.action,
+            instrument_symbol=v.instrument_symbol,
+            side=v.side,
+            outcome=v.outcome,
+            quantity=v.quantity,
+            limit_price=v.price,
+            worst_case_cost_usd=v.cost_usd,
+            resolved_event_ticker=v.event_ticker,
+            sizing=pending.sizing,
+        )
+        self.audit.write("confirmation", **common)
+        spent_total = (self.ledger.add(self._today(), v.cost_usd) if v.side == "buy"
+                       else self.ledger.spent_on(self._today()))
+
+        if self.dry_run:
+            assert self.paper is not None
+            if v.side == "buy":
+                ref = v.outcome_buy_price
+                filled = ref is not None and v.price >= Decimal(str(ref))
+            else:
+                ref = v.outcome_sell_price
+                filled = ref is not None and v.price <= Decimal(str(ref))
+            paper_id = self.paper.record_order(
+                symbol=v.instrument_symbol, outcome=v.outcome, side=v.side, quantity=v.quantity,
+                price=v.price, fee=config.fee_per_contract, event_ticker=v.event_ticker, filled=filled,
             )
-            self.audit.write("confirmation", **common)
-            spent_total = (self.ledger.add(self._today(), v.cost_usd) if v.side == "buy"
-                           else self.ledger.spent_on(self._today()))
+            self.audit.write("would_place", spent_today_usd=spent_total, paper_order_id=paper_id,
+                             paper_filled=filled, **common)
+            return {
+                "ok": True,
+                "dry_run": True,
+                "message": f"DRY RUN: would have placed {v.action} x {format(v.quantity, 'f')} "
+                f"{v.instrument_symbol}. Nothing was sent to Gemini.",
+                "paper_order_id": paper_id,
+                "paper_filled": filled,
+                "spent_today_usd": format(spent_total, "f"),
+            }
 
-            if self.dry_run:
-                assert self.paper is not None
-                if v.side == "buy":
-                    ref = v.outcome_buy_price
-                    filled = ref is not None and v.price >= Decimal(str(ref))
-                else:
-                    ref = v.outcome_sell_price
-                    filled = ref is not None and v.price <= Decimal(str(ref))
-                paper_id = self.paper.record_order(
-                    symbol=v.instrument_symbol, outcome=v.outcome, side=v.side, quantity=v.quantity,
-                    price=v.price, fee=config.fee_per_contract, event_ticker=v.event_ticker, filled=filled,
-                )
-                self.audit.write("would_place", spent_today_usd=spent_total, paper_order_id=paper_id,
-                                 paper_filled=filled, **common)
-                return {
-                    "ok": True,
-                    "dry_run": True,
-                    "message": f"DRY RUN: would have placed {v.action} x {format(v.quantity, 'f')} "
-                    f"{v.instrument_symbol}. Nothing was sent to Gemini.",
-                    "paper_order_id": paper_id,
-                    "paper_filled": filled,
-                    "spent_today_usd": format(spent_total, "f"),
-                }
-
-            # Last-moment kill check, right before the real request.
-            if self.kill_switch_active():
-                reason = "kill switch activated during confirmation; order not placed"
-                self.audit.write("rejection", action="confirm_order", reason=reason, **common)
-                return {"ok": False, "rejected": True, "reason": reason}
-            try:
-                resp = self._trader.place_limit_order(v.instrument_symbol, v.side, v.outcome, v.quantity, v.price)
-            except Exception as e:  # noqa: BLE001
-                self.audit.write("placement_failed", error=str(e), **common)
-                return {
-                    "ok": False,
-                    "error": str(e),
-                    "note": "Placement failed or its outcome is unknown. It will NOT be retried. "
-                    "Check list_open_orders before proposing again. The spend stays counted for today.",
-                }
-            order_id = resp.get("orderId") if isinstance(resp, dict) else None
-            status = resp.get("status") if isinstance(resp, dict) else None
-            self.audit.write("placement", order_id=order_id, status=status, spent_today_usd=spent_total, **common)
-            return {"ok": True, "dry_run": False, "order_id": order_id, "status": status, "response": resp}
+        # Last-moment kill check, right before the real request.
+        if self.kill_switch_active():
+            reason = "kill switch activated during confirmation; order not placed"
+            self.audit.write("rejection", action="confirm_order", reason=reason, **common)
+            return {"ok": False, "rejected": True, "reason": reason}
+        try:
+            resp = self._trader.place_limit_order(v.instrument_symbol, v.side, v.outcome, v.quantity, v.price)
+        except Exception as e:  # noqa: BLE001
+            self.audit.write("placement_failed", error=str(e), **common)
+            return {
+                "ok": False,
+                "error": str(e),
+                "note": "Placement failed or its outcome is unknown. It will NOT be retried. "
+                "Check list_open_orders before proposing again. The spend stays counted for today.",
+            }
+        order_id = resp.get("orderId") if isinstance(resp, dict) else None
+        status = resp.get("status") if isinstance(resp, dict) else None
+        self.audit.write("placement", order_id=order_id, status=status, spent_today_usd=spent_total, **common)
+        return {"ok": True, "dry_run": False, "order_id": order_id, "status": status, "response": resp}
 
     def cancel(self, order_id: Any) -> dict[str, Any]:
         with self._lock:
