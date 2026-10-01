@@ -4,7 +4,7 @@ import tempfile
 from decimal import Decimal as D
 from pathlib import Path
 
-from hypothesis import HealthCheck, event, given, settings
+from hypothesis import HealthCheck, event, example, given, settings
 from hypothesis import strategies as st
 
 from conftest import EVENT, SYMBOL, Clock, FakeMarket, FakeTrader, make_contract, make_event, write_config
@@ -106,6 +106,9 @@ def make_guard(tmp, *, live, cfg, balances, positions, orders, inc="1", minimum=
     market_pct=dec("0.01", "0.3", 3), daily_pct=dec("0.01", "0.6", 3), inc=st.sampled_from(["1", "5", "0.5"]),
     minimum=st.sampled_from(["1", "5"]), confirms=st.integers(1, 6),
 )
+@example(live=False, side="sell", outcome="no", qty="2", price="0.35", prob=None, cash=D("50"), held=2, resting_buy=0,
+         max_order=D("0.5"), daily=D("1"), open_max=1, trades_max=2, order_pct=D("0.005"), market_pct=D("0.01"),
+         daily_pct=D("0.01"), inc="1", minimum="1", confirms=2)  # two unfilled paper sells: not an oversell
 def test_guardrails_never_place_an_order_that_breaks_a_cap(live, side, outcome, qty, price, prob, cash, held,
                                                             resting_buy, max_order, daily, open_max, trades_max,
                                                             order_pct, market_pct, daily_pct, inc, minimum, confirms):
@@ -138,11 +141,14 @@ def test_guardrails_never_place_an_order_that_breaks_a_cap(live, side, outcome, 
                 tokens.append(r["confirmation_token"])
         for t in tokens:
             assert isinstance(g.confirm(t), dict)
+        paper_orders = [] if live else g.paper.snapshot()["orders"][n_before:]
         sent = trader.placed if live else [(o["symbol"], o["side"], o["outcome"], D(o["quantity"]), D(o["price"]))
-                                           for o in g.paper.snapshot()["orders"][n_before:]]
+                                           for o in paper_orders]
         event(f"placed {min(len(sent), 2)}{'+' if len(sent) > 2 else ''} ({'live' if live else 'dry'} {side})")
         spent = sum((q * p for _, s, _, q, p in sent if s == "buy"), D(0))
-        sold = sum((q for _, s, _, q, _ in sent if s == "sell"), D(0))
+        # Unfilled paper orders don't rest and don't change holdings, so only filled paper sells count as sold.
+        sold = (sum((q for _, s, _, q, _ in sent if s == "sell"), D(0)) if live else
+                sum((D(o["quantity"]) for o in paper_orders if o["side"] == "sell" and o["filled"]), D(0)))
         assert len(sent) <= trades_max
         # max_open_orders needs an exchange whose open-order list grows as orders are placed: that's checked
         # against the stateful fake in test_stress_multiprocess.py.
