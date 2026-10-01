@@ -292,3 +292,25 @@ Full test suite, `python -m pytest -q` in `gemini_mcp/`:
 ........................                                                 [100%]
 600 passed in 40.94s
 ```
+
+---
+
+# Follow-up session (after `697f8ca`)
+
+## Answered by you this session
+
+- **Q4: breakers at run start.** Done in `e383778`. The runner calls the new read-only MCP tool `check_circuit_breakers` right after `run_start`, before any review, research or proposal.
+- **Q6: exits.** Done in `adb37af`. Exits are exempt from `max_trades_per_day` and have their own `max_exits_per_day`.
+- **Q8: going-live criteria.** Replaced in RUNBOOK §8 with your criteria (Task 5 below).
+- **Q9: macOS.** Partly addressed in Task 6 below: bash 3.2, the Python minimum, and plistlib validation. It still hasn't run on a real Mac.
+
+## Defaults taken (questions you didn't answer: I kept the safer option)
+
+| Q | Default | Effect |
+|---|---|---|
+| Q1 | A position without `marketValue` is still **valued at $0**, not refused. | $0 is the conservative value for every cap and breaker (lower equity means tighter caps and earlier trips). Refusing instead would block exits whenever one quote is missing. |
+| Q2 | **Strict endpoint word filter.** Event tickers containing deposit, withdraw, transfer, address, fund or bank can't be read or traded. | Some legitimate events (a hypothetical `FEDFUNDS`) are unavailable. Nothing can reach a sensitive path. |
+| Q3 | **One API key per process.** No shared nonce file. A nonce collision makes Gemini reject that one request; that's a visible error, never a wrong order. | Run only one server process per key (the runner's own server, *or* Claude Desktop/Code, not both on one key). RUNBOOK §1 and the going-live checklist already say so. |
+| Q5 | **Changed to the safer option** (`0d9caea`). Live sells confirmed in the last 120 s stay reserved against the holding, even if Gemini's positions or open orders don't show them yet. The reservation is read from `audit.log`, so every process sees it. | It uses `max()` with what Gemini reports, so a reflected sell isn't double-counted. A sell that already *filled* within 120 s can briefly block a second, legitimate sell of the remainder. That errs on the side of refusing. Tests: `tests/test_recent_sell_reservation.py`. |
+| Q7 | **Unknown orders stay listed** in the report and dashboard; there's no acknowledgement mechanism. | Each one stays visible until the log rotates. That's annoying, but nothing unknown is ever hidden. |
+| Q10 | In DRY_RUN, `max_open_orders` keeps counting the **real account's** open orders. | It can only block paper trading, never allow more. |
