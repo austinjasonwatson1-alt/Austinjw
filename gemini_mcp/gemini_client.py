@@ -9,7 +9,12 @@ Safety properties of this module:
   *read* endpoints. ``TradingClient`` adds exactly two write endpoints: place a
   limit order and cancel an order. In dry-run mode the server never builds a
   ``TradingClient``, so the order-placement endpoint can't be reached in code.
-- Every private path is checked against a per-class allowlist before signing.
+- Every request must match the explicit method+path allowlist (``ALLOWED_ENDPOINTS``)
+  and must not contain deposit/withdraw/transfer/address/fund/bank anywhere in its
+  path. This is checked twice: when the request is built, and again by an httpx
+  request hook on the final URL (host, scheme, port and normalized path), so code
+  that bypasses the helper methods is refused too. Refusals are logged.
+- Private paths are also checked against a per-class allowlist before signing.
   There is no withdrawal, transfer, batch, stop-limit or terms-accept call.
 - The API secret is kept in a private attribute, left out of ``repr`` and never
   logged. Error messages include the HTTP status and response body, never
@@ -24,12 +29,13 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import re
 import threading
 import time
 from decimal import Decimal
 from typing import Any, Callable
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import httpx
 
@@ -56,6 +62,41 @@ CANCEL_ORDER_PATH = "/v1/prediction-markets/order/cancel"
 EVENT_STATUSES = frozenset({"approved", "active", "closed", "under_review", "settled", "invalid"})
 
 _MAX_ERROR_BODY = 2000
+
+log = logging.getLogger("gemini_mcp.client")
+
+# The only requests this code may ever send: (method, full-match path regex). Event tickers are limited to a
+# conservative character set that can't contain "/" or "%" or start with ".", so they can't escape the path.
+_TICKER_SEGMENT = r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}"
+ALLOWED_ENDPOINTS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (m, re.compile(p)) for m, p in (
+        ("GET", re.escape(EVENTS_PATH)),
+        ("GET", re.escape(EVENTS_PATH) + "/" + _TICKER_SEGMENT),
+        ("POST", re.escape(BALANCES_PATH)),
+        ("POST", re.escape(POSITIONS_PATH)),
+        ("POST", re.escape(ACTIVE_ORDERS_PATH)),
+        ("POST", re.escape(ORDER_HISTORY_PATH)),
+        ("POST", re.escape(PLACE_ORDER_PATH)),
+        ("POST", re.escape(CANCEL_ORDER_PATH)),
+    )
+)
+# Refused anywhere in a path (after percent-decoding), even if a pattern above would match.
+FORBIDDEN_PATH_WORDS = re.compile(r"deposit|withdraw|transfer|address|fund|bank", re.IGNORECASE)
+_WS_STREAM_RE = re.compile(r"[A-Za-z0-9._:-]{1,120}@depth(5|10|20)")
+
+
+def endpoint_allowed(method: str, path: str) -> bool:
+    """True only for an allowlisted method+path. ``path`` excludes the query string."""
+    decoded = unquote(unquote(path))
+    if FORBIDDEN_PATH_WORDS.search(decoded) or ".." in decoded.split("/"):
+        return False
+    return any(method == m and p.fullmatch(path) for m, p in ALLOWED_ENDPOINTS)
+
+
+def check_endpoint(method: str, path: str) -> None:
+    if not endpoint_allowed(method, path):
+        log.warning("refused request %s %s: not on the endpoint allowlist", method, path[:200])
+        raise PathNotAllowed(f"{method} {path[:200]} is not on the endpoint allowlist")
 
 
 class GeminiAPIError(Exception):
@@ -161,7 +202,18 @@ class ReadOnlyClient:
             transport=transport,
             timeout=timeout,
             follow_redirects=False,
+            event_hooks={"request": [self._guard_request]},
         )
+
+    def _guard_request(self, request: httpx.Request) -> None:
+        """Last check on the final request, after URL normalization, before anything is sent."""
+        url = request.url
+        path = url.raw_path.decode("ascii", "replace").split("?", 1)[0]
+        expected = httpx.URL(self.base_url)
+        if (url.scheme, url.host, url.port) != (expected.scheme, expected.host, expected.port):
+            log.warning("refused request %s %s://%s%s: wrong host", request.method, url.scheme, url.host, path[:200])
+            raise PathNotAllowed(f"request to {url.scheme}://{url.host} refused; only {self.base_url} is allowed")
+        check_endpoint(request.method, path)
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(env={self.env!r}, credentials={'set' if self.has_credentials else 'missing'})"
@@ -186,12 +238,13 @@ class ReadOnlyClient:
             raise GeminiAPIError(path, resp.status_code, f"non-JSON response: {resp.text}")
 
     def _public_get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        if not path.startswith(EVENTS_PATH):
-            raise PathNotAllowed(path)
+        check_endpoint("GET", path)
         return self._parse(path, self._http.get(path, params=params))
 
     def _private_post(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        check_endpoint("POST", path)
         if path not in self.PRIVATE_PATHS:
+            log.warning("refused request POST %s: not allowed for %s", path[:200], type(self).__name__)
             raise PathNotAllowed(f"{type(self).__name__} may not call {path}")
         if not self.has_credentials:
             raise CredentialsMissing("GEMINI_API_KEY / GEMINI_API_SECRET are not set")
@@ -213,6 +266,9 @@ class ReadOnlyClient:
         return self._public_get(EVENTS_PATH, params)
 
     def get_event(self, event_ticker: str) -> Any:
+        if not isinstance(event_ticker, str) or not re.fullmatch(_TICKER_SEGMENT, event_ticker):
+            log.warning("refused request GET %s/<malformed ticker>", EVENTS_PATH)
+            raise PathNotAllowed("malformed event ticker; refused")
         return self._public_get(f"{EVENTS_PATH}/{quote(event_ticker, safe='')}")
 
     def get_order_book(self, symbol: str, depth: int = 20, timeout: float = 8.0) -> dict[str, Any]:
@@ -229,6 +285,8 @@ class ReadOnlyClient:
         if connect is None:
             from websockets.sync.client import connect  # imported lazily; only this call needs it
         stream = f"{symbol}@depth{depth}"
+        if not _WS_STREAM_RE.fullmatch(stream):
+            raise ValueError("malformed order-book stream")
         deadline = time.monotonic() + timeout
         with connect(WS_URLS[self.env], open_timeout=timeout, close_timeout=2) as ws:
             ws.send(json.dumps({"id": "1", "method": "SUBSCRIBE", "params": [stream]}))
