@@ -208,6 +208,8 @@ When `DRY_RUN` isn't exactly `false`, the server never creates a trading client,
 
 ## Setup
 
+On a Mac, `./setup_mac.sh` does the steps below idempotently. It never overwrites `.env`. **[RUNBOOK.md](RUNBOOK.md)** covers first-time setup, daily operations, how to stop everything, what each audit event means, unknown orders, reading the report, and the going-live criteria. `launchd/` holds a DRY_RUN-only schedule template.
+
 ```bash
 cd gemini_mcp
 python3 -m venv .venv && source .venv/bin/activate
