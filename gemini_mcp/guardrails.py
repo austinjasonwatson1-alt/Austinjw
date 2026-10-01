@@ -945,6 +945,28 @@ class Guardrails:
             raise Rejected("positions lookup returned an unexpected shape")
         positions, seen = [], set()
         exp = RiskContext("live", _ZERO, _ZERO)
+
+        # Quantity committed to resting sells is not available to sell again. Gemini may or may not report it
+        # as quantityOnHold, so use the larger of the two. An order with no usable outcome reserves both.
+        resting_sells: dict[tuple[str, str], Decimal] = {}
+        for o in self._active_orders():
+            if not isinstance(o, dict):
+                continue
+            rem = _dec_field({"v": o.get("remainingQuantity") or o.get("quantity") or "0"}, "v", "open orders")
+            if rem < 0:
+                raise Rejected("open orders lookup returned an invalid (negative or out-of-range) quantity or price")
+            sym = str(o.get("symbol") or "")
+            if o.get("side") == "buy":
+                meta = o.get("contractMetadata") if isinstance(o.get("contractMetadata"), dict) else {}
+                price = _dec_field(o, "price", "open orders")
+                if not (_ZERO <= price <= _ONE):
+                    raise Rejected("open orders lookup returned an invalid (negative or out-of-range) quantity or price")
+                exp.add(sym, str(meta.get("eventTicker") or ""), _category(meta.get("category")), rem * price)
+            else:
+                outs = (o["outcome"],) if o.get("outcome") in ALLOWED_OUTCOMES else ALLOWED_OUTCOMES
+                for out in outs:
+                    resting_sells[(sym, out)] = resting_sells.get((sym, out), _ZERO) + rem
+
         for p in raw:
             if not isinstance(p, dict) or not isinstance(p.get("symbol"), str) or p.get("outcome") not in ALLOWED_OUTCOMES:
                 raise Rejected("positions lookup returned an unexpected entry")
@@ -967,21 +989,11 @@ class Guardrails:
             cost = total * avg
             positions.append({
                 "symbol": p["symbol"], "outcome": p["outcome"], "event_ticker": ev, "category": cat,
-                "quantity": total, "available": total - on_hold, "cost_basis": cost, "value": value,
+                "quantity": total, "available": total - max(on_hold, resting_sells.get(key, _ZERO)),
+                "cost_basis": cost, "value": value,
                 "has_quote": has_quote, "expiry": meta.get("expiryDate"),
             })
             exp.add(p["symbol"], ev, cat, max(cost, value))
-
-        for o in self._active_orders():
-            if isinstance(o, dict) and o.get("side") == "buy":
-                meta = o.get("contractMetadata") if isinstance(o.get("contractMetadata"), dict) else {}
-                ev = str(meta.get("eventTicker") or "")
-                cat = _category(meta.get("category"))
-                rem = _dec_field({"v": o.get("remainingQuantity") or o.get("quantity") or "0"}, "v", "open orders")
-                price = _dec_field(o, "price", "open orders")
-                if rem < 0 or not (_ZERO <= price <= _ONE):
-                    raise Rejected("open orders lookup returned an invalid (negative or out-of-range) quantity or price")
-                exp.add(str(o.get("symbol") or ""), ev, cat, rem * price)
         exp.equity, exp.cash, exp.positions = amount + sum((p["value"] for p in positions), _ZERO), cash, positions
         return exp
 
