@@ -757,15 +757,25 @@ class RiskContext:
         return ev, cat
 
 
+def _clip(value: Any, n: int = 64) -> Any:
+    """Shorten untrusted strings before they are echoed into errors or the audit log."""
+    return value[:n] + "..." if isinstance(value, str) and len(value) > n else value
+
+
 def _to_decimal(name: str, value: Any) -> Decimal:
     if value is None or isinstance(value, bool) or not isinstance(value, (int, float, str)):
         raise Rejected(f"{name} must be a number")
+    if isinstance(value, str) and len(value) > 40:
+        raise Rejected(f"{name} is too long to be a sane number")
     try:
         d = Decimal(str(value).strip())
     except InvalidOperation:
-        raise Rejected(f"{name} must be a number, got {value!r}")
+        raise Rejected(f"{name} must be a number, got {_clip(value)!r}")
     if not d.is_finite():
         raise Rejected(f"{name} must be finite")
+    # Bound magnitude and precision so later arithmetic can't blow up (1e999999, 1e-999999).
+    if d != 0 and not (-12 <= d.adjusted() <= 9) or len(d.as_tuple().digits) > 24:
+        raise Rejected(f"{name} {_clip(str(value))} is outside the supported range")
     return d
 
 
@@ -1300,14 +1310,14 @@ class Guardrails:
         self, instrument_symbol: Any, outcome: Any, side: Any, quantity: Any, limit_price: Any,
         my_probability: Any = None,
     ) -> dict[str, Any]:
-        raw = {
+        raw = {k: _clip(v) for k, v in {
             "instrument_symbol": instrument_symbol,
             "outcome": outcome,
             "side": side,
             "quantity": quantity,
             "limit_price": limit_price,
             "my_probability": my_probability,
-        }
+        }.items()}
         with self._lock:
             try:
                 self.observe_kill()
