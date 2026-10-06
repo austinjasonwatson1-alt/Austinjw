@@ -138,6 +138,12 @@ section[role="tabpanel"][hidden] { display: none; }
 .money div { display: flex; flex-direction: column; line-height: 1.1; }
 .money small { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
 .money strong { font-size: 22px; font-weight: 600; }
+.money { align-items: center; }
+.btn.rebuy { min-width: 0; width: 34px; height: 34px; padding: 0; border-radius: 50%; font-size: 20px; line-height: 1; letter-spacing: 0; }
+.btn.rebuy.go { width: auto; height: auto; border-radius: 8px; padding: 10px 14px; font-size: 14px; letter-spacing: .06em; }
+#rack-chips[hidden] + .money { flex: 1; justify-content: space-between; }
+.btn.rebuy.go { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 4px rgba(220,181,99,.35); } }
 .pos { color: var(--win); } .neg { color: var(--lose); }
 
 /* Buttons */
@@ -308,17 +314,19 @@ button.circle:hover { background: rgba(220,181,99,.08); }
   .money { gap: 12px; }
   .money strong { font-size: 18px; }
   .dock-row { flex-wrap: nowrap; }
-}
-@media (max-width: 420px) {
-  .chip { width: 36px; height: 36px; font-size: 12px; }
-  .rack .chips { gap: 5px; }
-  .money { gap: 10px; }
-  .money strong { font-size: 16px; }
-  .money small { font-size: 10px; }
   .card { width: 50px; height: 72px; }
   .card .cs { font-size: 26px; }
   .chip { width: 40px; height: 40px; font-size: 13px; }
   .rack .chips { gap: 6px; }
+}
+@media (max-width: 480px) {
+  .chip { width: 34px; height: 34px; font-size: 12px; }
+  .rack .chips { gap: 4px; }
+  .dock-row { flex-wrap: wrap; row-gap: 6px; }
+  .money { gap: 8px; margin-left: auto; }
+  .money strong { font-size: 16px; }
+  .money small { font-size: 10px; letter-spacing: .08em; }
+  .btn.rebuy { width: 30px; height: 30px; font-size: 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .card.fresh { animation: none; }
@@ -519,7 +527,7 @@ button.circle:hover { background: rgba(220,181,99,.08); }
           </tbody>
         </table>
         <div class="controls" style="margin-top:14px; justify-content:flex-start">
-          <button class="btn" data-act="reset" id="reset-btn">Reset to $1,000</button>
+          <button class="btn" data-act="reset" id="reset-btn">Reset to $3,000</button>
         </div>
       </article>
     </div>
@@ -532,8 +540,9 @@ button.circle:hover { background: rgba(220,181,99,.08); }
     <div class="dock-row">
       <div class="chips" id="rack-chips" role="group" aria-label="Chip value"></div>
       <div class="money">
-        <div><small>Rack</small><strong id="rack-amt">$1,000</strong></div>
-        <div><small>Session</small><strong id="rack-net">$0</strong></div>
+        <div><small>Rack</small><strong id="rack-amt">$3,000</strong></div>
+        <div><small id="rack-net-label">Session</small><strong id="rack-net">$0</strong></div>
+        <button class="btn rebuy" data-act="rebuy" id="rebuy-btn">Rebuy</button>
       </div>
     </div>
   </div>
@@ -555,7 +564,7 @@ function rnd(n) { const a = new Uint32Array(1); crypto.getRandomValues(a); retur
 /* ---------- Persistent state ---------- */
 const KEY = 'bristol-table-trainer-v1';
 const S = {
-  bankroll: 1000, start: 1000, tab: 'bj', chip: 25, bjMin: 25, bacVariant: 'ez', rlWheel: '00',
+  bankroll: 3000, start: 3000, buyins: 1, tab: 'bj', chip: 25, bjMin: 25, bacVariant: 'ez', rlWheel: '00',
   coach: true, showCount: false, quiz: false, others: 0, seat: 'middle', bjHist: '',
   stats: { bj: { rounds: 0, net: 0 }, bac: { rounds: 0, net: 0 }, rl: { rounds: 0, net: 0 }, strat: { ok: 0, total: 0 }, tab: { ok: 0, total: 0 } }
 };
@@ -1485,6 +1494,13 @@ function renderShared() {
   $('#rack-amt').textContent = fmt(rackAmount());
   const net = r2(S.bankroll - S.start); const nn = $('#rack-net');
   nn.textContent = signed(net); nn.className = net > 0 ? 'pos' : net < 0 ? 'neg' : '';
+  $('#rack-net-label').textContent = S.buyins > 1 ? `Session ×${S.buyins}` : 'Session';
+  const broke = rackAmount() < 10;
+  const rb = $('#rebuy-btn'); rb.className = 'btn rebuy' + (broke ? ' go' : '');
+  rb.textContent = broke ? 'Out of chips · Rebuy $3,000' : '+';
+  rb.setAttribute('aria-label', 'Rebuy $3,000'); rb.title = 'Rebuy $3,000';
+  rb.hidden = S.tab === 'notes';
+  if (broke && S.tab !== 'notes') $('#rack-chips').hidden = true;
   $('#opt-coach').checked = S.coach; $('#opt-count').checked = S.showCount;
   const names = { bj: 'Blackjack', bac: 'Baccarat', rl: 'Roulette' };
   $('#stats-body').innerHTML = Object.keys(names).map((k) => `<tr><td>${names[k]}</td><td>${S.stats[k].rounds}</td><td class="${S.stats[k].net > 0 ? 'pos' : S.stats[k].net < 0 ? 'neg' : ''}">${signed(S.stats[k].net)}</td></tr>`).join('');
@@ -1541,14 +1557,21 @@ const ACT = {
   'rl-clear': () => { if (busy) return; RL.bets = []; RL.pick = null; render(); },
   'rl-rebet': () => rlRebet(),
   'rl-spin': () => rlSpin(),
+  rebuy: () => {
+    const midHand = busy || !(BJ.phase === 'bet' || BJ.phase === 'done') || BAC.phase === 'deal' || RL.phase === 'spin';
+    if (midHand) return toast('Finish the hand in play, then rebuy.', 'warn');
+    S.bankroll = r2(S.bankroll + 3000); S.start = r2(S.start + 3000); S.buyins = (S.buyins || 1) + 1;
+    save(); render();
+    toast(`Bought in for another $3,000. Your session total counts all ${S.buyins} buy-ins.`, 'good');
+  },
   reset: (d, el) => {
     if (busy) return;
-    if (!resetArmed) { resetArmed = true; el.textContent = 'Tap again to reset everything'; setTimeout(() => { resetArmed = false; el.textContent = 'Reset to $1,000'; }, 3000); return; }
-    resetArmed = false; el.textContent = 'Reset to $1,000';
-    S.bankroll = 1000; S.start = 1000; S.bjHist = '';
+    if (!resetArmed) { resetArmed = true; el.textContent = 'Tap again to reset everything'; setTimeout(() => { resetArmed = false; el.textContent = 'Reset to $3,000'; }, 3000); return; }
+    resetArmed = false; el.textContent = 'Reset to $3,000';
+    S.bankroll = 3000; S.start = 3000; S.buyins = 1; S.bjHist = '';
     S.stats = { bj: { rounds: 0, net: 0 }, bac: { rounds: 0, net: 0 }, rl: { rounds: 0, net: 0 }, strat: { ok: 0, total: 0 }, tab: { ok: 0, total: 0 } };
     BJ.bet = 0; BAC.bets = { player: 0, banker: 0, tie: 0, dragon: 0, panda: 0 }; RL.bets = [];
-    save(); render(); toast('Bankroll reset to $1,000.', 'good');
+    save(); render(); toast('Bankroll reset to $3,000.', 'good');
   }
 };
 document.addEventListener('click', (e) => {
