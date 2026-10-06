@@ -49,4 +49,6 @@ python -m pytest -q tests                      # offline test suite (mocked API)
 | **Baccarat** | Eight-deck shoe. Play EZ Baccarat (no commission, Dragon 7 and Panda 8) or mini baccarat with a 5% commission. Includes a bead plate and an optional quiz on the third-card drawing rules. |
 | **Roulette** | Double-zero or triple-zero wheel with an animated spin. Bet straight, split, street, corner, six line, top line (00 only) and every outside bet, with a $10 table minimum and a history board. |
 
+**Other players** (off by default, up to 6) adds CPU players to any game. At blackjack they take seats, get their own cards and play in deal order, so the shoe goes faster and your count includes their cards. You choose first base, middle or third base. Some of them play by the book and some make common mistakes, which are flagged as they happen. At baccarat they bet streaks, Banker, the chop or side bets. At roulette they put colored chips on the layout. Their money never affects your bankroll.
+
 The bankroll ($1,000 to start) and stats are saved in the browser's local storage. The **Notes** tab covers table etiquette, hand signals, a basic strategy chart and house edges. The rules marked as assumed there are worth checking on the felt before you play.

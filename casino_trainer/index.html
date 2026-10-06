@@ -147,6 +147,31 @@ button.circle:hover { background: rgba(220,181,99,.08); }
 .shoe i { display: block; width: 70px; height: 6px; border-radius: 3px; background: var(--rail-hi); overflow: hidden; }
 .shoe i b { display: block; height: 100%; background: var(--brass); }
 
+.bj-hands.table { flex-direction: row-reverse; align-items: flex-start; gap: 10px 8px; }
+.seat { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.seat.framed { padding: 6px; border-radius: 12px; border: 1px solid rgba(244,236,214,.14); background: rgba(0,0,0,.1); }
+.seat.me.framed { border-color: var(--brass-dim); }
+.seat.turn { border-color: var(--brass); box-shadow: inset 0 0 0 1px var(--brass); }
+.seat .who { font: 600 13px var(--f-data); letter-spacing: .06em; display: flex; gap: 5px; align-items: center; }
+.seat .who i, .crowd i, .cdots i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0,0,0,.5); flex: none; }
+.seat .seat-hands { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.seat .last { font: 500 12px var(--f-data); color: var(--muted); text-align: center; max-width: 120px; }
+.seat .last.off { color: var(--warn); }
+.seat .pos { font: 600 10px var(--f-data); letter-spacing: .14em; text-transform: uppercase; color: var(--brass-dim); }
+.cpu-bet { display: flex; align-items: center; gap: 6px; min-height: 60px; }
+.hand.small { padding: 2px 4px; gap: 3px; }
+.hand.small .cards { min-height: 54px; }
+.hand.small .card { width: 38px; height: 54px; }
+.hand.small .card .ci { font-size: 13px; top: 3px; left: 3px; }
+.hand.small .card .cs { font-size: 17px; padding: 10px 0 0 8px; }
+.hand.small .cards .card + .card { margin-left: -22px; }
+.hand.small .card.side { transform: rotate(90deg) translateY(-8px); margin-left: 2px !important; }
+.hand.small .chip.sm { width: 26px; height: 26px; font-size: 10px; }
+.hand.small .tag { font-size: 11px; padding: 1px 6px; }
+.crowd { display: flex; align-items: center; gap: 3px; font: 600 12px var(--f-data); color: var(--muted); min-height: 14px; }
+.cdots { position: absolute; left: 2px; bottom: 2px; display: flex; gap: 1px; z-index: 1; }
+.cdots i { width: 7px; height: 7px; }
+
 /* Baccarat */
 .bac-hands { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; max-width: 560px; }
 .bac-side { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 6px; border-radius: 12px; border: 2px solid transparent; }
@@ -274,6 +299,12 @@ button.circle:hover { background: rgba(220,181,99,.08); }
         <option value="15">$15 min · 6:5 blackjack</option>
         <option value="25">$25 min · 3:2 blackjack</option>
       </select></label>
+      <label>Other players <select id="bj-others" class="others-sel"></select></label>
+      <label id="bj-seat-wrap">Your seat <select id="bj-seat">
+        <option value="first">1st base (act first)</option>
+        <option value="middle">Middle</option>
+        <option value="third">3rd base (act last)</option>
+      </select></label>
       <label><input type="checkbox" id="opt-coach"> Strategy coach</label>
       <label><input type="checkbox" id="opt-count"> Show Hi-Lo count</label>
       <span class="spacer"></span>
@@ -301,6 +332,7 @@ button.circle:hover { background: rgba(220,181,99,.08); }
         <option value="ez">EZ Baccarat · no commission</option>
         <option value="std">Mini Baccarat · 5% commission</option>
       </select></label>
+      <label>Other players <select id="bac-others" class="others-sel"></select></label>
       <label><input type="checkbox" id="opt-quiz"> Quiz me on the drawing rules</label>
       <span class="spacer"></span>
       <span class="stat" id="bac-acc"></span>
@@ -330,6 +362,7 @@ button.circle:hover { background: rgba(220,181,99,.08); }
         <option value="00">Double zero · 0, 00 (5.26% edge)</option>
         <option value="000">Triple zero · 0, 00, 000 (7.69% edge)</option>
       </select></label>
+      <label>Other players <select id="rl-others" class="others-sel"></select></label>
       <span class="stat">Table minimum <b>$10</b> per spin</span>
       <span class="spacer"></span>
       <span class="stat" id="rl-spins"></span>
@@ -470,7 +503,7 @@ function rnd(n) { const a = new Uint32Array(1); crypto.getRandomValues(a); retur
 const KEY = 'bristol-table-trainer-v1';
 const S = {
   bankroll: 1000, start: 1000, tab: 'bj', chip: 25, bjMin: 25, bacVariant: 'ez', rlWheel: '00',
-  coach: true, showCount: false, quiz: false,
+  coach: true, showCount: false, quiz: false, others: 0, seat: 'middle',
   stats: { bj: { rounds: 0, net: 0 }, bac: { rounds: 0, net: 0 }, rl: { rounds: 0, net: 0 }, strat: { ok: 0, total: 0 }, tab: { ok: 0, total: 0 } }
 };
 try { const j = JSON.parse(localStorage.getItem(KEY) || 'null'); if (j) { Object.assign(S, j, { stats: Object.assign(S.stats, j.stats || {}) }); } } catch (e) {}
@@ -514,9 +547,38 @@ function shoeHTML(shoe, label) {
 }
 
 /* ================= BLACKJACK ================= */
-const BJ = { shoe: null, phase: 'bet', bet: 0, lastBet: 0, hands: [], active: 0, dealer: [], ins: 0, count: 0, roundStart: 0, msg: 'Place your bet in the circle, then deal.' };
+/* Seats run in deal order: index 0 is first base (dealer's left), the last index is third base. */
+const BJ = { shoe: null, phase: 'bet', bet: 0, lastBet: 0, seats: [], meIdx: 0, seatKey: '', turn: -1, dealer: [], ins: 0, count: 0, roundStart: 0, note: '', msg: 'Place your bet in the circle, then deal.' };
+const me = () => BJ.seats[BJ.meIdx];
+Object.defineProperty(BJ, 'hands', { get: () => me().hands, set: (v) => { me().hands = v; } });
+Object.defineProperty(BJ, 'active', { get: () => me().active, set: (v) => { me().active = v; } });
+const CPU_PEOPLE = [
+  { name: 'Dee', style: 'book', chip: '#4a8be0' },
+  { name: 'Marcus', style: 'gut', chip: '#e3803d' },
+  { name: 'Tammy', style: 'reckless', chip: '#cf55b5' },
+  { name: 'Ray', style: 'gut', chip: '#2fa89c' },
+  { name: 'Jun', style: 'book', chip: '#d9c43c' },
+  { name: 'Carla', style: 'reckless', chip: '#9474e0' }
+];
+const STYLE_TEXT = { book: 'Plays by the book', gut: 'Plays hunches', reckless: 'Chases cards' };
 const ACTION_NAMES = { H: 'Hit', S: 'Stand', D: 'Double', P: 'Split' };
 const bjRules = () => (S.bjMin >= 25 ? { pay: [3, 2], max: 2000, label: '3 TO 2' } : { pay: [6, 5], max: 1000, label: '6 TO 5' });
+function bjSeatTable() {
+  const total = S.others + 1;
+  const meIdx = S.seat === 'first' ? 0 : S.seat === 'third' ? total - 1 : Math.floor(total / 2);
+  const seats = []; let k = 0;
+  for (let i = 0; i < total; i++) {
+    if (i === meIdx) seats.push({ cpu: false, name: 'You', hands: [], active: 0 });
+    else seats.push({ ...CPU_PEOPLE[k++], cpu: true, hands: [], active: 0, base: Math.min(bjRules().max, S.bjMin * [1, 1, 2, 4][rnd(4)]), last: '', lastOff: false, ins: 0 });
+  }
+  BJ.seats = seats; BJ.meIdx = meIdx; BJ.seatKey = `${S.others}|${S.seat}|${S.bjMin}`;
+}
+function bjSyncSeats() {
+  if (BJ.seatKey === `${S.others}|${S.seat}|${S.bjMin}` || !(BJ.phase === 'bet' || BJ.phase === 'done')) return;
+  bjSeatTable(); BJ.dealer = [];
+  if (BJ.phase === 'done') { BJ.phase = 'bet'; BJ.msg = 'Place your bet in the circle, then deal.'; }
+}
+function bjClearTable() { for (const s of BJ.seats) { s.hands = []; s.active = 0; s.last = ''; s.lastOff = false; s.ins = 0; } BJ.dealer = []; }
 const cardVal = (c) => (c.r === 1 ? 11 : Math.min(c.r, 10));
 function bjVal(cards) {
   let t = 0, a = 0;
@@ -526,19 +588,20 @@ function bjVal(cards) {
 }
 const isBJ = (cards) => cards.length === 2 && bjVal(cards).total === 21;
 function bjDraw(hidden) {
+  if (!BJ.shoe.cards.length) { BJ.shoe = newShoe(6, 0.7, 0.8); BJ.count = 0; }
   const c = BJ.shoe.cards.pop(); c.fresh = true;
   if (hidden) c.hidden = true; else bjSeen(c);
   return c;
 }
 function bjSeen(c) { BJ.count += (c.r >= 2 && c.r <= 6) ? 1 : (c.r === 1 || c.r >= 10) ? -1 : 0; }
 function bjReveal() { const c = BJ.dealer[1]; if (c && c.hidden) { c.hidden = false; c.fresh = true; bjSeen(c); } }
-const canDouble = (h) => h.cards.length === 2 && !h.splitAces && S.bankroll >= h.bet;
-const canSplit = (h) => h.cards.length === 2 && !h.splitAces && cardVal(h.cards[0]) === cardVal(h.cards[1]) && BJ.hands.length < 4 && S.bankroll >= h.bet;
+const canDouble = (h) => h.cards.length === 2 && !h.splitAces && (h.cpu || S.bankroll >= h.bet);
+const canSplit = (h, seat = me()) => h.cards.length === 2 && !h.splitAces && cardVal(h.cards[0]) === cardVal(h.cards[1]) && seat.hands.length < 4 && (h.cpu || S.bankroll >= h.bet);
 
 /* Basic strategy: 6 decks, H17, DAS, no surrender */
-function bjAdvice(h) {
+function bjAdvice(h, seat = me()) {
   const up = cardVal(BJ.dealer[0]);
-  if (canSplit(h)) {
+  if (canSplit(h, seat)) {
     const v = cardVal(h.cards[0]);
     const split = { 11: true, 10: false, 9: [2, 3, 4, 5, 6, 8, 9].includes(up), 8: true, 7: up <= 7, 6: up <= 6, 5: false, 4: up === 5 || up === 6, 3: up <= 7, 2: up <= 7 }[v];
     if (split) return 'P';
@@ -566,6 +629,22 @@ function bjAdvice(h) {
   if (a === 'Ds') a = canDouble(h) ? 'D' : 'S';
   return a;
 }
+/* CPU players follow the book except for the mistakes real players make most. */
+function cpuDecide(seat, h, book) {
+  const err = { book: 0, gut: 0.3, reckless: 0.45 }[seat.style];
+  if (Math.random() >= err) return book;
+  const { total, soft } = bjVal(h.cards);
+  if (seat.style === 'gut') {
+    if (book === 'D') return 'H';
+    if (book === 'P') return total >= 17 ? 'S' : 'H';
+    if (book === 'H' && !soft && total >= 12 && total <= 16) return 'S';
+    if (book === 'H' && soft && total === 18) return 'S';
+  } else {
+    if (h.cards.length === 2 && cardVal(h.cards[0]) === 10 && cardVal(h.cards[1]) === 10 && canSplit(h, seat)) return 'P';
+    if (book === 'S' && !soft && total >= 12 && total <= 16) return 'H';
+  }
+  return book;
+}
 function describeHand(h) {
   if (h.cards.length === 2 && cardVal(h.cards[0]) === cardVal(h.cards[1])) {
     const r = h.cards[0].r === 1 ? 'aces' : cardVal(h.cards[0]) === 10 ? '10s' : cardVal(h.cards[0]) + 's';
@@ -592,21 +671,33 @@ async function bjDeal() {
   busy = true;
   if (!BJ.shoe || BJ.shoe.cards.length <= BJ.shoe.cutAt) {
     BJ.shoe = newShoe(6, 0.7, 0.8); BJ.count = 0;
-    BJ.hands = []; BJ.dealer = []; BJ.msg = 'Cut card is out. The dealer shuffles a fresh six-deck shoe.';
+    bjClearTable(); BJ.msg = 'Cut card is out. The dealer shuffles a fresh six-deck shoe.';
     bjRender(); await wait(900);
   }
   BJ.roundStart = S.bankroll;
   S.bankroll = r2(S.bankroll - BJ.bet); BJ.lastBet = BJ.bet;
-  BJ.hands = [{ cards: [], bet: BJ.bet, done: false, res: null, splitAces: false }];
-  BJ.dealer = []; BJ.ins = 0; BJ.active = 0; BJ.bet = 0; BJ.phase = 'dealing'; BJ.msg = '';
-  const h = BJ.hands[0];
-  for (const step of [() => h.cards.push(bjDraw()), () => BJ.dealer.push(bjDraw()), () => h.cards.push(bjDraw()), () => BJ.dealer.push(bjDraw(true))]) {
-    step(); render(); await wait(320);
+  bjClearTable();
+  for (const seat of BJ.seats) {
+    const bet = seat.cpu ? Math.min(R.max, seat.base * (rnd(5) === 0 ? 2 : 1)) : BJ.bet;
+    seat.hands = [{ cards: [], bet, done: false, res: null, splitAces: false, cpu: seat.cpu }];
+  }
+  BJ.ins = 0; BJ.bet = 0; BJ.phase = 'dealing'; BJ.msg = ''; BJ.note = ''; BJ.turn = -1;
+  const pace = BJ.seats.length > 1 ? 220 : 320;
+  for (let pass = 0; pass < 2; pass++) {
+    for (const seat of BJ.seats) { seat.hands[0].cards.push(bjDraw()); render(); await wait(pace); }
+    BJ.dealer.push(bjDraw(pass === 1)); render(); await wait(pace);
   }
   busy = false;
   if (BJ.dealer[0].r === 1) {
+    for (const seat of BJ.seats) {
+      if (!seat.cpu) continue;
+      const takes = Math.random() < { book: 0, gut: 0.25, reckless: 0.5 }[seat.style];
+      seat.ins = takes ? seat.hands[0].bet / 2 : 0;
+      seat.last = takes ? (isBJ(seat.hands[0].cards) ? 'Even money' : 'Takes insurance') : 'No insurance';
+      seat.lastOff = takes;
+    }
     BJ.phase = 'insurance';
-    BJ.msg = isBJ(h.cards) ? 'Dealer shows an ace. Even money?' : 'Dealer shows an ace. Insurance?';
+    BJ.msg = isBJ(BJ.hands[0].cards) ? 'Dealer shows an ace. Even money?' : 'Dealer shows an ace. Insurance?';
     render(); return;
   }
   await bjPeek();
@@ -614,49 +705,46 @@ async function bjDeal() {
 async function bjInsurance(take) {
   if (busy || BJ.phase !== 'insurance') return;
   const h = BJ.hands[0];
+  if (take && S.bankroll < h.bet / 2) return toast('Not enough in your rack for insurance.', 'warn');
   if (S.coach) {
     S.stats.strat.total++;
     if (!take) { S.stats.strat.ok++; toast('Correct. Insurance is a losing bet without a count.', 'good'); }
     else toast('Basic strategy never takes insurance or even money.', 'warn');
   }
-  if (take) {
-    if (S.bankroll < h.bet / 2) return toast('Not enough in your rack for insurance.', 'warn');
-    BJ.ins = r2(h.bet / 2); S.bankroll = r2(S.bankroll - BJ.ins);
-  }
+  if (take) { BJ.ins = r2(h.bet / 2); S.bankroll = r2(S.bankroll - BJ.ins); }
   await bjPeek();
 }
 async function bjPeek() {
   busy = true;
-  const h = BJ.hands[0]; const up = cardVal(BJ.dealer[0]);
+  const up = cardVal(BJ.dealer[0]);
   const dBJ = isBJ(BJ.dealer.map((c) => ({ ...c, hidden: false })));
-  const pBJ = isBJ(h.cards);
   const notes = [];
   if (up >= 10 && dBJ) {
     bjReveal();
+    for (const seat of BJ.seats) {
+      const h = seat.hands[0]; h.done = true;
+      if (isBJ(h.cards)) { h.res = 'push'; if (!seat.cpu) S.bankroll = r2(S.bankroll + h.bet); } else h.res = 'lose';
+      if (seat.cpu && seat.ins) { seat.last = 'Insurance pays'; seat.lastOff = false; }
+    }
+    notes.push(isBJ(BJ.hands[0].cards) ? 'Dealer has blackjack too. Push.' : 'Dealer has blackjack.');
     if (BJ.ins) { S.bankroll = r2(S.bankroll + BJ.ins * 3); notes.push(`Insurance pays ${fmt(BJ.ins * 2)}.`); }
-    if (pBJ) { S.bankroll = r2(S.bankroll + h.bet); h.res = 'push'; notes.unshift('Dealer has blackjack too. Push.'); }
-    else { h.res = 'lose'; notes.unshift('Dealer has blackjack.'); }
     return bjEnd(notes.join(' '));
   }
   if (up >= 10) notes.push(BJ.ins ? 'No dealer blackjack. Insurance loses.' : 'Dealer checks: no blackjack.');
-  if (pBJ) {
-    bjReveal();
-    const R = bjRules(); const win = r2(h.bet * R.pay[0] / R.pay[1]);
-    S.bankroll = r2(S.bankroll + h.bet + win); h.res = 'blackjack'; h.paid = win;
-    notes.push(`Blackjack! ${fmt(h.bet)} pays ${fmt(win)} at ${R.pay[0]} to ${R.pay[1]}.`);
-    return bjEnd(notes.join(' '));
+  const R = bjRules();
+  for (const seat of BJ.seats) {
+    const h = seat.hands[0];
+    if (!isBJ(h.cards)) continue;
+    const win = r2(h.bet * R.pay[0] / R.pay[1]);
+    h.res = 'blackjack'; h.paid = win; h.done = true;
+    if (!seat.cpu) { S.bankroll = r2(S.bankroll + h.bet + win); notes.push(`Blackjack! ${fmt(h.bet)} pays ${fmt(win)} at ${R.pay[0]} to ${R.pay[1]}.`); }
   }
-  BJ.phase = 'play'; BJ.msg = notes.join(' ') || 'Your move.';
-  busy = false; render();
-  if (bjVal(h.cards).total === 21) { h.done = true; await bjAdvance(); }
+  BJ.note = notes.join(' ');
+  await bjRunTurns(0);
 }
-async function bjAct(a) {
-  if (busy || BJ.phase !== 'play') return;
-  const h = BJ.hands[BJ.active];
-  if (a === 'D' && !canDouble(h)) return toast('You can only double on your first two cards and with enough chips.', 'warn');
-  if (a === 'P' && !canSplit(h)) return;
-  bjCoach(h, a);
-  busy = true; BJ.msg = '';
+/* Apply one action to a seat's active hand. CPU money never touches your bankroll. */
+async function bjApply(seat, a) {
+  const h = seat.hands[seat.active];
   if (a === 'H') {
     h.cards.push(bjDraw());
     const t = bjVal(h.cards).total;
@@ -664,28 +752,27 @@ async function bjAct(a) {
   } else if (a === 'S') {
     h.done = true;
   } else if (a === 'D') {
-    S.bankroll = r2(S.bankroll - h.bet); h.bet *= 2; h.doubled = true;
+    if (!seat.cpu) S.bankroll = r2(S.bankroll - h.bet);
+    h.bet *= 2; h.doubled = true;
     render(); await wait(200);
     h.cards.push(bjDraw()); h.done = true;
     if (bjVal(h.cards).total > 21) h.res = 'bust';
   } else if (a === 'P') {
-    S.bankroll = r2(S.bankroll - h.bet);
+    if (!seat.cpu) S.bankroll = r2(S.bankroll - h.bet);
     const moved = h.cards.pop(); const aces = moved.r === 1;
     h.splitAces = aces;
-    BJ.hands.splice(BJ.active + 1, 0, { cards: [moved], bet: h.bet, done: false, res: null, splitAces: aces });
+    seat.hands.splice(seat.active + 1, 0, { cards: [moved], bet: h.bet, done: false, res: null, splitAces: aces, cpu: seat.cpu });
     render(); await wait(260);
     h.cards.push(bjDraw());
     if (aces || bjVal(h.cards).total === 21) h.done = true;
   }
   render(); await wait(260);
-  busy = false;
-  await bjAdvance();
 }
-async function bjAdvance() {
-  busy = true;
-  while (BJ.active < BJ.hands.length && BJ.hands[BJ.active].done) {
-    BJ.active++;
-    const h = BJ.hands[BJ.active];
+/* Move past finished hands, dealing the second card to each split hand as it comes up. */
+async function bjAdvanceSeat(seat) {
+  while (seat.active < seat.hands.length && seat.hands[seat.active].done) {
+    seat.active++;
+    const h = seat.hands[seat.active];
     if (h && h.cards.length === 1) {
       render(); await wait(260);
       h.cards.push(bjDraw());
@@ -693,12 +780,49 @@ async function bjAdvance() {
       render(); await wait(200);
     }
   }
-  if (BJ.active >= BJ.hands.length) return bjDealerPlay();
-  busy = false; render();
+}
+async function bjRunTurns(from) {
+  busy = true;
+  for (let i = from; i < BJ.seats.length; i++) {
+    const seat = BJ.seats[i]; BJ.turn = i;
+    await bjAdvanceSeat(seat);
+    if (seat.cpu) { await cpuPlay(seat); continue; }
+    if (seat.active < seat.hands.length) {
+      BJ.phase = 'play'; BJ.msg = BJ.note ? BJ.note + ' Your move.' : 'Your move.';
+      busy = false; render(); return;
+    }
+  }
+  await bjDealerPlay();
+}
+async function cpuPlay(seat) {
+  if (seat.active >= seat.hands.length) return;
+  BJ.phase = 'others'; BJ.msg = `${seat.name} is playing.`;
+  while (seat.active < seat.hands.length) {
+    const h = seat.hands[seat.active];
+    render(); await wait(650);
+    const book = bjAdvice(h, seat);
+    const a = cpuDecide(seat, h, book);
+    seat.last = ACTION_NAMES[a] + (a !== book ? ` (book: ${ACTION_NAMES[book].toLowerCase()})` : '');
+    seat.lastOff = a !== book;
+    await bjApply(seat, a);
+    await bjAdvanceSeat(seat);
+  }
+}
+async function bjAct(a) {
+  if (busy || BJ.phase !== 'play') return;
+  const seat = me(); const h = seat.hands[seat.active];
+  if (a === 'D' && !canDouble(h)) return toast('You can only double on your first two cards and with enough chips.', 'warn');
+  if (a === 'P' && !canSplit(h)) return;
+  bjCoach(h, a);
+  busy = true; BJ.msg = ''; BJ.note = '';
+  await bjApply(seat, a);
+  await bjAdvanceSeat(seat);
+  if (seat.active < seat.hands.length) { busy = false; render(); return; }
+  await bjRunTurns(BJ.meIdx + 1);
 }
 async function bjDealerPlay() {
-  BJ.phase = 'dealer'; bjReveal(); render(); await wait(500);
-  const live = BJ.hands.some((h) => h.res !== 'bust');
+  BJ.phase = 'dealer'; BJ.turn = -1; bjReveal(); render(); await wait(500);
+  const live = BJ.seats.some((s) => s.hands.some((h) => h.res === null));
   if (live) {
     for (;;) {
       const { total, soft } = bjVal(BJ.dealer);
@@ -706,29 +830,31 @@ async function bjDealerPlay() {
     }
   }
   const dv = bjVal(BJ.dealer).total;
-  for (const h of BJ.hands) {
-    const hv = bjVal(h.cards).total;
-    if (h.res === 'bust') continue;
-    if (dv > 21 || hv > dv) { S.bankroll = r2(S.bankroll + h.bet * 2); h.res = 'win'; h.paid = h.bet; }
-    else if (hv === dv) { S.bankroll = r2(S.bankroll + h.bet); h.res = 'push'; }
-    else h.res = 'lose';
+  for (const seat of BJ.seats) {
+    for (const h of seat.hands) {
+      if (h.res !== null) continue;
+      const hv = bjVal(h.cards).total;
+      if (dv > 21 || hv > dv) { if (!seat.cpu) S.bankroll = r2(S.bankroll + h.bet * 2); h.res = 'win'; h.paid = h.bet; }
+      else if (hv === dv) { if (!seat.cpu) S.bankroll = r2(S.bankroll + h.bet); h.res = 'push'; }
+      else h.res = 'lose';
+    }
   }
-  let msg;
-  if (!live) msg = 'You busted.';
-  else if (dv > 21) msg = `Dealer busts with ${dv}.`;
-  else msg = `Dealer has ${dv}.`;
-  bjEnd(msg);
+  const parts = [];
+  if (BJ.note) parts.push(BJ.note);
+  if (BJ.hands.every((h) => h.res === 'bust')) parts.push('You busted.');
+  if (live) parts.push(dv > 21 ? `Dealer busts with ${dv}.` : `Dealer has ${dv}.`);
+  bjEnd(parts.join(' '));
 }
 function bjEnd(msg) {
   const net = r2(S.bankroll - BJ.roundStart);
-  BJ.phase = 'done';
+  BJ.phase = 'done'; BJ.turn = -1;
   BJ.msg = `${msg} ${net > 0 ? 'You win ' + fmt(net) + '.' : net < 0 ? 'You lose ' + fmt(-net) + '.' : 'Your bet comes back.'}`;
   S.stats.bj.rounds++; S.stats.bj.net = r2(S.stats.bj.net + net);
   busy = false; save(); render();
 }
 function bjAddChip(v) {
   if (busy) return;
-  if (BJ.phase === 'done') { BJ.phase = 'bet'; BJ.hands = []; BJ.dealer = []; BJ.msg = ''; }
+  if (BJ.phase === 'done') { BJ.phase = 'bet'; bjClearTable(); BJ.msg = ''; }
   if (BJ.phase !== 'bet') return toast('Bets are locked while the hand is in play.', 'warn');
   if (v > rackAmount()) return toast('Not enough in your rack for that chip.', 'warn');
   if (BJ.bet + v > bjRules().max) return toast(`This table's maximum is ${fmt(bjRules().max)}.`, 'warn');
@@ -740,40 +866,53 @@ function bjRebet() {
   BJ.phase = 'bet'; BJ.bet = BJ.lastBet; bjDeal();
 }
 
+function handHTML(h, label, active, small) {
+  const v = bjVal(h.cards);
+  const bj = h.res === 'blackjack';
+  const tags = { bust: `Bust ${fmt(-h.bet)}`, win: `Win +${fmt(h.paid)}`, blackjack: `Blackjack +${fmt(h.paid)}`, push: 'Push', lose: `Lose ${fmt(-h.bet)}` };
+  const tag = h.res ? `<span class="tag ${h.res}">${small ? tags[h.res].split(' ')[0] : tags[h.res]}</span>` : '';
+  const cards = h.cards.map((c, j) => cardHTML(c, h.doubled && j === 2 ? ' side' : '')).join('');
+  const shownTotal = v.soft && v.total < 21 && !h.done ? (v.total - 10) + '/' + v.total : v.total;
+  return `<div class="hand${active ? ' active' : ''}${small ? ' small' : ''}">
+    <div class="cards">${cards}</div>
+    <div class="zone-label">${label} <span class="total${v.total > 21 ? ' bust' : bj ? ' bj' : ''}">${shownTotal}</span></div>
+    <div style="display:flex;align-items:center;gap:6px">${stackHTML(h.bet)}<span class="betamt">${fmt(h.bet)}${h.doubled && !small ? ' (doubled)' : ''}</span></div>
+    ${tag}</div>`;
+}
+function seatHTML(seat, i) {
+  const n = BJ.seats.length;
+  const pos = n > 1 ? (i === 0 ? '1st base' : i === n - 1 ? '3rd base' : 'Seat ' + (i + 1)) : '';
+  const turn = BJ.turn === i && (BJ.phase === 'play' || BJ.phase === 'others');
+  const empty = BJ.phase === 'bet' || !seat.hands.length;
+  if (!seat.cpu) {
+    const R = bjRules();
+    const inner = empty
+      ? `<div class="hand"><button class="circle" data-act="bj-circle" aria-label="Bet circle, current bet ${fmt(BJ.bet)}">${BJ.bet ? stackHTML(BJ.bet) : 'Bet'}</button><span class="betamt">${BJ.bet ? fmt(BJ.bet) : fmt(S.bjMin) + '–' + fmt(R.max)}</span></div>`
+      : seat.hands.map((h, j) => handHTML(h, seat.hands.length > 1 ? 'Hand ' + (j + 1) : 'You', BJ.phase === 'play' && j === seat.active, false)).join('');
+    return `<div class="seat me${n > 1 ? ' framed' : ''}${turn ? ' turn' : ''}">${inner}${pos ? `<span class="pos">${pos} · you</span>` : ''}</div>`;
+  }
+  const inner = empty ? `<div class="cpu-bet">${stackHTML(seat.base)}<span class="betamt">${fmt(seat.base)}</span></div>`
+    : seat.hands.map((h, j) => handHTML(h, '', turn && j === seat.active, true)).join('');
+  const last = empty ? STYLE_TEXT[seat.style] : seat.last;
+  return `<div class="seat cpu framed${turn ? ' turn' : ''}"><div class="who"><i style="background:${seat.chip}"></i>${seat.name}</div><div class="seat-hands">${inner}</div><div class="last${seat.lastOff ? ' off' : ''}">${last || '&nbsp;'}</div><span class="pos">${pos}</span></div>`;
+}
 function bjRender() {
+  bjSyncSeats();
   const R = bjRules();
+  const between = BJ.phase === 'bet' || BJ.phase === 'done';
   $('#bj-arc-text').textContent = `BLACKJACK PAYS ${R.label}`;
-  $('#bj-min').value = String(S.bjMin);
-  $('#bj-min').disabled = !(BJ.phase === 'bet' || BJ.phase === 'done');
+  $('#bj-min').value = String(S.bjMin); $('#bj-min').disabled = !between;
+  $('#bj-others').value = String(S.others); $('#bj-others').disabled = !between;
+  $('#bj-seat').value = S.seat; $('#bj-seat').disabled = !between; $('#bj-seat-wrap').hidden = !S.others;
   $('#bj-dealer').innerHTML = BJ.dealer.map((c) => cardHTML(c)).join('');
   const dt = $('#bj-dtotal');
   if (BJ.dealer.length) {
     const v = bjVal(BJ.dealer); dt.hidden = false;
     dt.textContent = v.total; dt.className = 'total' + (v.total > 21 ? ' bust' : (BJ.dealer.length === 2 && !BJ.dealer[1].hidden && v.total === 21 ? ' bj' : ''));
   } else dt.hidden = true;
-
   const hands = $('#bj-hands');
-  if (BJ.phase === 'bet' || (!BJ.hands.length)) {
-    hands.innerHTML = `<div class="hand"><button class="circle" data-act="bj-circle" aria-label="Bet circle, current bet ${fmt(BJ.bet)}">${BJ.bet ? stackHTML(BJ.bet) : 'Bet'}</button><span class="betamt">${BJ.bet ? fmt(BJ.bet) : fmt(S.bjMin) + '–' + fmt(R.max)}</span></div>`;
-  } else {
-    hands.innerHTML = BJ.hands.map((h, i) => {
-      const v = bjVal(h.cards);
-      const bj = h.res === 'blackjack';
-      const active = BJ.phase === 'play' && i === BJ.active;
-      let tag = '';
-      if (h.res === 'bust') tag = `<span class="tag bust">Bust ${fmt(-h.bet)}</span>`;
-      else if (h.res === 'win') tag = `<span class="tag win">Win +${fmt(h.paid)}</span>`;
-      else if (h.res === 'blackjack') tag = `<span class="tag blackjack">Blackjack +${fmt(h.paid)}</span>`;
-      else if (h.res === 'push') tag = `<span class="tag push">Push</span>`;
-      else if (h.res === 'lose') tag = `<span class="tag lose">Lose ${fmt(-h.bet)}</span>`;
-      const cards = h.cards.map((c, j) => cardHTML(c, h.doubled && j === 2 ? ' side' : '')).join('');
-      return `<div class="hand${active ? ' active' : ''}">
-        <div class="cards">${cards}</div>
-        <div class="zone-label">${BJ.hands.length > 1 ? 'Hand ' + (i + 1) : 'You'} <span class="total${v.total > 21 ? ' bust' : bj ? ' bj' : ''}">${v.soft && v.total < 21 && !h.done ? (v.total - 10) + '/' + v.total : v.total}</span></div>
-        <div style="display:flex;align-items:center;gap:8px">${stackHTML(h.bet)}<span class="betamt">${fmt(h.bet)}${h.doubled ? ' (doubled)' : ''}</span></div>
-        ${tag}</div>`;
-    }).join('');
-  }
+  hands.className = 'bj-hands' + (BJ.seats.length > 1 ? ' table' : '');
+  hands.innerHTML = BJ.seats.map(seatHTML).join('');
   $('#bj-call').textContent = BJ.msg;
 
   const c = $('#bj-controls');
@@ -807,9 +946,10 @@ function bjRender() {
     cb.textContent = `Running count ${BJ.count >= 0 ? '+' : ''}${BJ.count} · true count ${(BJ.count / decks >= 0 ? '+' : '')}${(BJ.count / decks).toFixed(1)}`;
   }
 }
+bjSeatTable();
 
 /* ================= BACCARAT ================= */
-const BAC = { shoe: null, phase: 'bet', bets: { player: 0, banker: 0, tie: 0, dragon: 0, panda: 0 }, last: null, live: null, P: [], B: [], winner: null, road: [], ask: null, roundStart: 0, msg: 'Bet Player, Banker or Tie, then deal.' };
+const BAC = { crowd: [], crowdLive: [], crowdKey: '', shoe: null, phase: 'bet', bets: { player: 0, banker: 0, tie: 0, dragon: 0, panda: 0 }, last: null, live: null, P: [], B: [], winner: null, road: [], ask: null, roundStart: 0, msg: 'Bet Player, Banker or Tie, then deal.' };
 const bacCV = (c) => (c.r >= 10 ? 0 : c.r);
 const bacTot = (cards) => cards.reduce((s, c) => s + bacCV(c), 0) % 10;
 const SPOTS = {
@@ -834,6 +974,34 @@ function bankerRuleText(bt, p3) {
   const t = bacCV(p3);
   const row = { 3: 'Banker 3 draws unless Player\'s third card is an 8.', 4: 'Banker 4 draws when Player\'s third card is 2–7.', 5: 'Banker 5 draws when Player\'s third card is 4–7.', 6: 'Banker 6 draws only when Player\'s third card is 6 or 7.', 7: 'Banker 7 always stands.' };
   return (bt <= 2 ? 'Banker 0–2 always draws.' : row[bt]) + ` Player's third card counts as ${t}.`;
+}
+/* CPU players: streak followers, Banker loyalists, choppers and side-bet chasers. */
+const BAC_STYLES = ['streak', 'banker', 'chop', 'sides', 'streak', 'banker'];
+function bacCrowd() {
+  const lastPB = [...BAC.road].reverse().find((r) => r.w !== 'T');
+  const ez = S.bacVariant === 'ez';
+  BAC.crowd = CPU_PEOPLE.slice(0, S.others).map((p, i) => {
+    const style = BAC_STYLES[i];
+    const bets = { player: 0, banker: 0, tie: 0, dragon: 0, panda: 0 };
+    let side = 'banker';
+    if (style === 'streak' && lastPB) side = lastPB.w === 'P' ? 'player' : 'banker';
+    else if (style === 'chop') side = lastPB && lastPB.w === 'P' ? 'banker' : 'player';
+    else if (style === 'sides') side = rnd(2) ? 'player' : 'banker';
+    bets[side] = 10 * [1, 2, 5][rnd(3)];
+    if (style === 'sides') { if (rnd(3) === 0) bets.tie = 5; if (ez) bets[rnd(2) ? 'dragon' : 'panda'] = 5; }
+    return { ...p, bets };
+  });
+  BAC.crowdKey = `${S.others}|${S.bacVariant}`;
+}
+function bacReturn(L, w, dragon, panda, ez) {
+  let back = 0;
+  if (w === 'T') back += L.player + L.banker + L.tie * 9;
+  else if (w === 'P') back += L.player * 2;
+  else if (dragon) back += L.banker;
+  else back += L.banker + (ez ? L.banker : r2(L.banker * 0.95));
+  if (dragon) back += L.dragon * 41;
+  if (panda) back += L.panda * 26;
+  return r2(back);
 }
 function bacAsk(q, correct, explain) {
   return new Promise((resolve) => {
@@ -860,6 +1028,7 @@ async function bacDeal() {
     BAC.msg = 'New eight-deck shoe. The bead plate starts over.'; bacRender(); await wait(900);
   }
   BAC.roundStart = S.bankroll; S.bankroll = r2(S.bankroll - total);
+  BAC.crowdLive = BAC.crowd;
   BAC.live = { ...b }; BAC.last = { ...b }; BAC.bets = { player: 0, banker: 0, tie: 0, dragon: 0, panda: 0 };
   BAC.P = []; BAC.B = []; BAC.winner = null; BAC.phase = 'deal'; BAC.msg = '';
   const draw = () => { const c = BAC.shoe.cards.pop(); c.fresh = true; return c; };
@@ -877,22 +1046,27 @@ async function bacDeal() {
   }
   const w = pt > bt ? 'P' : bt > pt ? 'B' : 'T';
   BAC.winner = w;
-  const L = BAC.live; let back = 0; const notes = [];
+  const L = BAC.live; const notes = [];
   const ez = S.bacVariant === 'ez';
   const dragon = ez && w === 'B' && BAC.B.length === 3 && bt === 7;
   const panda = ez && w === 'P' && BAC.P.length === 3 && pt === 8;
-  if (w === 'T') { back += L.player + L.banker + L.tie * 9; if (L.tie) notes.push(`Tie pays ${fmt(L.tie * 8)}.`); }
-  else if (w === 'P') back += L.player * 2;
-  else if (dragon) { back += L.banker; if (L.banker) notes.push('Banker wins with a 3-card 7, so Banker bets push.'); }
-  else back += L.banker + (ez ? L.banker : r2(L.banker * 0.95));
-  if (w === 'B' && !ez && L.banker) notes.push(`Banker ${fmt(L.banker)} pays ${fmt(r2(L.banker * 0.95))} after the 5% commission.`);
-  if (dragon) { notes.push('Dragon 7!'); back += L.dragon * 41; if (L.dragon) notes.push(`Dragon pays ${fmt(L.dragon * 40)}.`); }
-  if (panda) { notes.push('Panda 8!'); back += L.panda * 26; if (L.panda) notes.push(`Panda pays ${fmt(L.panda * 25)}.`); }
-  S.bankroll = r2(S.bankroll + back);
+  if (w === 'T' && L.tie) notes.push(`Tie pays ${fmt(L.tie * 8)}.`);
+  if (dragon && L.banker) notes.push('Banker wins with a 3-card 7, so Banker bets push.');
+  if (w === 'B' && !ez && !dragon && L.banker) notes.push(`Banker ${fmt(L.banker)} pays ${fmt(r2(L.banker * 0.95))} after the 5% commission.`);
+  if (dragon) { notes.push('Dragon 7!'); if (L.dragon) notes.push(`Dragon pays ${fmt(L.dragon * 40)}.`); }
+  if (panda) { notes.push('Panda 8!'); if (L.panda) notes.push(`Panda pays ${fmt(L.panda * 25)}.`); }
+  S.bankroll = r2(S.bankroll + bacReturn(L, w, dragon, panda, ez));
+  if (BAC.crowdLive.length) {
+    const won = [], lost = [];
+    for (const c of BAC.crowdLive) { const d = bacReturn(c.bets, w, dragon, panda, ez) - bacTotalBet(c.bets); if (d > 0) won.push(c.name); else if (d < 0) lost.push(c.name); }
+    const list = (a) => (a.length > 1 ? a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1] : a[0]);
+    notes.push('At the table: ' + [won.length ? `${list(won)} ${won.length > 1 ? 'win' : 'wins'}` : '', lost.length ? `${list(lost)} ${lost.length > 1 ? 'lose' : 'loses'}` : ''].filter(Boolean).join(', ') + '.');
+  }
   const net = r2(S.bankroll - BAC.roundStart);
   const head = w === 'T' ? `Tie, ${pt} to ${bt}.` : `${w === 'P' ? 'Player' : 'Banker'} wins, ${Math.max(pt, bt)} over ${Math.min(pt, bt)}.`;
   BAC.msg = `${[head, ...notes].join(' ')} ${net > 0 ? 'You win ' + fmt(net) + '.' : net < 0 ? 'You lose ' + fmt(-net) + '.' : 'Even.'}`;
   BAC.road.push({ w, n: w === 'B' ? bt : pt });
+  bacCrowd();
   S.stats.bac.rounds++; S.stats.bac.net = r2(S.stats.bac.net + net);
   BAC.phase = 'done'; busy = false; save(); render();
 }
@@ -911,8 +1085,16 @@ function bacRebet() {
   if (bacTotalBet(last) > S.bankroll) return toast('Not enough in your rack to repeat that bet.', 'warn');
   BAC.phase = 'bet'; BAC.bets = last; bacDeal();
 }
+function crowdSpot(crowd, k) {
+  const on = crowd.filter((c) => c.bets[k] > 0);
+  if (!crowd.length) return '';
+  return `<span class="crowd" title="Other players' bets">${on.map((c) => `<i style="background:${c.chip}"></i>`).join('')}${on.length ? fmt(on.reduce((s, c) => s + c.bets[k], 0)) : ''}</span>`;
+}
 function bacRender() {
+  if (BAC.crowdKey !== `${S.others}|${S.bacVariant}` && BAC.phase !== 'deal') bacCrowd();
+  $('#bac-others').value = String(S.others); $('#bac-others').disabled = BAC.phase === 'deal';
   const ez = S.bacVariant === 'ez';
+  const crowd = BAC.phase === 'bet' ? BAC.crowd : BAC.crowdLive;
   $('#bac-var').value = S.bacVariant; $('#bac-var').disabled = BAC.phase === 'deal';
   $('#opt-quiz').checked = S.quiz;
   $('#bac-print').textContent = ez ? 'EZ Baccarat · No commission · Banker winning 3-card 7 pushes · Tie pays 8 to 1' : 'Banker pays 19 to 20 · Tie pays 8 to 1 · Eight decks';
@@ -926,7 +1108,7 @@ function bacRender() {
   const keys = Object.keys(SPOTS).filter((k) => ez || !SPOTS[k].ez);
   const sp = $('#bac-spots'); sp.className = 'bac-spots' + (ez ? ' ez' : '');
   sp.innerHTML = keys.map((k) => `<button class="spot ${SPOTS[k].cls}" data-act="bac-spot" data-k="${k}" aria-label="Bet ${SPOTS[k].nm}, ${fmt(shown[k] || 0)}">
-      <span class="nm">${SPOTS[k].nm}</span>${shown[k] ? stackHTML(shown[k]) : '<span class="ph"></span>'}<span class="py">${SPOTS[k].pays()}</span></button>`).join('');
+      <span class="nm">${SPOTS[k].nm}</span>${shown[k] ? stackHTML(shown[k]) : '<span class="ph"></span>'}<span class="py">${SPOTS[k].pays()}</span>${crowdSpot(crowd, k)}</button>`).join('');
   $('#bac-call').textContent = BAC.msg;
   $('#bac-quiz').innerHTML = BAC.ask ? `<div class="quiz"><p>${BAC.ask.q}</p><div class="controls" style="min-height:0"><button class="btn go" data-act="bac-ans" data-v="1">Draws</button><button class="btn go" data-act="bac-ans" data-v="0">Stands</button></div></div>` : '';
   const c = $('#bac-controls');
@@ -970,7 +1152,7 @@ const MODES = {
   line: { label: 'Six line', pays: 5, hint: 'Tap a number to bet its row and the row below. Pays 5 to 1.' },
   top: { label: 'Top line', pays: 6, hint: 'Tap 0, 00, 1, 2 or 3 to bet all five. Pays 6 to 1, and has the worst edge on the table (7.89%).', only00: true }
 };
-const RL = { phase: 'bet', bets: [], last: [], mode: 'straight', pick: null, history: [], result: null, angle: 0, msg: 'Pick a chip, then tap the layout.', roundStart: 0, ball: null };
+const RL = { crowd: [], crowdLive: null, crowdKey: '', phase: 'bet', bets: [], last: [], mode: 'straight', pick: null, history: [], result: null, angle: 0, msg: 'Pick a chip, then tap the layout.', roundStart: 0, ball: null };
 const rowOf = (n) => Math.ceil(n / 3); const colOf = (n) => ((n - 1) % 3) + 1; const numAt = (r, c) => (r - 1) * 3 + c;
 function rlAdd(type, nums, label, pays, v) {
   if (busy || RL.phase !== 'bet') return;
@@ -1020,6 +1202,32 @@ function rlAdjacent(a, b) {
   const x = +a, y = +b;
   return (rowOf(x) === rowOf(y) && Math.abs(colOf(x) - colOf(y)) === 1) || (colOf(x) === colOf(y) && Math.abs(rowOf(x) - rowOf(y)) === 1);
 }
+/* CPU players: number pickers, outside bettors and corner/split players. */
+const RL_STYLES = ['numbers', 'outside', 'mixed', 'numbers', 'outside', 'mixed'];
+function rlCrowd(keepSome) {
+  const prev = RL.crowd;
+  RL.crowd = CPU_PEOPLE.slice(0, S.others).map((p, i) => {
+    if (keepSome && prev[i] && prev[i].name === p.name && rnd(2) === 0) return prev[i];
+    const style = RL_STYLES[i]; const bets = [];
+    const add = (type, nums, label, pays, amount) => bets.push({ type, nums, label, pays, amount });
+    if (style === 'numbers') {
+      const picks = new Set(); const k = 3 + rnd(4);
+      while (picks.size < k) picks.add(String(1 + rnd(36)));
+      if (rnd(3) === 0) picks.add('0');
+      picks.forEach((n) => add('straight', [n], `Straight ${n}`, 35, [1, 2, 5][rnd(3)]));
+    } else if (style === 'outside') {
+      const keys = Object.keys(OUTSIDE); const k = 1 + rnd(2); const used = new Set();
+      while (used.size < k) used.add(keys[rnd(keys.length)]);
+      used.forEach((key) => add(key, OUTSIDE[key].nums, OUTSIDE[key].label, OUTSIDE[key].pays, 10 * (1 + rnd(3))));
+    } else {
+      for (let j = 0; j < 2; j++) { const n = numAt(1 + rnd(11), 1 + rnd(2)); add('corner', [n, n + 1, n + 3, n + 4].map(String), `Corner ${n}`, 8, 5); }
+      const s = 1 + rnd(33); add('split', [String(s), String(s + 3)], `Split ${s}/${s + 3}`, 17, 5);
+      const st = String(1 + rnd(36)); add('straight', [st], `Straight ${st}`, 35, 5);
+    }
+    return { ...p, bets };
+  });
+  RL.crowdKey = `${S.others}|${S.rlWheel}`;
+}
 const rlTotal = (bets) => bets.reduce((s, b) => s + b.amount, 0);
 async function rlSpin() {
   if (busy || RL.phase !== 'bet') return;
@@ -1028,6 +1236,7 @@ async function rlSpin() {
   if (total > S.bankroll) return toast('You don\'t have that much in your rack.', 'warn');
   busy = true; RL.pick = null;
   RL.roundStart = S.bankroll; S.bankroll = r2(S.bankroll - total);
+  RL.crowdLive = RL.crowd;
   RL.live = RL.bets; RL.last = RL.bets.map((b) => ({ ...b })); RL.phase = 'spin'; RL.result = null; RL.msg = 'No more bets.';
   render();
   const seq = wheelSeq(); const idx = rnd(seq.length); const res = seq[idx];
@@ -1038,7 +1247,12 @@ async function rlSpin() {
   const net = r2(S.bankroll - RL.roundStart);
   RL.result = res; RL.history.unshift(res); RL.history = RL.history.slice(0, 16);
   RL.msg = `${res} ${colorOf(res)}. ` + (wins.length ? wins.join('. ') + '. ' : 'Nothing hit. ') + (net > 0 ? `You're up ${fmt(net)} on the spin.` : net < 0 ? `You're down ${fmt(-net)} on the spin.` : 'You broke even.');
-  RL.bets = []; RL.live = null; RL.phase = 'bet';
+  if (RL.crowdLive.length) {
+    const hits = RL.crowdLive.map((c) => ({ name: c.name, won: c.bets.filter((b) => b.nums.includes(res)).reduce((s, b) => s + b.amount * b.pays, 0) })).filter((x) => x.won > 0).sort((a, b) => b.won - a.won);
+    RL.msg += hits.length ? ' At the table: ' + hits.slice(0, 3).map((x) => `${x.name} collects ${fmt(x.won)}`).join(', ') + '.' : ' Nobody else at the table hit.';
+  }
+  RL.bets = []; RL.live = null; RL.crowdLive = null; RL.phase = 'bet';
+  rlCrowd(true);
   S.stats.rl.rounds++; S.stats.rl.net = r2(S.stats.rl.net + net);
   busy = false; save(); render();
 }
@@ -1104,7 +1318,16 @@ function rlRender() {
   $('#rl-modes').innerHTML = Object.entries(MODES).filter(([, m]) => !m.only00 || S.rlWheel === '00')
     .map(([k, m]) => `<button data-act="rl-mode" data-m="${k}" aria-pressed="${RL.mode === k}">${m.label}</button>`).join('');
   $('#rl-hint').textContent = RL.pick ? `Now tap a number next to ${RL.pick}.` : MODES[RL.mode].hint;
+  if (RL.crowdKey !== `${S.others}|${S.rlWheel}` && RL.phase === 'bet') rlCrowd(false);
+  $('#rl-others').value = String(S.others); $('#rl-others').disabled = busy;
   const bets = RL.live || RL.bets;
+  const crowd = RL.crowdLive || RL.crowd;
+  const dots = {};
+  for (const c of crowd) for (const b of c.bets) {
+    const ids = OUTSIDE[b.type] ? [b.type] : b.nums;
+    for (const id of ids) { dots[id] = dots[id] || []; if (!dots[id].includes(c.chip)) dots[id].push(c.chip); }
+  }
+  const dotHTML = (id) => (dots[id] ? `<span class="cdots">${dots[id].slice(0, 4).map((col) => `<i style="background:${col}"></i>`).join('')}</span>` : '');
   const straight = {}; const covered = new Set(); const outside = {};
   for (const b of bets) {
     if (b.type === 'straight') straight[b.nums[0]] = (straight[b.nums[0]] || 0) + b.amount;
@@ -1114,9 +1337,9 @@ function rlRender() {
   const cell = (id, extra) => {
     const cls = ['n', 'bg-' + colorOf(id), extra || ''];
     if (RL.pick === id) cls.push('pick'); if (covered.has(id)) cls.push('covered'); if (RL.result === id) cls.push('dolly');
-    return `<button class="${cls.join(' ')}" data-act="rl-cell" data-id="${id}" aria-label="${id} ${colorOf(id)}${straight[id] ? ', ' + fmt(straight[id]) + ' straight up' : ''}">${id}${straight[id] ? `<span class="mk">${stackHTML(straight[id])}</span>` : ''}</button>`;
+    return `<button class="${cls.join(' ')}" data-act="rl-cell" data-id="${id}" aria-label="${id} ${colorOf(id)}${straight[id] ? ', ' + fmt(straight[id]) + ' straight up' : ''}">${id}${straight[id] ? `<span class="mk">${stackHTML(straight[id])}</span>` : ''}${dotHTML(id)}</button>`;
   };
-  const out = (k, style, inner, extra) => `<button class="${extra || ''}" style="${style}" data-act="rl-out" data-k="${k}" aria-label="${OUTSIDE[k].label}${outside[k] ? ', ' + fmt(outside[k]) : ''}">${inner}${outside[k] ? `<span class="mk">${stackHTML(outside[k])}</span>` : ''}</button>`;
+  const out = (k, style, inner, extra) => `<button class="${extra || ''}" style="${style}" data-act="rl-out" data-k="${k}" aria-label="${OUTSIDE[k].label}${outside[k] ? ', ' + fmt(outside[k]) : ''}">${inner}${outside[k] ? `<span class="mk">${stackHTML(outside[k])}</span>` : ''}${dotHTML(k)}</button>`;
   let h = `<div class="corner-note" style="grid-row:1">${S.rlWheel === '000' ? 'Triple zero' : 'Double zero'}</div>`;
   h += `<div class="zeros">${(S.rlWheel === '000' ? ['0', '000', '00'] : ['0', '00']).map((z) => cell(z)).join('')}</div>`;
   ['d1', 'd2', 'd3'].forEach((k, i) => { h += out(k, `grid-column:1;grid-row:${2 + i * 4} / span 4`, `<span class="vert">${OUTSIDE[k].label}</span>`); });
@@ -1129,8 +1352,9 @@ function rlRender() {
   const bl = $('#rl-bets');
   if (bets.length) {
     bl.innerHTML = bets.map((b, i) => `<div><span>${OUTSIDE[b.type] ? OUTSIDE[b.type].label : b.label}</span><span class="muted">${b.pays} to 1</span><span>${fmt(b.amount)}</span>${RL.phase === 'bet' ? `<button class="x" data-act="rl-remove" data-i="${i}" aria-label="Remove ${b.label}">×</button>` : '<span></span>'}</div>`).join('')
-      + `<div><b>Total on the layout</b><span></span><b>${fmt(rlTotal(bets))}</b><span></span></div>`;
+      + `<div><b>Your total</b><span></span><b>${fmt(rlTotal(bets))}</b><span></span></div>`;
   } else bl.innerHTML = '';
+  if (crowd.length) bl.innerHTML += `<div><span class="muted">${crowd.map((c) => `<i style="background:${c.chip};width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:3px"></i>${c.name}`).join(' · ')}</span><span></span><span class="muted">${fmt(crowd.reduce((s, c) => s + rlTotal(c.bets), 0))}</span><span></span></div>`;
   $('#rl-call').textContent = RL.msg;
   const rr = $('#rl-result');
   rr.innerHTML = RL.history.length ? `<span class="dot bg-${colorOf(RL.history[0])}">${RL.history[0]}</span><span>${colorOf(RL.history[0])[0].toUpperCase() + colorOf(RL.history[0]).slice(1)}</span>` : '<span style="font-size:18px;color:var(--muted)">Place bets</span>';
@@ -1200,7 +1424,7 @@ const ACT = {
   'bj-clear': () => { BJ.bet = 0; render(); },
   'bj-deal': () => bjDeal(),
   'bj-rebet': () => bjRebet(),
-  'bj-new': () => { if (busy) return; BJ.phase = 'bet'; BJ.hands = []; BJ.dealer = []; BJ.msg = 'Place your bet in the circle, then deal.'; render(); },
+  'bj-new': () => { if (busy) return; BJ.phase = 'bet'; bjClearTable(); BJ.msg = 'Place your bet in the circle, then deal.'; render(); },
   'bj-ins': (d) => bjInsurance(d.take === '1'),
   'bj-act': (d) => bjAct(d.a),
   'bj-hint': () => { const h = BJ.hands[BJ.active]; if (h && BJ.phase === 'play') toast(`Basic strategy: ${ACTION_NAMES[bjAdvice(h)]} with ${describeHand(h)} against ${upLabel()}.`); },
@@ -1241,6 +1465,11 @@ $('#opt-count').addEventListener('change', (e) => { S.showCount = e.target.check
 $('#opt-quiz').addEventListener('change', (e) => { S.quiz = e.target.checked; save(); render(); });
 window.addEventListener('hashchange', () => { const t = location.hash.replace('#', ''); if (['bj', 'bac', 'rl', 'notes'].includes(t)) { S.tab = t; render(); } });
 
+document.querySelectorAll('.others-sel').forEach((el) => {
+  el.innerHTML = ['None', '1', '2', '3', '4', '5', '6 (full table)'].map((t, i) => `<option value="${i}">${t}</option>`).join('');
+  el.addEventListener('change', (e) => { S.others = +e.target.value; save(); render(); });
+});
+$('#bj-seat').addEventListener('change', (e) => { S.seat = e.target.value; save(); render(); });
 setupCanvas();
 buildChart();
 render();
