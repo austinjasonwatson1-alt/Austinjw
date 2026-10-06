@@ -192,6 +192,14 @@ button.circle:hover { background: rgba(220,181,99,.08); }
 .cdots { position: absolute; left: 2px; bottom: 2px; display: flex; gap: 1px; z-index: 1; }
 .cdots i { width: 7px; height: 7px; }
 
+.record { display: flex; flex-direction: column; gap: 5px; font-family: var(--f-data); min-width: 0; }
+.rec-strip { display: flex; gap: 3px; overflow-x: auto; scrollbar-width: none; }
+.rec-strip .r { flex: none; min-width: 24px; height: 22px; padding: 0 3px; border-radius: 4px; display: grid; place-items: center; font: 700 12px var(--f-data); }
+.r.W { background: #2f7d4f; color: #fff; } .r.B { background: var(--brass); color: var(--room); } .r.L { background: #8e2f36; color: #fff; } .r.P { background: var(--rail-hi); color: var(--cream); }
+.rec-stats { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rec-stats b { color: var(--cream); font-weight: 600; }
+.rec-empty { font-size: 13px; color: var(--muted); }
+
 /* Baccarat */
 .bac-hands { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; max-width: 560px; }
 .bac-side { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 6px; border-radius: 12px; border: 2px solid transparent; }
@@ -354,6 +362,7 @@ button.circle:hover { background: rgba(220,181,99,.08); }
       <span class="stat" id="bj-acc"></span>
       <span class="shoe stat" id="bj-shoe"></span>
     </div>
+    <div class="record" id="bj-record" aria-label="Your recent blackjack results"></div>
     <div class="felt">
       <div class="zone-label">Dealer <span class="total" id="bj-dtotal" hidden></span></div>
       <div class="cards" id="bj-dealer"></div>
@@ -547,7 +556,7 @@ function rnd(n) { const a = new Uint32Array(1); crypto.getRandomValues(a); retur
 const KEY = 'bristol-table-trainer-v1';
 const S = {
   bankroll: 1000, start: 1000, tab: 'bj', chip: 25, bjMin: 25, bacVariant: 'ez', rlWheel: '00',
-  coach: true, showCount: false, quiz: false, others: 0, seat: 'middle',
+  coach: true, showCount: false, quiz: false, others: 0, seat: 'middle', bjHist: '',
   stats: { bj: { rounds: 0, net: 0 }, bac: { rounds: 0, net: 0 }, rl: { rounds: 0, net: 0 }, strat: { ok: 0, total: 0 }, tab: { ok: 0, total: 0 } }
 };
 try { const j = JSON.parse(localStorage.getItem(KEY) || 'null'); if (j) { Object.assign(S, j, { stats: Object.assign(S.stats, j.stats || {}) }); } } catch (e) {}
@@ -892,6 +901,8 @@ async function bjDealerPlay() {
 function bjEnd(msg) {
   const net = r2(S.bankroll - BJ.roundStart);
   BJ.phase = 'done'; BJ.turn = -1;
+  const blackjack = BJ.hands.length === 1 && BJ.hands[0].res === 'blackjack';
+  S.bjHist = ((S.bjHist || '') + (net > 0 ? (blackjack ? 'B' : 'W') : net < 0 ? 'L' : 'P')).slice(-2000);
   BJ.msg = `${msg} ${net > 0 ? 'You win ' + fmt(net) + '.' : net < 0 ? 'You lose ' + fmt(-net) + '.' : 'Your bet comes back.'}`;
   S.stats.bj.rounds++; S.stats.bj.net = r2(S.stats.bj.net + net);
   busy = false; save(); render();
@@ -954,8 +965,30 @@ function bjKeepInView() {
     if (dy) window.scrollBy({ top: Math.min(dy, r.top - 8), behavior: 'auto' });
   });
 }
+/* Results record: W win, B blackjack (also a win), L loss, P push. Judged by the round's net, so a split that wins one hand and loses the other is a push. */
+function bjRecordRender() {
+  const h = S.bjHist || '';
+  const box = $('#bj-record');
+  if (!h) { box.innerHTML = '<span class="rec-empty">Your results show here after your first hand: W win, BJ blackjack, L loss, P push.</span>'; return; }
+  const isW = (x) => x === 'W' || x === 'B';
+  let wins = 0, losses = 0, pushes = 0, b2b = 0, bestW = 0, bestL = 0, runW = 0, runL = 0;
+  for (let i = 0; i < h.length; i++) {
+    const x = h[i];
+    if (isW(x)) { wins++; runW++; runL = 0; if (i && isW(h[i - 1])) b2b++; }
+    else if (x === 'L') { losses++; runL++; runW = 0; }
+    else { pushes++; runW = 0; runL = 0; }
+    bestW = Math.max(bestW, runW); bestL = Math.max(bestL, runL);
+  }
+  const n = h.length; const pct = (k) => Math.round(100 * k / n) + '%';
+  const now = runW ? `${runW} win${runW > 1 ? 's' : ''}` : runL ? `${runL} loss${runL > 1 ? 'es' : ''}` : 'push';
+  const last = h.slice(-30);
+  box.innerHTML = `<div class="rec-strip" id="bj-rec-strip">${[...last].map((x) => `<span class="r ${x}" title="${{ W: 'Win', B: 'Blackjack', L: 'Loss', P: 'Push' }[x]}">${x === 'B' ? 'BJ' : x}</span>`).join('')}</div>
+    <div class="rec-stats"><span>Hands <b>${n}</b></span><span>Won <b>${pct(wins)}</b> · Push <b>${pct(pushes)}</b> · Lost <b>${pct(losses)}</b></span><span>Typical 43% · 9% · 48%</span><span>Streak now <b>${now}</b></span><span>Longest <b>${bestW}W</b> / <b>${bestL}L</b></span><span>Back-to-back wins <b>${b2b}</b></span></div>`;
+  const strip = $('#bj-rec-strip'); strip.scrollLeft = strip.scrollWidth;
+}
 function bjRender() {
   bjSyncSeats();
+  bjRecordRender();
   const R = bjRules();
   const between = BJ.phase === 'bet' || BJ.phase === 'done';
   $('#bj-arc-text').textContent = `BLACKJACK PAYS ${R.label}`;
@@ -1512,7 +1545,7 @@ const ACT = {
     if (busy) return;
     if (!resetArmed) { resetArmed = true; el.textContent = 'Tap again to reset everything'; setTimeout(() => { resetArmed = false; el.textContent = 'Reset to $1,000'; }, 3000); return; }
     resetArmed = false; el.textContent = 'Reset to $1,000';
-    S.bankroll = 1000; S.start = 1000;
+    S.bankroll = 1000; S.start = 1000; S.bjHist = '';
     S.stats = { bj: { rounds: 0, net: 0 }, bac: { rounds: 0, net: 0 }, rl: { rounds: 0, net: 0 }, strat: { ok: 0, total: 0 }, tab: { ok: 0, total: 0 } };
     BJ.bet = 0; BAC.bets = { player: 0, banker: 0, tie: 0, dragon: 0, panda: 0 }; RL.bets = [];
     save(); render(); toast('Bankroll reset to $1,000.', 'good');
