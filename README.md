@@ -38,3 +38,15 @@ python -m pytest -q tests                      # offline test suite (mocked API)
 - **Constants to refresh.** `LeagueConstants` (wOBA weights, FIP constant, league rates), `PARK_FACTORS` and `HR_PARK_FACTORS` should be refreshed each season.
 - **Playoff shift.** The playoff-status adjustment is a hand-set prior, not a fitted effect.
 - For research and entertainment only. This is not betting advice.
+
+# Bristol Table Trainer
+
+`casino_trainer/index.html` is a single-page, play-money trainer for blackjack, baccarat and roulette. Its rules are modeled on what's publicly reported for Hard Rock Bristol's tables. Open the file in any browser; it needs no build step or server. It's unofficial and not affiliated with the casino.
+
+| Game | What it simulates |
+|---|---|
+| **Blackjack** | Six-deck shoe with a cut card. Choose a $10 or $15 table (6:5 blackjack) or a $25 table (3:2). Dealer hits soft 17. Double on any two cards and after splits, split up to 4 hands, aces split once with one card each, no surrender, insurance offered. A strategy coach grades every decision against basic strategy, and there's an optional Hi-Lo running/true count. |
+| **Baccarat** | Eight-deck shoe. Play EZ Baccarat (no commission, Dragon 7 and Panda 8) or mini baccarat with a 5% commission. Includes a bead plate and an optional quiz on the third-card drawing rules. |
+| **Roulette** | Double-zero or triple-zero wheel with an animated spin. Bet straight, split, street, corner, six line, top line (00 only) and every outside bet, with a $10 table minimum and a history board. |
+
+The bankroll ($1,000 to start) and stats are saved in the browser's local storage. The **Notes** tab covers table etiquette, hand signals, a basic strategy chart and house edges. The rules marked as assumed there are worth checking on the felt before you play.
