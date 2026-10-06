@@ -34,6 +34,7 @@
   --f-data: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
   --radius: 10px;
 }
+[hidden] { display: none !important; }
 html, body { background: var(--room); color: var(--cream); }
 body { font: 15px/1.45 var(--f-body); }
 button, select, input { font: inherit; color: inherit; }
@@ -58,6 +59,16 @@ button { cursor: pointer; }
 .bar .stat { font-family: var(--f-data); font-size: 14px; letter-spacing: .03em; color: var(--cream); font-variant-numeric: tabular-nums; }
 .bar .stat b { color: var(--brass); font-weight: 600; }
 .bar .spacer { flex: 1; }
+.opts { min-width: 0; }
+.opts summary { cursor: pointer; list-style: none; display: inline-flex; gap: 8px; align-items: center; padding: 5px 10px; border-radius: 999px; background: var(--rail); border: 1px solid var(--rail-hi); color: var(--cream); font: 600 13px var(--f-data); letter-spacing: .04em; }
+.opts summary::-webkit-details-marker { display: none; }
+.opts summary .gear::before { content: "▸ "; color: var(--brass); }
+.opts[open] summary .gear::before { content: "▾ "; }
+.opts summary .sum { color: var(--muted); font-weight: 500; }
+.opts[open] { flex-basis: 100%; order: 2; }
+.opts-body { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 2px 2px; }
+section[role="tabpanel"] { display: flex; flex-direction: column; gap: 10px; }
+section[role="tabpanel"][hidden] { display: none; }
 
 /* The felt */
 .felt {
@@ -112,7 +123,16 @@ button { cursor: pointer; }
   background: linear-gradient(var(--rail-hi), var(--rail)); border-top: 1px solid var(--brass-dim);
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; justify-content: space-between;
 }
+.rack { flex-direction: column; align-items: stretch; gap: 8px; }
 .rack .chips { display: flex; gap: 8px; }
+.dock-game { display: flex; flex-direction: column; gap: 6px; }
+.dock-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.rack .call { font-size: 14px; min-height: 0; margin: 0 auto; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.rack .call:empty { display: none; }
+.rack .controls { min-height: 0; flex-wrap: nowrap; }
+.rack .controls:empty { display: none; }
+.rack .controls .btn { flex: 1 1 0; max-width: 170px; min-width: 0; padding: 10px 6px; }
+.rack .quiz { background: rgba(0,0,0,.25); }
 .rack .chip[aria-pressed="true"] { outline: 3px solid var(--brass); outline-offset: 3px; transform: translateY(-3px); }
 .money { display: flex; gap: 18px; font-family: var(--f-data); font-variant-numeric: tabular-nums; }
 .money div { display: flex; flex-direction: column; line-height: 1.1; }
@@ -265,10 +285,31 @@ button.circle:hover { background: rgba(220,181,99,.08); }
   .bac-spots.ez .spot { grid-column: span 2; }
   .bac-spots.ez .spot:nth-child(n+4) { grid-column: span 3; min-height: 0; flex-direction: row; justify-content: space-around; }
   .tabs button { padding: 7px 11px; }
-  .felt { border-width: 7px; padding: 12px 8px 22px; }
+  .felt { border-width: 7px; padding: 10px 8px 18px; min-height: 0; gap: 8px; }
+  .brand p { display: none; }
+  .brand h1 { font-size: 24px; }
+  .top { align-items: center; }
+  .wrap { gap: 10px; padding-block: 10px 0; }
+  .print svg { width: min(86%, 560px); margin-bottom: -10px; }
+  .print svg text { font-size: 34px; }
+  .print .sub { font-size: 11px; }
+  .seat.cpu .pos, .seat.cpu .betamt { display: none; }
+  .seat.cpu .last { font-size: 11px; }
+  #rl-wheel-canvas { max-width: 220px; }
+  .rack .controls .btn { font-size: 14px; }
+  .money { gap: 12px; }
+  .money strong { font-size: 18px; }
+  .dock-row { flex-wrap: nowrap; }
+}
+@media (max-width: 420px) {
+  .chip { width: 36px; height: 36px; font-size: 12px; }
+  .rack .chips { gap: 5px; }
+  .money { gap: 10px; }
+  .money strong { font-size: 16px; }
+  .money small { font-size: 10px; }
   .card { width: 50px; height: 72px; }
   .card .cs { font-size: 26px; }
-  .chip { width: 44px; height: 44px; font-size: 14px; }
+  .chip { width: 40px; height: 40px; font-size: 13px; }
   .rack .chips { gap: 6px; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -294,6 +335,7 @@ button.circle:hover { background: rgba(220,181,99,.08); }
   <!-- BLACKJACK -->
   <section id="tab-bj" role="tabpanel" aria-labelledby="tab-btn-bj">
     <div class="bar">
+      <details class="opts" id="bj-opts"><summary><span class="gear">Table settings</span> <span class="sum" id="bj-sum"></span></summary><div class="opts-body">
       <label>Table <select id="bj-min">
         <option value="10">$10 min · 6:5 blackjack</option>
         <option value="15">$15 min · 6:5 blackjack</option>
@@ -307,11 +349,12 @@ button.circle:hover { background: rgba(220,181,99,.08); }
       </select></label>
       <label><input type="checkbox" id="opt-coach"> Strategy coach</label>
       <label><input type="checkbox" id="opt-count"> Show Hi-Lo count</label>
+      </div></details>
       <span class="spacer"></span>
       <span class="stat" id="bj-acc"></span>
       <span class="shoe stat" id="bj-shoe"></span>
     </div>
-    <div class="felt" style="margin-top:10px">
+    <div class="felt">
       <div class="zone-label">Dealer <span class="total" id="bj-dtotal" hidden></span></div>
       <div class="cards" id="bj-dealer"></div>
       <div class="print">
@@ -319,36 +362,33 @@ button.circle:hover { background: rgba(220,181,99,.08); }
         <div class="sub">Dealer must draw to 16 and hit soft 17 · Insurance pays 2 to 1</div>
       </div>
       <div class="bj-hands" id="bj-hands"></div>
-      <p class="call" id="bj-call" aria-live="polite"></p>
       <div class="count-box" id="bj-count" hidden></div>
     </div>
-    <div class="controls" id="bj-controls" style="margin-top:12px"></div>
   </section>
 
   <!-- BACCARAT -->
   <section id="tab-bac" role="tabpanel" aria-labelledby="tab-btn-bac" hidden>
     <div class="bar">
+      <details class="opts" id="bac-opts"><summary><span class="gear">Table settings</span> <span class="sum" id="bac-sum"></span></summary><div class="opts-body">
       <label>Game <select id="bac-var">
         <option value="ez">EZ Baccarat · no commission</option>
         <option value="std">Mini Baccarat · 5% commission</option>
       </select></label>
       <label>Other players <select id="bac-others" class="others-sel"></select></label>
       <label><input type="checkbox" id="opt-quiz"> Quiz me on the drawing rules</label>
+      </div></details>
       <span class="spacer"></span>
       <span class="stat" id="bac-acc"></span>
       <span class="shoe stat" id="bac-shoe"></span>
     </div>
-    <div class="felt" style="margin-top:10px">
+    <div class="felt">
       <div class="bac-hands">
         <div class="bac-side p" id="bac-pside"><div class="zone-label">Player <span class="total" id="bac-ptotal" hidden></span></div><div class="cards" id="bac-pcards"></div></div>
         <div class="bac-side b" id="bac-bside"><div class="zone-label">Banker <span class="total" id="bac-btotal" hidden></span></div><div class="cards" id="bac-bcards"></div></div>
       </div>
       <div class="print"><div class="sub" id="bac-print"></div></div>
       <div class="bac-spots" id="bac-spots"></div>
-      <p class="call" id="bac-call" aria-live="polite"></p>
-      <div id="bac-quiz"></div>
     </div>
-    <div class="controls" id="bac-controls" style="margin-top:12px"></div>
     <div style="margin-top:14px; display:flex; flex-direction:column; gap:6px">
       <div class="road-head"><span>Bead plate (this shoe)</span><span id="bac-tally"></span></div>
       <div class="road-wrap" id="bac-road-wrap"><div class="road" id="bac-road"></div></div>
@@ -358,16 +398,17 @@ button.circle:hover { background: rgba(220,181,99,.08); }
   <!-- ROULETTE -->
   <section id="tab-rl" role="tabpanel" aria-labelledby="tab-btn-rl" hidden>
     <div class="bar">
+      <details class="opts" id="rl-opts"><summary><span class="gear">Table settings</span> <span class="sum" id="rl-sum"></span></summary><div class="opts-body">
       <label>Wheel <select id="rl-wheel">
         <option value="00">Double zero · 0, 00 (5.26% edge)</option>
         <option value="000">Triple zero · 0, 00, 000 (7.69% edge)</option>
       </select></label>
       <label>Other players <select id="rl-others" class="others-sel"></select></label>
-      <span class="stat">Table minimum <b>$10</b> per spin</span>
+      </div></details>
       <span class="spacer"></span>
       <span class="stat" id="rl-spins"></span>
     </div>
-    <div class="felt" style="margin-top:10px">
+    <div class="felt">
       <div class="rl-grid">
         <div class="wheel-col">
           <canvas id="rl-wheel-canvas" width="280" height="280" aria-label="Roulette wheel"></canvas>
@@ -379,11 +420,9 @@ button.circle:hover { background: rgba(220,181,99,.08); }
           <p class="mode-hint" id="rl-hint"></p>
           <div class="layout" id="rl-layout"></div>
           <div class="betlist" id="rl-bets"></div>
-          <p class="call" id="rl-call" aria-live="polite" style="margin:0 auto"></p>
         </div>
       </div>
     </div>
-    <div class="controls" id="rl-controls" style="margin-top:12px"></div>
   </section>
 
   <!-- NOTES -->
@@ -478,10 +517,15 @@ button.circle:hover { background: rgba(220,181,99,.08); }
   </section>
 
   <div class="rack" id="rack">
-    <div class="chips" id="rack-chips" role="group" aria-label="Chip value"></div>
-    <div class="money">
-      <div><small>In your rack</small><strong id="rack-amt">$1,000</strong></div>
-      <div><small>Session</small><strong id="rack-net">$0</strong></div>
+    <div class="dock-game" data-game="bj"><p class="call" id="bj-call" aria-live="polite"></p><div class="controls" id="bj-controls"></div></div>
+    <div class="dock-game" data-game="bac"><p class="call" id="bac-call" aria-live="polite"></p><div id="bac-quiz"></div><div class="controls" id="bac-controls"></div></div>
+    <div class="dock-game" data-game="rl"><p class="call" id="rl-call" aria-live="polite"></p><div class="controls" id="rl-controls"></div></div>
+    <div class="dock-row">
+      <div class="chips" id="rack-chips" role="group" aria-label="Chip value"></div>
+      <div class="money">
+        <div><small>Rack</small><strong id="rack-amt">$1,000</strong></div>
+        <div><small>Session</small><strong id="rack-net">$0</strong></div>
+      </div>
     </div>
   </div>
   <p class="foot">Play money only. Real cards are shuffled with your browser's secure random generator. Your bankroll is saved in this browser.</p>
@@ -896,6 +940,20 @@ function seatHTML(seat, i) {
   const last = empty ? STYLE_TEXT[seat.style] : seat.last;
   return `<div class="seat cpu framed${turn ? ' turn' : ''}"><div class="who"><i style="background:${seat.chip}"></i>${seat.name}</div><div class="seat-hands">${inner}</div><div class="last${seat.lastOff ? ' off' : ''}">${last || '&nbsp;'}</div><span class="pos">${pos}</span></div>`;
 }
+/* On your turn, scroll your seat into view above the pinned controls if it's hidden. */
+let bjScrollKey = '';
+function bjKeepInView() {
+  if (BJ.phase !== 'play' || S.tab !== 'bj') { if (BJ.phase !== 'play') bjScrollKey = ''; return; }
+  const key = `${BJ.roundStart}|${BJ.shoe && BJ.shoe.cards.length}|${BJ.active}`;
+  if (key === bjScrollKey) return; bjScrollKey = key;
+  requestAnimationFrame(() => {
+    const el = document.querySelector('.seat.me .hand.active') || document.querySelector('.seat.me');
+    if (!el) return;
+    const r = el.getBoundingClientRect(); const dockTop = $('#rack').getBoundingClientRect().top;
+    const dy = r.bottom > dockTop - 8 ? r.bottom - (dockTop - 8) : r.top < 8 ? r.top - 8 : 0;
+    if (dy) window.scrollBy({ top: Math.min(dy, r.top - 8), behavior: 'auto' });
+  });
+}
 function bjRender() {
   bjSyncSeats();
   const R = bjRules();
@@ -910,10 +968,14 @@ function bjRender() {
     const v = bjVal(BJ.dealer); dt.hidden = false;
     dt.textContent = v.total; dt.className = 'total' + (v.total > 21 ? ' bust' : (BJ.dealer.length === 2 && !BJ.dealer[1].hidden && v.total === 21 ? ' bj' : ''));
   } else dt.hidden = true;
+  $('#bj-sum').textContent = `${fmt(S.bjMin)} · ${R.pay[0]}:${R.pay[1]} · ${S.others ? S.others + ' other' + (S.others > 1 ? 's' : '') + ', ' + { first: '1st base', middle: 'middle seat', third: '3rd base' }[S.seat] : 'just you'}`;
   const hands = $('#bj-hands');
   hands.className = 'bj-hands' + (BJ.seats.length > 1 ? ' table' : '');
   hands.innerHTML = BJ.seats.map(seatHTML).join('');
-  $('#bj-call').textContent = BJ.msg;
+  let call = BJ.msg;
+  if (BJ.phase === 'play') { const h = BJ.hands[BJ.active]; call = `${BJ.note ? BJ.note + ' ' : ''}Dealer shows ${upLabel()}. You have ${describeHand(h)}${BJ.hands.length > 1 ? ` (hand ${BJ.active + 1} of ${BJ.hands.length})` : ''}.`; }
+  $('#bj-call').textContent = call;
+  bjKeepInView();
 
   const c = $('#bj-controls');
   if (BJ.phase === 'bet') {
@@ -1110,6 +1172,7 @@ function bacRender() {
   sp.innerHTML = keys.map((k) => `<button class="spot ${SPOTS[k].cls}" data-act="bac-spot" data-k="${k}" aria-label="Bet ${SPOTS[k].nm}, ${fmt(shown[k] || 0)}">
       <span class="nm">${SPOTS[k].nm}</span>${shown[k] ? stackHTML(shown[k]) : '<span class="ph"></span>'}<span class="py">${SPOTS[k].pays()}</span>${crowdSpot(crowd, k)}</button>`).join('');
   $('#bac-call').textContent = BAC.msg;
+  $('#bac-sum').textContent = `${ez ? 'EZ Baccarat' : '5% commission'} · ${S.others ? S.others + ' other' + (S.others > 1 ? 's' : '') : 'just you'}${S.quiz ? ' · quiz on' : ''}`;
   $('#bac-quiz').innerHTML = BAC.ask ? `<div class="quiz"><p>${BAC.ask.q}</p><div class="controls" style="min-height:0"><button class="btn go" data-act="bac-ans" data-v="1">Draws</button><button class="btn go" data-act="bac-ans" data-v="0">Stands</button></div></div>` : '';
   const c = $('#bac-controls');
   if (BAC.phase === 'deal') c.innerHTML = '';
@@ -1239,6 +1302,8 @@ async function rlSpin() {
   RL.crowdLive = RL.crowd;
   RL.live = RL.bets; RL.last = RL.bets.map((b) => ({ ...b })); RL.phase = 'spin'; RL.result = null; RL.msg = 'No more bets.';
   render();
+  const wr = cv.getBoundingClientRect();
+  if (wr.top < 0 || wr.bottom > $('#rack').getBoundingClientRect().top) cv.scrollIntoView({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' });
   const seq = wheelSeq(); const idx = rnd(seq.length); const res = seq[idx];
   await rlAnimate(idx, seq);
   let back = 0; const wins = [];
@@ -1356,6 +1421,7 @@ function rlRender() {
   } else bl.innerHTML = '';
   if (crowd.length) bl.innerHTML += `<div><span class="muted">${crowd.map((c) => `<i style="background:${c.chip};width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:3px"></i>${c.name}`).join(' · ')}</span><span></span><span class="muted">${fmt(crowd.reduce((s, c) => s + rlTotal(c.bets), 0))}</span><span></span></div>`;
   $('#rl-call').textContent = RL.msg;
+  $('#rl-sum').textContent = `${S.rlWheel === '000' ? 'Triple zero' : 'Double zero'} · $10 min · ${S.others ? S.others + ' other' + (S.others > 1 ? 's' : '') : 'just you'}`;
   const rr = $('#rl-result');
   rr.innerHTML = RL.history.length ? `<span class="dot bg-${colorOf(RL.history[0])}">${RL.history[0]}</span><span>${colorOf(RL.history[0])[0].toUpperCase() + colorOf(RL.history[0]).slice(1)}</span>` : '<span style="font-size:18px;color:var(--muted)">Place bets</span>';
   $('#rl-history').innerHTML = RL.history.slice(1).map((x) => `<span class="bg-${colorOf(x)}">${x}</span>`).join('');
@@ -1382,6 +1448,7 @@ function renderShared() {
   }
   $('#rack-chips').innerHTML = CHIPS.map((v) => `<button class="chip v${v}" data-act="chip" data-v="${v}" aria-pressed="${S.chip === v}" aria-label="$${v} chip"><span>${v}</span></button>`).join('');
   $('#rack-chips').hidden = S.tab === 'notes';
+  document.querySelectorAll('.dock-game').forEach((el) => { el.hidden = el.dataset.game !== S.tab; });
   $('#rack-amt').textContent = fmt(rackAmount());
   const net = r2(S.bankroll - S.start); const nn = $('#rack-net');
   nn.textContent = signed(net); nn.className = net > 0 ? 'pos' : net < 0 ? 'neg' : '';
@@ -1470,6 +1537,7 @@ document.querySelectorAll('.others-sel').forEach((el) => {
   el.addEventListener('change', (e) => { S.others = +e.target.value; save(); render(); });
 });
 $('#bj-seat').addEventListener('change', (e) => { S.seat = e.target.value; save(); render(); });
+if (matchMedia('(min-width: 721px)').matches) document.querySelectorAll('.opts').forEach((d) => { d.open = true; });
 setupCanvas();
 buildChart();
 render();
