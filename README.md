@@ -49,6 +49,8 @@ python -m pytest -q tests                      # offline test suite (mocked API)
 | **Baccarat** | Eight-deck shoe. Play EZ Baccarat (no commission, Dragon 7 and Panda 8) or mini baccarat with a 5% commission. Includes a bead plate and an optional quiz on the third-card drawing rules. |
 | **Roulette** | Double-zero or triple-zero wheel with an animated spin. Bet straight, split, street, corner, six line, top line (00 only) and every outside bet, with a $10 table minimum and a history board. |
 
+**Your hands** in the blackjack table settings lets you play one or two spots. Each spot has its own bet circle, is dealt and played in seat order, and gets its own entry in the results strip. One insurance decision covers both. With two spots, up to 5 other players can sit, for 7 seats total.
+
 A results strip above the blackjack table shows your last 30 hands (W, BJ, L, P), your win/push/loss rates next to the typical 43% / 9% / 48%, your current and longest streaks, and how many times you've won back to back. Each round is scored by its net result, so a split that wins one hand and loses the other counts as a push.
 
 **Other players** (off by default, up to 6) adds CPU players to any game. At blackjack they take seats, get their own cards and play in deal order, so the shoe goes faster and your count includes their cards. You choose first base, middle or third base. Some of them play by the book and some make common mistakes, which are flagged as they happen. At baccarat they bet streaks, Banker, the chop or side bets. At roulette they put colored chips on the layout. Their money never affects your bankroll.

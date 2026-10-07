@@ -357,6 +357,10 @@ button.circle:hover { background: rgba(220,181,99,.08); }
         <option value="15">$15 min · 6:5 blackjack</option>
         <option value="25">$25 min · 3:2 blackjack</option>
       </select></label>
+      <label>Your hands <select id="bj-spots">
+        <option value="1">1 spot</option>
+        <option value="2">2 spots</option>
+      </select></label>
       <label>Other players <select id="bj-others" class="others-sel"></select></label>
       <label id="bj-seat-wrap">Your seat <select id="bj-seat">
         <option value="first">1st base (act first)</option>
@@ -487,6 +491,7 @@ button.circle:hover { background: rgba(220,181,99,.08); }
           <li><b>Stand:</b> wave a flat hand over your cards.</li>
           <li><b>Double or split:</b> set a matching stack next to your bet, not on top of it. Point one finger to double. Make a V to split.</li>
           <li>Don't touch cards dealt face up from a shoe, and don't touch your bet once the cards are out.</li>
+          <li><b>Two spots:</b> most tables let you play two spots when seats are open. You play your right-hand spot first. Some casinos ask for a bigger bet on each spot when the table is busy, so ask the dealer.</li>
         </ul>
         <h3>Roulette</h3>
         <ul>
@@ -565,7 +570,7 @@ function rnd(n) { const a = new Uint32Array(1); crypto.getRandomValues(a); retur
 const KEY = 'bristol-table-trainer-v1';
 const S = {
   bankroll: 3000, start: 3000, buyins: 1, tab: 'bj', chip: 25, bjMin: 25, bacVariant: 'ez', rlWheel: '00',
-  coach: true, showCount: false, quiz: false, others: 0, seat: 'middle', bjHist: '',
+  coach: true, showCount: false, quiz: false, others: 0, seat: 'middle', spots: 1, bjHist: '',
   stats: { bj: { rounds: 0, net: 0 }, bac: { rounds: 0, net: 0 }, rl: { rounds: 0, net: 0 }, strat: { ok: 0, total: 0 }, tab: { ok: 0, total: 0 } }
 };
 try { const j = JSON.parse(localStorage.getItem(KEY) || 'null'); if (j) { Object.assign(S, j, { stats: Object.assign(S.stats, j.stats || {}) }); } } catch (e) {}
@@ -610,7 +615,7 @@ function shoeHTML(shoe, label) {
 
 /* ================= BLACKJACK ================= */
 /* Seats run in deal order: index 0 is first base (dealer's left), the last index is third base. */
-const BJ = { shoe: null, phase: 'bet', bet: 0, lastBet: 0, seats: [], meIdx: 0, seatKey: '', turn: -1, dealer: [], ins: 0, count: 0, roundStart: 0, note: '', msg: 'Place your bet in the circle, then deal.' };
+const BJ = { shoe: null, phase: 'bet', seats: [], mine: [], meIdx: 0, seatKey: '', turn: -1, dealer: [], ins: 0, count: 0, roundStart: 0, note: '', msg: 'Place your bet in the circle, then deal.' };
 const me = () => BJ.seats[BJ.meIdx];
 Object.defineProperty(BJ, 'hands', { get: () => me().hands, set: (v) => { me().hands = v; } });
 Object.defineProperty(BJ, 'active', { get: () => me().active, set: (v) => { me().active = v; } });
@@ -625,18 +630,27 @@ const CPU_PEOPLE = [
 const STYLE_TEXT = { book: 'Plays by the book', gut: 'Plays hunches', reckless: 'Chases cards' };
 const ACTION_NAMES = { H: 'Hit', S: 'Stand', D: 'Double', P: 'Split' };
 const bjRules = () => (S.bjMin >= 25 ? { pay: [3, 2], max: 2000, label: '3 TO 2' } : { pay: [6, 5], max: 1000, label: '6 TO 5' });
+/* A table has 7 spots, so playing two hands leaves room for at most 5 others. */
+const bjOthers = () => Math.min(S.others, 7 - S.spots);
+const mySeats = () => BJ.mine.map((i) => BJ.seats[i]);
+const myBetTotal = () => mySeats().reduce((t, s) => t + s.bet, 0);
+const myLastTotal = () => mySeats().reduce((t, s) => t + s.lastBet, 0);
+const bjSeatKey = () => `${bjOthers()}|${S.seat}|${S.bjMin}|${S.spots}`;
 function bjSeatTable() {
-  const total = S.others + 1;
-  const meIdx = S.seat === 'first' ? 0 : S.seat === 'third' ? total - 1 : Math.floor(total / 2);
+  const spots = S.spots; const total = bjOthers() + spots;
+  const first = S.seat === 'first' ? 0 : S.seat === 'third' ? total - spots : Math.floor((total - spots) / 2);
   const seats = []; let k = 0;
+  const prev = BJ.seats ? mySeats() : [];
   for (let i = 0; i < total; i++) {
-    if (i === meIdx) seats.push({ cpu: false, name: 'You', hands: [], active: 0 });
-    else seats.push({ ...CPU_PEOPLE[k++], cpu: true, hands: [], active: 0, base: Math.min(bjRules().max, S.bjMin * [1, 1, 2, 4][rnd(4)]), last: '', lastOff: false, ins: 0 });
+    if (i >= first && i < first + spots) {
+      const spot = i - first;
+      seats.push({ cpu: false, spot, name: spots > 1 ? `Spot ${spot + 1}` : 'You', hands: [], active: 0, bet: 0, lastBet: prev[spot] ? prev[spot].lastBet : 0 });
+    } else seats.push({ ...CPU_PEOPLE[k++], cpu: true, hands: [], active: 0, base: Math.min(bjRules().max, S.bjMin * [1, 1, 2, 4][rnd(4)]), last: '', lastOff: false, ins: 0 });
   }
-  BJ.seats = seats; BJ.meIdx = meIdx; BJ.seatKey = `${S.others}|${S.seat}|${S.bjMin}`;
+  BJ.seats = seats; BJ.mine = Array.from({ length: spots }, (_, j) => first + j); BJ.meIdx = first; BJ.seatKey = bjSeatKey();
 }
 function bjSyncSeats() {
-  if (BJ.seatKey === `${S.others}|${S.seat}|${S.bjMin}` || !(BJ.phase === 'bet' || BJ.phase === 'done')) return;
+  if (BJ.seatKey === bjSeatKey() || !(BJ.phase === 'bet' || BJ.phase === 'done')) return;
   bjSeatTable(); BJ.dealer = [];
   if (BJ.phase === 'done') { BJ.phase = 'bet'; BJ.msg = 'Place your bet in the circle, then deal.'; }
 }
@@ -727,9 +741,14 @@ function bjCoach(h, a) {
 async function bjDeal() {
   if (busy) return;
   const R = bjRules();
-  if (BJ.bet < S.bjMin) return toast(`This table's minimum is ${fmt(S.bjMin)}.`, 'warn');
-  if (BJ.bet > R.max) return toast(`This table's maximum is ${fmt(R.max)}.`, 'warn');
-  if (BJ.bet > S.bankroll) return toast('You don\'t have that much in your rack.', 'warn');
+  const total = myBetTotal();
+  if (!total) return toast('Put a bet in a circle first.', 'warn');
+  for (const seat of mySeats()) {
+    const where = S.spots > 1 ? ` on ${seat.name.toLowerCase()}` : '';
+    if (seat.bet && seat.bet < S.bjMin) return toast(`This table's minimum is ${fmt(S.bjMin)}${where}.`, 'warn');
+    if (seat.bet > R.max) return toast(`This table's maximum is ${fmt(R.max)}${where}.`, 'warn');
+  }
+  if (total > S.bankroll) return toast('You don\'t have that much in your rack.', 'warn');
   busy = true;
   if (!BJ.shoe || BJ.shoe.cards.length <= BJ.shoe.cutAt) {
     BJ.shoe = newShoe(6, 0.7, 0.8); BJ.count = 0;
@@ -737,16 +756,19 @@ async function bjDeal() {
     bjRender(); await wait(900);
   }
   BJ.roundStart = S.bankroll;
-  S.bankroll = r2(S.bankroll - BJ.bet); BJ.lastBet = BJ.bet;
+  S.bankroll = r2(S.bankroll - total);
   bjClearTable();
   for (const seat of BJ.seats) {
-    const bet = seat.cpu ? Math.min(R.max, seat.base * (rnd(5) === 0 ? 2 : 1)) : BJ.bet;
-    seat.hands = [{ cards: [], bet, done: false, res: null, splitAces: false, cpu: seat.cpu }];
+    const bet = seat.cpu ? Math.min(R.max, seat.base * (rnd(5) === 0 ? 2 : 1)) : seat.bet;
+    if (!seat.cpu) { seat.lastBet = seat.bet; seat.bet = 0; }
+    if (bet) seat.hands = [{ cards: [], bet, done: false, res: null, splitAces: false, cpu: seat.cpu }];
   }
-  BJ.ins = 0; BJ.bet = 0; BJ.phase = 'dealing'; BJ.msg = ''; BJ.note = ''; BJ.turn = -1;
-  const pace = BJ.seats.length > 1 ? 220 : 320;
+  BJ.meIdx = BJ.mine.find((i) => BJ.seats[i].hands.length);
+  BJ.ins = 0; BJ.phase = 'dealing'; BJ.msg = ''; BJ.note = ''; BJ.turn = -1;
+  const playing = BJ.seats.filter((seat) => seat.hands.length);
+  const pace = playing.length > 1 ? 220 : 320;
   for (let pass = 0; pass < 2; pass++) {
-    for (const seat of BJ.seats) { seat.hands[0].cards.push(bjDraw()); render(); await wait(pace); }
+    for (const seat of playing) { seat.hands[0].cards.push(bjDraw()); render(); await wait(pace); }
     BJ.dealer.push(bjDraw(pass === 1)); render(); await wait(pace);
   }
   busy = false;
@@ -759,21 +781,24 @@ async function bjDeal() {
       seat.lastOff = takes;
     }
     BJ.phase = 'insurance';
-    BJ.msg = isBJ(BJ.hands[0].cards) ? 'Dealer shows an ace. Even money?' : 'Dealer shows an ace. Insurance?';
+    BJ.msg = bjEvenMoney() ? 'Dealer shows an ace. Even money?' : `Dealer shows an ace. Insurance${myHandsNow().length > 1 ? ' on your hands' : ''}?`;
     render(); return;
   }
   await bjPeek();
 }
+/* Your first hand on every spot you're playing. One insurance decision covers all of them. */
+const myHandsNow = () => mySeats().filter((s) => s.hands.length).map((s) => s.hands[0]);
+const bjInsCost = () => r2(myHandsNow().reduce((t, h) => t + h.bet / 2, 0));
+const bjEvenMoney = () => { const hs = myHandsNow(); return hs.length === 1 && isBJ(hs[0].cards); };
 async function bjInsurance(take) {
   if (busy || BJ.phase !== 'insurance') return;
-  const h = BJ.hands[0];
-  if (take && S.bankroll < h.bet / 2) return toast('Not enough in your rack for insurance.', 'warn');
+  if (take && S.bankroll < bjInsCost()) return toast('Not enough in your rack for insurance.', 'warn');
   if (S.coach) {
     S.stats.strat.total++;
     if (!take) { S.stats.strat.ok++; toast('Correct. Insurance is a losing bet without a count.', 'good'); }
     else toast('Basic strategy never takes insurance or even money.', 'warn');
   }
-  if (take) { BJ.ins = r2(h.bet / 2); S.bankroll = r2(S.bankroll - BJ.ins); }
+  if (take) { BJ.ins = bjInsCost(); S.bankroll = r2(S.bankroll - BJ.ins); }
   await bjPeek();
 }
 async function bjPeek() {
@@ -784,11 +809,11 @@ async function bjPeek() {
   if (up >= 10 && dBJ) {
     bjReveal();
     for (const seat of BJ.seats) {
-      const h = seat.hands[0]; h.done = true;
+      const h = seat.hands[0]; if (!h) continue; h.done = true;
       if (isBJ(h.cards)) { h.res = 'push'; if (!seat.cpu) S.bankroll = r2(S.bankroll + h.bet); } else h.res = 'lose';
       if (seat.cpu && seat.ins) { seat.last = 'Insurance pays'; seat.lastOff = false; }
     }
-    notes.push(isBJ(BJ.hands[0].cards) ? 'Dealer has blackjack too. Push.' : 'Dealer has blackjack.');
+    notes.push(myHandsNow().some((h) => h.res === 'push') ? 'Dealer has blackjack too. Your blackjack pushes.' : 'Dealer has blackjack.');
     if (BJ.ins) { S.bankroll = r2(S.bankroll + BJ.ins * 3); notes.push(`Insurance pays ${fmt(BJ.ins * 2)}.`); }
     return bjEnd(notes.join(' '));
   }
@@ -796,10 +821,10 @@ async function bjPeek() {
   const R = bjRules();
   for (const seat of BJ.seats) {
     const h = seat.hands[0];
-    if (!isBJ(h.cards)) continue;
+    if (!h || !isBJ(h.cards)) continue;
     const win = r2(h.bet * R.pay[0] / R.pay[1]);
     h.res = 'blackjack'; h.paid = win; h.done = true;
-    if (!seat.cpu) { S.bankroll = r2(S.bankroll + h.bet + win); notes.push(`Blackjack! ${fmt(h.bet)} pays ${fmt(win)} at ${R.pay[0]} to ${R.pay[1]}.`); }
+    if (!seat.cpu) { S.bankroll = r2(S.bankroll + h.bet + win); notes.push(`Blackjack${S.spots > 1 ? ' on ' + seat.name.toLowerCase() : ''}! ${fmt(h.bet)} pays ${fmt(win)} at ${R.pay[0]} to ${R.pay[1]}.`); }
   }
   BJ.note = notes.join(' ');
   await bjRunTurns(0);
@@ -850,6 +875,7 @@ async function bjRunTurns(from) {
     await bjAdvanceSeat(seat);
     if (seat.cpu) { await cpuPlay(seat); continue; }
     if (seat.active < seat.hands.length) {
+      BJ.meIdx = i;
       BJ.phase = 'play'; BJ.msg = BJ.note ? BJ.note + ' Your move.' : 'Your move.';
       busy = false; render(); return;
     }
@@ -903,31 +929,39 @@ async function bjDealerPlay() {
   }
   const parts = [];
   if (BJ.note) parts.push(BJ.note);
-  if (BJ.hands.every((h) => h.res === 'bust')) parts.push('You busted.');
+  if (mySeats().flatMap((s) => s.hands).every((h) => h.res === 'bust')) parts.push(S.spots > 1 ? 'You busted every hand.' : 'You busted.');
   if (live) parts.push(dv > 21 ? `Dealer busts with ${dv}.` : `Dealer has ${dv}.`);
   bjEnd(parts.join(' '));
 }
 function bjEnd(msg) {
   const net = r2(S.bankroll - BJ.roundStart);
   BJ.phase = 'done'; BJ.turn = -1;
-  const blackjack = BJ.hands.length === 1 && BJ.hands[0].res === 'blackjack';
-  S.bjHist = ((S.bjHist || '') + (net > 0 ? (blackjack ? 'B' : 'W') : net < 0 ? 'L' : 'P')).slice(-2000);
+  /* One record entry per spot, scored on that spot's hands. Insurance is a separate bet and isn't counted. */
+  let rec = '';
+  for (const seat of mySeats()) {
+    if (!seat.hands.length) continue;
+    const spotNet = seat.hands.reduce((t, h) => t + (h.res === 'win' || h.res === 'blackjack' ? h.paid : h.res === 'lose' || h.res === 'bust' ? -h.bet : 0), 0);
+    rec += spotNet > 0 ? (seat.hands.length === 1 && seat.hands[0].res === 'blackjack' ? 'B' : 'W') : spotNet < 0 ? 'L' : 'P';
+  }
+  S.bjHist = ((S.bjHist || '') + rec).slice(-2000);
   BJ.msg = `${msg} ${net > 0 ? 'You win ' + fmt(net) + '.' : net < 0 ? 'You lose ' + fmt(-net) + '.' : 'Your bet comes back.'}`;
   S.stats.bj.rounds++; S.stats.bj.net = r2(S.stats.bj.net + net);
   busy = false; save(); render();
 }
-function bjAddChip(v) {
+function bjAddChip(v, spot) {
   if (busy) return;
   if (BJ.phase === 'done') { BJ.phase = 'bet'; bjClearTable(); BJ.msg = ''; }
   if (BJ.phase !== 'bet') return toast('Bets are locked while the hand is in play.', 'warn');
+  const seat = mySeats()[spot || 0];
   if (v > rackAmount()) return toast('Not enough in your rack for that chip.', 'warn');
-  if (BJ.bet + v > bjRules().max) return toast(`This table's maximum is ${fmt(bjRules().max)}.`, 'warn');
-  BJ.bet += v; render();
+  if (seat.bet + v > bjRules().max) return toast(`This table's maximum is ${fmt(bjRules().max)} per spot.`, 'warn');
+  seat.bet += v; render();
 }
+function bjClearBets() { for (const seat of mySeats()) seat.bet = 0; }
 function bjRebet() {
   if (busy || !(BJ.phase === 'bet' || BJ.phase === 'done')) return;
-  if (BJ.lastBet > S.bankroll) return toast('Not enough in your rack to repeat that bet.', 'warn');
-  BJ.phase = 'bet'; BJ.bet = BJ.lastBet; bjDeal();
+  if (myLastTotal() > S.bankroll) return toast('Not enough in your rack to repeat that bet.', 'warn');
+  BJ.phase = 'bet'; for (const seat of mySeats()) seat.bet = seat.lastBet; bjDeal();
 }
 
 function handHTML(h, label, active, small) {
@@ -950,9 +984,11 @@ function seatHTML(seat, i) {
   const empty = BJ.phase === 'bet' || !seat.hands.length;
   if (!seat.cpu) {
     const R = bjRules();
-    const inner = empty
-      ? `<div class="hand"><button class="circle" data-act="bj-circle" aria-label="Bet circle, current bet ${fmt(BJ.bet)}">${BJ.bet ? stackHTML(BJ.bet) : 'Bet'}</button><span class="betamt">${BJ.bet ? fmt(BJ.bet) : fmt(S.bjMin) + '–' + fmt(R.max)}</span></div>`
-      : seat.hands.map((h, j) => handHTML(h, seat.hands.length > 1 ? 'Hand ' + (j + 1) : 'You', BJ.phase === 'play' && j === seat.active, false)).join('');
+    const two = S.spots > 1;
+    const inner = BJ.phase === 'bet'
+      ? `<div class="hand"><button class="circle" data-act="bj-circle" data-spot="${seat.spot}" aria-label="${two ? seat.name + ' bet' : 'Bet'} circle, current bet ${fmt(seat.bet)}">${seat.bet ? stackHTML(seat.bet) : two ? seat.name : 'Bet'}</button><span class="betamt">${seat.bet ? fmt(seat.bet) : fmt(S.bjMin) + '–' + fmt(R.max)}</span></div>`
+      : !seat.hands.length ? `<div class="hand"><div class="circle small">Out</div><span class="betamt">No bet</span></div>`
+      : seat.hands.map((h, j) => handHTML(h, seat.hands.length > 1 ? (two ? `${seat.name} · ${j + 1}` : 'Hand ' + (j + 1)) : seat.name, BJ.phase === 'play' && i === BJ.meIdx && j === seat.active, false)).join('');
     return `<div class="seat me${n > 1 ? ' framed' : ''}${turn ? ' turn' : ''}">${inner}${pos ? `<span class="pos">${pos} · you</span>` : ''}</div>`;
   }
   const inner = empty ? `<div class="cpu-bet">${stackHTML(seat.base)}<span class="betamt">${fmt(seat.base)}</span></div>`
@@ -964,10 +1000,10 @@ function seatHTML(seat, i) {
 let bjScrollKey = '';
 function bjKeepInView() {
   if (BJ.phase !== 'play' || S.tab !== 'bj') { if (BJ.phase !== 'play') bjScrollKey = ''; return; }
-  const key = `${BJ.roundStart}|${BJ.shoe && BJ.shoe.cards.length}|${BJ.active}`;
+  const key = `${BJ.roundStart}|${BJ.shoe && BJ.shoe.cards.length}|${BJ.meIdx}|${BJ.active}`;
   if (key === bjScrollKey) return; bjScrollKey = key;
   requestAnimationFrame(() => {
-    const el = document.querySelector('.seat.me .hand.active') || document.querySelector('.seat.me');
+    const el = document.querySelector('.seat.me .hand.active') || document.querySelector('.seat.me.turn') || document.querySelector('.seat.me');
     if (!el) return;
     const r = el.getBoundingClientRect(); const dockTop = $('#rack').getBoundingClientRect().top;
     const dy = r.bottom > dockTop - 8 ? r.bottom - (dockTop - 8) : r.top < 8 ? r.top - 8 : 0;
@@ -1003,6 +1039,7 @@ function bjRender() {
   $('#bj-arc-text').textContent = `BLACKJACK PAYS ${R.label}`;
   $('#bj-min').value = String(S.bjMin); $('#bj-min').disabled = !between;
   $('#bj-others').value = String(S.others); $('#bj-others').disabled = !between;
+  $('#bj-spots').value = String(S.spots); $('#bj-spots').disabled = !between;
   $('#bj-seat').value = S.seat; $('#bj-seat').disabled = !between; $('#bj-seat-wrap').hidden = !S.others;
   $('#bj-dealer').innerHTML = BJ.dealer.map((c) => cardHTML(c)).join('');
   const dt = $('#bj-dtotal');
@@ -1010,23 +1047,29 @@ function bjRender() {
     const v = bjVal(BJ.dealer); dt.hidden = false;
     dt.textContent = v.total; dt.className = 'total' + (v.total > 21 ? ' bust' : (BJ.dealer.length === 2 && !BJ.dealer[1].hidden && v.total === 21 ? ' bj' : ''));
   } else dt.hidden = true;
-  $('#bj-sum').textContent = `${fmt(S.bjMin)} · ${R.pay[0]}:${R.pay[1]} · ${S.others ? S.others + ' other' + (S.others > 1 ? 's' : '') + ', ' + { first: '1st base', middle: 'middle seat', third: '3rd base' }[S.seat] : 'just you'}`;
+  const oth = bjOthers();
+  $('#bj-sum').textContent = `${fmt(S.bjMin)} · ${R.pay[0]}:${R.pay[1]}${S.spots > 1 ? ' · 2 hands' : ''} · ${oth ? oth + ' other' + (oth > 1 ? 's' : '') + ', ' + { first: '1st base', middle: 'middle seat', third: '3rd base' }[S.seat] : 'just you'}`;
   const hands = $('#bj-hands');
   hands.className = 'bj-hands' + (BJ.seats.length > 1 ? ' table' : '');
   hands.innerHTML = BJ.seats.map(seatHTML).join('');
   let call = BJ.msg;
-  if (BJ.phase === 'play') { const h = BJ.hands[BJ.active]; call = `${BJ.note ? BJ.note + ' ' : ''}Dealer shows ${upLabel()}. You have ${describeHand(h)}${BJ.hands.length > 1 ? ` (hand ${BJ.active + 1} of ${BJ.hands.length})` : ''}.`; }
+  if (BJ.phase === 'play') {
+    const h = BJ.hands[BJ.active];
+    const where = [S.spots > 1 ? me().name : '', BJ.hands.length > 1 ? `hand ${BJ.active + 1} of ${BJ.hands.length}` : ''].filter(Boolean).join(', ');
+    call = `${BJ.note ? BJ.note + ' ' : ''}Dealer shows ${upLabel()}. ${where ? where[0].toUpperCase() + where.slice(1) + ': ' : 'You have '}${describeHand(h)}.`;
+  }
   $('#bj-call').textContent = call;
   bjKeepInView();
 
   const c = $('#bj-controls');
   if (BJ.phase === 'bet') {
-    c.innerHTML = `<button class="btn ghost" data-act="bj-clear" ${BJ.bet ? '' : 'disabled'}>Clear</button>
-      <button class="btn" data-act="bj-rebet" ${BJ.lastBet ? '' : 'disabled'}>Rebet &amp; deal<small>${BJ.lastBet ? fmt(BJ.lastBet) : '—'}</small></button>
-      <button class="btn go" data-act="bj-deal" ${BJ.bet ? '' : 'disabled'}>Deal</button>`;
+    const bet = myBetTotal(), last = myLastTotal();
+    c.innerHTML = `<button class="btn ghost" data-act="bj-clear" ${bet ? '' : 'disabled'}>Clear</button>
+      <button class="btn" data-act="bj-rebet" ${last ? '' : 'disabled'}>Rebet &amp; deal<small>${last ? fmt(last) : '—'}</small></button>
+      <button class="btn go" data-act="bj-deal" ${bet ? '' : 'disabled'}>Deal</button>`;
   } else if (BJ.phase === 'insurance') {
-    const h = BJ.hands[0]; const even = isBJ(h.cards);
-    c.innerHTML = `<button class="btn" data-act="bj-ins" data-take="1">${even ? 'Even money' : 'Insurance'}<small>${fmt(h.bet / 2)}</small></button>
+    const even = bjEvenMoney();
+    c.innerHTML = `<button class="btn" data-act="bj-ins" data-take="1">${even ? 'Even money' : 'Insurance'}<small>${fmt(bjInsCost())}</small></button>
       <button class="btn go" data-act="bj-ins" data-take="0">No ${even ? 'thanks' : 'insurance'}</button>`;
   } else if (BJ.phase === 'play') {
     const h = BJ.hands[BJ.active];
@@ -1037,7 +1080,7 @@ function bjRender() {
       <button class="btn ghost" data-act="bj-hint">Hint</button>`;
   } else if (BJ.phase === 'done') {
     c.innerHTML = `<button class="btn" data-act="bj-new">New bet</button>
-      <button class="btn go" data-act="bj-rebet" ${BJ.lastBet <= S.bankroll ? '' : 'disabled'}>Rebet &amp; deal<small>${fmt(BJ.lastBet)}</small></button>`;
+      <button class="btn go" data-act="bj-rebet" ${myLastTotal() <= S.bankroll ? '' : 'disabled'}>Rebet &amp; deal<small>${fmt(myLastTotal())}</small></button>`;
   } else c.innerHTML = '';
 
   const st = S.stats.strat;
@@ -1480,7 +1523,7 @@ function rlRender() {
 /* ================= Shared ================= */
 const CHIPS = [1, 5, 25, 100, 500];
 function pending() {
-  return (BJ.phase === 'bet' ? BJ.bet : 0) + (BAC.phase !== 'deal' && BAC.phase !== 'done' ? bacTotalBet(BAC.bets) : 0) + (RL.phase === 'bet' ? rlTotal(RL.bets) : 0);
+  return (BJ.phase === 'bet' ? myBetTotal() : 0) + (BAC.phase !== 'deal' && BAC.phase !== 'done' ? bacTotalBet(BAC.bets) : 0) + (RL.phase === 'bet' ? rlTotal(RL.bets) : 0);
 }
 const rackAmount = () => r2(S.bankroll - pending());
 function renderShared() {
@@ -1536,8 +1579,8 @@ let resetArmed = false;
 const ACT = {
   tab: (d) => { S.tab = d.tab; save(); render(); },
   chip: (d) => { S.chip = +d.v; save(); renderShared(); },
-  'bj-circle': () => bjAddChip(S.chip),
-  'bj-clear': () => { BJ.bet = 0; render(); },
+  'bj-circle': (d) => bjAddChip(S.chip, +d.spot || 0),
+  'bj-clear': () => { bjClearBets(); render(); },
   'bj-deal': () => bjDeal(),
   'bj-rebet': () => bjRebet(),
   'bj-new': () => { if (busy) return; BJ.phase = 'bet'; bjClearTable(); BJ.msg = 'Place your bet in the circle, then deal.'; render(); },
@@ -1570,7 +1613,7 @@ const ACT = {
     resetArmed = false; el.textContent = 'Reset to $3,000';
     S.bankroll = 3000; S.start = 3000; S.buyins = 1; S.bjHist = '';
     S.stats = { bj: { rounds: 0, net: 0 }, bac: { rounds: 0, net: 0 }, rl: { rounds: 0, net: 0 }, strat: { ok: 0, total: 0 }, tab: { ok: 0, total: 0 } };
-    BJ.bet = 0; BAC.bets = { player: 0, banker: 0, tie: 0, dragon: 0, panda: 0 }; RL.bets = [];
+    bjClearBets(); BAC.bets = { player: 0, banker: 0, tie: 0, dragon: 0, panda: 0 }; RL.bets = [];
     save(); render(); toast('Bankroll reset to $3,000.', 'good');
   }
 };
@@ -1579,7 +1622,7 @@ document.addEventListener('click', (e) => {
   const fn = ACT[t.dataset.act]; if (fn) fn(t.dataset, t);
 });
 $('#bj-min').addEventListener('change', (e) => {
-  S.bjMin = +e.target.value; if (BJ.bet > bjRules().max) BJ.bet = 0; save(); render();
+  S.bjMin = +e.target.value; for (const seat of mySeats()) if (seat.bet > bjRules().max) seat.bet = 0; save(); render();
 });
 $('#bac-var').addEventListener('change', (e) => { S.bacVariant = e.target.value; if (S.bacVariant !== 'ez') { BAC.bets.dragon = 0; BAC.bets.panda = 0; } save(); render(); });
 $('#rl-wheel').addEventListener('change', (e) => { S.rlWheel = e.target.value; RL.bets = RL.bets.filter((b) => !(b.type === 'top' || (b.type === 'split' && b.nums.some((x) => ['0', '00'].includes(x))))); RL.history = []; RL.result = null; RL.ball = null; RL.angle = 0; RL.msg = S.rlWheel === '000' ? 'Triple-zero wheel: 39 pockets, same payouts, bigger house edge.' : 'Double-zero wheel: 38 pockets.'; save(); render(); });
@@ -1593,6 +1636,7 @@ document.querySelectorAll('.others-sel').forEach((el) => {
   el.addEventListener('change', (e) => { S.others = +e.target.value; save(); render(); });
 });
 $('#bj-seat').addEventListener('change', (e) => { S.seat = e.target.value; save(); render(); });
+$('#bj-spots').addEventListener('change', (e) => { S.spots = +e.target.value; save(); render(); if (S.spots > 1 && S.others > 5) toast('A table has 7 spots, so 5 other players can sit with your two hands.'); });
 if (matchMedia('(min-width: 721px)').matches) document.querySelectorAll('.opts').forEach((d) => { d.open = true; });
 setupCanvas();
 buildChart();
