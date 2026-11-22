@@ -245,6 +245,10 @@ a { color: inherit; }
   touch-action: manipulation;
 }
 .record:active { transform: scale(0.96); }
+.stage[data-compact] { justify-content: flex-start; gap: 18px; padding-top: 36px; }
+.stage[data-compact] .record { --size: min(32vw, 128px); }
+.stage[data-compact] .record::after { inset: -18px; }
+.stage[data-compact] .record::before { inset: -9px; }
 .record::before, .record::after {
   content: "";
   position: absolute;
@@ -473,6 +477,7 @@ textarea.editor {
   gap: 10px;
 }
 .notice p { margin: 0; }
+.notice.warn { border-style: solid; border-color: color-mix(in srgb, var(--record) 45%, var(--rule)); background: color-mix(in srgb, var(--record) 7%, var(--paper-raised)); }
 .notice .row { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .empty {

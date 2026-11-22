@@ -81,8 +81,27 @@ async function loadAudio(captureId: string): Promise<{ audio: Buffer; mime: stri
   };
 }
 
-export async function getAudio(captureId: string) {
-  return loadAudio(captureId);
+/** Sizes of each stored piece, so playback can serve any byte range without loading it all. */
+export async function audioInfo(captureId: string): Promise<{ mime: string; sizes: { seq: number; size: number }[] }> {
+  const d = await db();
+  const rows = await d.query<{ seq: number; size: number | string }>(
+    `select seq, octet_length(data) as size from capture_chunks where capture_id = $1 order by seq`,
+    [captureId],
+  );
+  const [cap] = await d.query<{ mime_type: string | null }>(`select mime_type from captures where id = $1`, [captureId]);
+  return {
+    mime: (cap?.mime_type ?? "audio/webm").split(";")[0],
+    sizes: rows.map((r) => ({ seq: Number(r.seq), size: Number(r.size) })),
+  };
+}
+
+export async function audioPiece(captureId: string, seq: number): Promise<Buffer> {
+  const d = await db();
+  const [row] = await d.query<{ data: Uint8Array }>(
+    `select data from capture_chunks where capture_id = $1 and seq = $2`,
+    [captureId, seq],
+  );
+  return row ? Buffer.from(row.data) : Buffer.alloc(0);
 }
 
 /**

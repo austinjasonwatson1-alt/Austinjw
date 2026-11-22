@@ -10,8 +10,8 @@ type State =
   | { kind: "starting" }
   | { kind: "recording"; startedAt: number }
   | { kind: "finishing" }
-  | { kind: "done"; result: FinishResult }
-  | { kind: "saved" }
+  | { kind: "done"; result: FinishResult; cutShort?: number }
+  | { kind: "saved"; cutShort?: number }
   | { kind: "error"; message: string };
 
 const SLICE_MS = 5000; // upload a piece every five seconds
@@ -38,6 +38,8 @@ export function Recorder() {
     seq: number;
     saves: Promise<void>[];
     startedAt: number;
+    hiddenAt?: number;
+    userStopped: boolean;
     ctx?: AudioContext;
     raf?: number;
     lock?: WakeLockSentinel | null;
@@ -70,11 +72,24 @@ export function Recorder() {
   }, [state]);
 
   // Keep the screen awake while recording; re-acquire it when the app comes back.
+  // Also note when the app was hidden: iPhone usually stops a web app's recording
+  // when the screen locks or you switch apps, and we want to say so honestly.
   useEffect(() => {
     const onVis = async () => {
-      if (document.visibilityState === "visible" && live.current && !live.current.lock) {
-        live.current.lock = await navigator.wakeLock?.request("screen").catch(() => null);
+      const s = live.current;
+      if (!s) return;
+      if (document.visibilityState === "hidden") {
+        s.hiddenAt ??= Date.now();
+        s.lock = null; // the system releases the wake lock when hidden
+        return;
       }
+      const micEnded = s.stream.getAudioTracks().every((t) => t.readyState === "ended");
+      if (micEnded && s.rec.state !== "inactive") {
+        s.rec.stop(); // recording can't continue; finish with what we have
+        return;
+      }
+      s.hiddenAt = undefined; // still recording after coming back: nothing was lost
+      s.lock = (await navigator.wakeLock?.request("screen").catch(() => null)) ?? null;
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
@@ -103,6 +118,7 @@ export function Recorder() {
       seq: 0,
       saves: [] as Promise<void>[],
       startedAt: Date.now(),
+      userStopped: false,
       lock: null as WakeLockSentinel | null,
     } as NonNullable<typeof live.current>;
     live.current = session;
@@ -116,6 +132,11 @@ export function Recorder() {
       session.saves.push(p);
     };
     rec.onstop = () => finalize(session);
+    rec.onerror = () => rec.state !== "inactive" && rec.stop();
+    // A phone call, Siri or another app taking the mic ends the track.
+    stream.getAudioTracks().forEach((t) =>
+      t.addEventListener("ended", () => rec.state !== "inactive" && rec.stop()),
+    );
     rec.start(SLICE_MS);
 
     session.lock = (await navigator.wakeLock?.request("screen").catch(() => null)) ?? null;
@@ -149,7 +170,9 @@ export function Recorder() {
 
   function stop() {
     const s = live.current;
-    if (s && s.rec.state !== "inactive") s.rec.stop();
+    if (!s || s.rec.state === "inactive") return;
+    s.userStopped = true;
+    s.rec.stop();
   }
 
   async function finalize(session: NonNullable<typeof live.current>) {
@@ -159,6 +182,10 @@ export function Recorder() {
     session.ctx?.close().catch(() => {});
     session.lock?.release().catch(() => {});
     setState({ kind: "finishing" });
+    // If you didn't tap stop, the recording ended on its own (screen lock, app switch,
+    // phone call). If the app was hidden, audio stopped then; otherwise it stopped now.
+    const endedAt = session.userStopped ? Date.now() : (session.hiddenAt ?? Date.now());
+    const cutShort = session.userStopped ? undefined : endedAt - session.startedAt;
     try {
       await Promise.all(session.saves);
       if (session.seq === 0) {
@@ -168,14 +195,14 @@ export function Recorder() {
       await saveFinish({
         captureId: session.id,
         chunkCount: session.seq,
-        durationMs: Date.now() - session.startedAt,
+        durationMs: endedAt - session.startedAt,
         mimeType: session.rec.mimeType || "audio/webm",
       });
       const results = await flush(() => window.dispatchEvent(new Event("wr:changed")));
       const mine = results.find((r) => r.captureId === session.id);
-      setState(mine ? { kind: "done", result: mine } : { kind: "saved" });
+      setState(mine ? { kind: "done", result: mine, cutShort } : { kind: "saved", cutShort });
     } catch {
-      setState({ kind: "saved" });
+      setState({ kind: "saved", cutShort });
     } finally {
       refreshPending();
     }
@@ -199,7 +226,7 @@ export function Recorder() {
         </p>
       </div>
 
-      <div className="stage">
+      <div className="stage" data-compact={["done", "saved", "error"].includes(state.kind) || undefined}>
         <button
           ref={button}
           type="button"
@@ -240,6 +267,15 @@ export function Recorder() {
           <div className="stage-caption" style={{ display: "grid", justifyItems: "center", gap: 14 }}>
             <strong>{state.kind === "starting" ? "Getting the mic ready…" : "Writing down your words…"}</strong>
             <div className="shimmer" />
+          </div>
+        )}
+
+        {(state.kind === "done" || state.kind === "saved") && state.cutShort != null && (
+          <div className="notice warn" style={{ width: "100%" }} role="status">
+            <p>
+              <strong>Recording stopped on its own at {fmt(state.cutShort)}.</strong> The screen probably locked or
+              another app took over. Everything up to then is saved.
+            </p>
           </div>
         )}
 
