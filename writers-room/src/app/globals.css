@@ -487,6 +487,16 @@ textarea.editor {
 }
 .empty .display { font-size: 26px; margin-bottom: 8px; color: var(--ink); }
 
+.foot {
+  margin-top: 44px;
+  padding-top: 22px;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+.foot p { margin: 0; font-size: 13px; color: var(--ink-faint); }
+
 /* ---------- Sheet (type a note) ---------- */
 .scrim {
   position: fixed;

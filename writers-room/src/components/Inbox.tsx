@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Mic, More, Pause, Pen, Play, Trash } from "./Icons";
+import { Check, Download, Mic, More, Pause, Pen, Play, Trash } from "./Icons";
 
 type Note = {
   id: string;
@@ -191,6 +191,21 @@ export function Inbox() {
           <p>Everything you say or type lands here first. Tap Talk to capture your first idea.</p>
         </div>
       )}
+
+      <footer className="foot">
+        <a
+          className="btn"
+          href="/api/export"
+          download
+          onClick={(e) => {
+            // Ask for times in this phone's own time zone.
+            e.currentTarget.href = `/api/export?tz=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`;
+          }}
+        >
+          <Download /> Download everything
+        </a>
+        <p>All your notes and the full authorship log, as a plain text file.</p>
+      </footer>
 
       {toast && (
         <div className="toast" role="status">

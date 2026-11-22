@@ -50,10 +50,25 @@ Leave Vercel Analytics and Speed Insights off (they're off by default). The proj
 2. Tap **Share → Add to Home Screen**. You now have a Writer's Room icon that opens full-screen.
 3. Open it from the icon, tap the red button and allow the microphone.
 
+## 6. Hands-free start with Siri (optional, about 2 minutes)
+
+This lets you say **"Hey Siri, capture idea"** and have Writer's Room open already recording.
+
+1. Open the **Shortcuts** app and tap **+**.
+2. Tap **Add Action**, search for **Open URLs** and choose it.
+3. For the URL, type your Vercel address followed by `/?start=1`, for example `https://writers-room-xyz.vercel.app/?start=1`.
+4. Tap the name at the top, rename the shortcut to **Capture idea** and tap **Done**. Siri uses the shortcut's name as the phrase.
+
+Good to know:
+- The shortcut opens in **Safari**, not the home-screen icon. iPhone keeps their sign-ins separate, so enter your passphrase once in Safari too.
+- Your phone has to be unlocked. In a mount with Face ID that's usually automatic.
+- If the phone still wants a tap before recording starts, the big button will be waiting. Tell me if that happens.
+- You'll hear a soft rising tone when recording starts and a falling tone when it stops, so you don't need to look.
+
 ## Your first test drive
 
 - [ ] Put the phone in a mount with Writer's Room open **before you start driving**.
-- [ ] Tap the button once and talk. Try "scene note…", then "new note", then "character note…", then an idea with no label.
+- [ ] Start with "Hey Siri, capture idea" (or tap the button) and listen for the start tone. Then talk. Try "scene note…", then "new note", then "character note…", then an idea with no label.
 - [ ] Check the screen stays on while recording. (iPhone Safari stops web-app recordings if the screen locks or you switch apps. This is the main thing to find out.)
 - [ ] After parking, tap stop and see whether the notes appear and are split correctly.
 - [ ] In the Inbox, try swiping a note right to keep it, editing one, and opening **⋯** to compare it with exactly what you said.

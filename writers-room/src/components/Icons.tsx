@@ -55,3 +55,8 @@ export const Pause = ({ className = "icon" }: P) => (
     <path d="M8 5v14M16 5v14" strokeWidth={3} />
   </svg>
 );
+export const Download = ({ className = "icon" }: P) => (
+  <svg {...base} className={className}>
+    <path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14" />
+  </svg>
+);

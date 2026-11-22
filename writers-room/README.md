@@ -35,6 +35,9 @@ npm run eval:voice     # voice test from SPEC.md; writes a report to evals/resul
 5. **Review.** Notes wait in the Inbox under "To review". Keep (or swipe right), edit or delete. Once every note from a recording is reviewed, the audio is deleted, unless you switched on "Keep the recording" for one of them.
 
 Every step is written to an append-only authorship log (who did what, when: you, the AI, or the system).
+**Download everything** at the bottom of the Inbox saves all notes and the full log as a plain text file.
+
+Opening the app at `/?start=1` starts recording straight away (used by the Siri shortcut in SETUP.md).
 
 ## Where things live
 

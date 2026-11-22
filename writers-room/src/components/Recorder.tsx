@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flush, pendingCount, saveChunk, saveFinish, type FinishResult } from "@/client/queue";
+import { primeTones, startTone, stopTone } from "@/client/tones";
 import { Mic } from "./Icons";
 
 type State =
@@ -13,6 +14,20 @@ type State =
   | { kind: "done"; result: FinishResult; cutShort?: number }
   | { kind: "saved"; cutShort?: number }
   | { kind: "error"; message: string };
+
+type Session = {
+  rec: MediaRecorder;
+  stream: MediaStream;
+  id: string;
+  seq: number;
+  saves: Promise<void>[];
+  startedAt: number;
+  hiddenAt?: number;
+  userStopped: boolean;
+  ctx?: AudioContext;
+  raf?: number;
+  lock?: WakeLockSentinel | null;
+};
 
 const SLICE_MS = 5000; // upload a piece every five seconds
 
@@ -31,19 +46,7 @@ export function Recorder() {
   const [elapsed, setElapsed] = useState(0);
   const [pending, setPending] = useState(0);
   const button = useRef<HTMLButtonElement>(null);
-  const live = useRef<{
-    rec: MediaRecorder;
-    stream: MediaStream;
-    id: string;
-    seq: number;
-    saves: Promise<void>[];
-    startedAt: number;
-    hiddenAt?: number;
-    userStopped: boolean;
-    ctx?: AudioContext;
-    raf?: number;
-    lock?: WakeLockSentinel | null;
-  } | null>(null);
+  const live = useRef<Session | null>(null);
 
   const refreshPending = useCallback(async () => {
     try {
@@ -64,6 +67,21 @@ export function Recorder() {
       clearInterval(t);
     };
   }, [refreshPending]);
+
+  // Hands-free start: opening the app at /?start=1 (from a Siri Shortcut or a
+  // home-screen bookmark) starts recording straight away. If the phone insists
+  // on a tap first, the normal button is right there.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (autoStarted.current) return;
+    autoStarted.current = true;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("start") !== "1") return;
+    url.searchParams.delete("start");
+    window.history.replaceState(null, "", url.pathname + url.search);
+    start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (state.kind !== "recording") return;
@@ -96,7 +114,10 @@ export function Recorder() {
   }, []);
 
   async function start() {
+    if (live.current) return;
     setState({ kind: "starting" });
+    primeTones();
+    await startTone(); // before the mic opens, so the cue isn't recorded
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -111,7 +132,7 @@ export function Recorder() {
     }
     const mimeType = pickMime();
     const rec = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : undefined);
-    const session = {
+    const session: Session = {
       rec,
       stream,
       id: crypto.randomUUID(),
@@ -119,8 +140,8 @@ export function Recorder() {
       saves: [] as Promise<void>[],
       startedAt: Date.now(),
       userStopped: false,
-      lock: null as WakeLockSentinel | null,
-    } as NonNullable<typeof live.current>;
+      lock: null,
+    };
     live.current = session;
 
     rec.ondataavailable = (e) => {
@@ -145,7 +166,7 @@ export function Recorder() {
     setState({ kind: "recording", startedAt: session.startedAt });
   }
 
-  function meter(session: NonNullable<typeof live.current>) {
+  function meter(session: Session) {
     try {
       const ctx = new AudioContext();
       const src = ctx.createMediaStreamSource(session.stream);
@@ -175,12 +196,13 @@ export function Recorder() {
     s.rec.stop();
   }
 
-  async function finalize(session: NonNullable<typeof live.current>) {
+  async function finalize(session: Session) {
     live.current = null;
     session.stream.getTracks().forEach((t) => t.stop());
     if (session.raf) cancelAnimationFrame(session.raf);
     session.ctx?.close().catch(() => {});
     session.lock?.release().catch(() => {});
+    stopTone();
     setState({ kind: "finishing" });
     // If you didn't tap stop, the recording ended on its own (screen lock, app switch,
     // phone call). If the app was hidden, audio stopped then; otherwise it stopped now.
@@ -210,7 +232,14 @@ export function Recorder() {
 
   const recording = state.kind === "recording";
   const busy = state.kind === "starting" || state.kind === "finishing";
-  const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  // Computed on the phone (not on the server or at build time) so it's always today, in your time zone.
+  const [today, setToday] = useState("");
+  useEffect(() => {
+    const set = () => setToday(new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }));
+    set();
+    const t = setInterval(set, 60000);
+    return () => clearInterval(t);
+  }, []);
 
   return (
     <div className="home">

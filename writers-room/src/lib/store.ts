@@ -290,3 +290,89 @@ export async function deleteNote(id: string): Promise<boolean> {
   await maybeDeleteAudio(note.capture_id);
   return true;
 }
+
+// ---------- Export ----------
+
+const SOURCE_LABEL: Record<string, string> = { spoken: "Spoken", typed: "Typed", ai_suggestion: "AI suggestion" };
+const ACTOR_LABEL: Record<string, string> = { author: "You", ai: "AI", system: "App" };
+
+function stamper(timeZone: string) {
+  let zone = "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format();
+    zone = timeZone;
+  } catch {
+    /* unknown zone name: fall back to UTC */
+  }
+  const f = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+  return (v: unknown) => f.format(v instanceof Date ? v : new Date(String(v)));
+}
+
+/**
+ * Everything in plain text: every note (with exactly what was said, for spoken
+ * notes) and the complete authorship log. Returned as pieces so it can stream.
+ */
+export async function exportAll(timeZone = "UTC"): Promise<string[]> {
+  const d = await db();
+  const stamp = stamper(timeZone);
+  await log("exported", "author", {}, null, { format: "txt" });
+  const notes = await d.query<Note & { space: string }>(
+    `select ${NOTE_COLS} from notes where deleted_at is null order by created_at, position`,
+  );
+  const events = await d.query<{
+    at: unknown;
+    actor: string;
+    event: string;
+    source: string | null;
+    note_id: string | null;
+    capture_id: string | null;
+    detail: unknown;
+  }>(`select at, actor, event, source, note_id, capture_id, detail from authorship_log order by id`);
+
+  const edited = new Set(events.filter((e) => e.event === "edited" && e.note_id).map((e) => e.note_id));
+  const rule = "=".repeat(72);
+  const out: string[] = [
+    `WRITER'S ROOM EXPORT\nExported ${stamp(new Date())}\n${notes.length} notes · ${events.length} authorship log entries\n\n`,
+    `Every note below is in the author's own words, spoken or typed. Spoken notes also show\nexactly what was said; cleanup only removes filler sounds and adjusts punctuation.\n\n`,
+    `${rule}\nNOTES\n${rule}\n\n`,
+  ];
+  for (const n of notes) {
+    const head = [
+      stamp(n.created_at),
+      (SOURCE_LABEL[n.source] ?? n.source) + (edited.has(n.id) ? ", edited by you" : ""),
+      n.spoken_label,
+      n.status === "review" ? "not yet reviewed" : null,
+      `Space: ${n.space}`,
+    ].filter(Boolean);
+    let block = `[${head.join(" · ")}]\n${n.body}\n`;
+    if (n.source === "spoken" && n.raw_text && n.raw_text !== n.body) block += `\n  Exactly as said: ${n.raw_text}\n`;
+    block += `  Note ID: ${n.id}\n\n`;
+    out.push(block);
+  }
+  out.push(`\n${rule}\nAUTHORSHIP LOG (every action, oldest first)\n${rule}\n\n`);
+  for (const e of events) {
+    const parts = [stamp(e.at), ACTOR_LABEL[e.actor] ?? e.actor, e.event.replace(/_/g, " ")];
+    if (e.source) parts.push(e.source);
+    if (e.note_id) parts.push(`note ${e.note_id.slice(0, 8)}`);
+    else if (e.capture_id) parts.push(`recording ${e.capture_id.slice(0, 8)}`);
+    let line = parts.join(" · ");
+    const detail = typeof e.detail === "string" ? JSON.parse(e.detail) : e.detail;
+    if (detail && typeof detail === "object") {
+      const dd = detail as Record<string, unknown>;
+      const text = dd.text ?? dd.transcript ?? dd.result ?? dd.after;
+      if (typeof text === "string") line += `\n    "${text}"`;
+      if (typeof dd.before === "string") line += `\n    (was: "${dd.before}")`;
+      if (typeof dd.method === "string") line += `\n    cleanup: ${dd.method === "ai" ? "AI, checked word for word" : "app, fillers only"}`;
+    }
+    out.push(line + "\n");
+  }
+  return out;
+}

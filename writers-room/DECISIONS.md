@@ -98,6 +98,16 @@ Format:
 - **Why:** This keeps Milestone 1 to capture, transcription and Inbox, as the spec orders. Typed words need no review. The authorship log must stay complete.
 - **Alternatives considered:** Auto-filing labelled notes now (that's Milestone 2 work).
 
+## 2026-11-22 — Hands-free start, start/stop tones, and "Download everything" added to Milestone 1
+- **Decision:** (1) Opening the app at `/?start=1` starts recording immediately, and SETUP.md shows how to make a "Hey Siri, capture idea" shortcut for it. (2) A soft rising tone plays when recording starts and a falling tone when it stops. Both play while the mic is off, so they're never in a recording. (3) An Inbox button downloads all notes plus the full authorship log as plain text, with times in the phone's time zone, and every export is itself logged.
+- **Why:** (1) The spec's drive-time flow calls for "one big button, or a voice shortcut". (2) Eyes stay on the road. (3) CLAUDE.md says export must always work, and Supabase's free plan has no downloadable backups. Without this, real notes would live only in the database until Milestone 3. Austin approved all three before the first test drive.
+- **Alternatives considered:** Waiting for Milestone 3 for export (data trapped in the meantime); vibration instead of tones (iPhone Safari doesn't support it); a native Siri integration (needs a native app, out of V1 scope). The .docx export stays in Milestone 3.
+
+## 2026-11-22 — The app says when a recording was cut short
+- **Decision:** If recording stops without the author tapping stop (screen lock, app switch, a phone call taking the mic), the app reports when it stopped and that everything before is saved. Recordings play back in byte ranges, which iPhone Safari requires and which keeps long recordings under hosting limits.
+- **Why:** iPhone Safari usually stops a web app's recording when the screen locks. A silent stop would lose ideas without the author knowing.
+- **Alternatives considered:** Saying nothing (silent data loss); a native app that records in the background (out of V1 scope).
+
 ---
 
 ## Open questions settled in session 1 (2026-11-22)
