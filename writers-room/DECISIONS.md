@@ -63,6 +63,41 @@ Format:
 - **Why:** Publisher contracts increasingly include AI clauses, and the authorship log is the evidence that would answer them. This doesn't change the V1 build.
 - **Alternatives considered:** Self-publish only (KDP rules already covered in SPEC.md); undecided.
 
+## 2026-11-22 — Tech stack: Next.js on Vercel, Postgres on Supabase
+- **Decision:** One Next.js (React + TypeScript) project holds both the phone screens and the server code. It's hosted on Vercel and stores data in a Supabase Postgres database. On a laptop with no settings, it uses a built-in database saved in `.data/`, so `npm install` and `npm run dev` are all it takes.
+- **Why:** One project and one deploy. API keys stay on the server. The phone needs a secure web address for the microphone, which Vercel provides. Both services are free at this size.
+- **Alternatives considered:** A separate front end and back end (more moving parts); SQLite on a small rented server (more upkeep); a native app (out of V1 scope).
+
+## 2026-11-22 — Private login is a single passphrase
+- **Decision:** One passphrase, set as `APP_PASSPHRASE` in Vercel, signs the phone in for a year with a signed cookie. Without it the deployed app refuses to run.
+- **Why:** Simplest private lock for one user: one setting and no email service. Changing the passphrase signs every device out. (This replaces the email login proposed in session 1, which needed an extra service.)
+- **Alternatives considered:** Email magic links via Supabase Auth (another service and its email setup); no login (rejected: notes are private).
+
+## 2026-11-22 — Recordings are stored temporarily in the database
+- **Decision:** Audio is kept as 5-second pieces in a database table until its notes are reviewed, then deleted (unless "Keep the recording" is on).
+- **Why:** No separate file-storage service. Recordings are short-lived and small (about 0.2 MB a minute).
+- **Alternatives considered:** Supabase Storage or another file bucket (one more service and set of permissions for files that live a few days).
+
+## 2026-11-22 — Recordings upload in pieces and wait on the phone until the server has them
+- **Decision:** The phone writes each 5-second piece to its own storage, then uploads it, and deletes it from the phone only after the server confirms. Anything left over uploads the next time the app is open with a connection.
+- **Why:** Drives have dead zones. A note said in a tunnel shouldn't disappear.
+- **Alternatives considered:** Uploading the whole recording at the end (one dead zone loses everything); a background service worker (iPhone's support for this is unreliable; revisit if needed).
+
+## 2026-11-22 — Deepgram (nova-3) for speech-to-text, opted out of training on every request
+- **Decision:** Transcription uses Deepgram's pre-recorded API with `mip_opt_out=true` on every request, enforced by a unit test.
+- **Why:** Deepgram enrolls requests in its Model Improvement Program and keeps the audio **by default**. The opt-out gives zero retention: nothing is stored after the transcript returns. Deepgram notes that opting out can affect pricing; at this volume the difference is pennies.
+- **Alternatives considered:** OpenAI's transcription API (also no-training on API data; no strong reason to prefer it); browser dictation and self-hosted Whisper (see the speech-to-text entry above).
+
+## 2026-11-22 — "Transcribe, don't ghostwrite" is enforced in code
+- **Decision:** Saying "new note" splits notes and spoken labels ("scene note") are read by plain code rules, not AI. Claude (`claude-opus-5-5`, low effort) only removes hesitation sounds and stutters and fixes punctuation. Every AI result is then checked word for word against the transcript. Any added, changed, reordered or dropped word means the AI version is discarded and a code-only cleanup is used. Words like "like", "so" and "you know" are never removable, and neither is a correct double such as "had had". The exact transcript is stored with every note and shown under ⋯.
+- **Why:** The copyright promise shouldn't depend on an AI following instructions. The check makes it impossible for AI-written words to reach a note, and the voice test reuses the same check, so results can be published.
+- **Alternatives considered:** Trusting the prompt alone (not verifiable); no cleanup at all (notes full of "um"); letting the AI remove all filler-like words (risks changing meaning).
+
+## 2026-11-22 — Milestone 1 scope details
+- **Decision:** Spoken labels are shown on the note and stored as its suggested space, but every note stays in the Inbox until Milestone 2 adds spaces. Typed notes skip review and go straight to "In your Inbox". Deleting a note hides it, and the deletion is recorded in the authorship log.
+- **Why:** This keeps Milestone 1 to capture, transcription and Inbox, as the spec orders. Typed words need no review. The authorship log must stay complete.
+- **Alternatives considered:** Auto-filing labelled notes now (that's Milestone 2 work).
+
 ---
 
 ## Open questions settled in session 1 (2026-11-22)

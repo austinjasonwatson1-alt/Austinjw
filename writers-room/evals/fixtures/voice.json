@@ -1,0 +1,17 @@
+{
+  "about": "Made-up drive-time transcripts (no real manuscript material), written to look like raw speech-to-text output with fillers, stutters, labels and 'new note' splits.",
+  "cases": [
+    { "id": "scene-basic", "transcript": "Um, scene note. She finds the, uh, the second phone in the glove box, wrapped in a dish towel.", "expect": [{ "label": "scenes" }] },
+    { "id": "two-notes", "transcript": "Okay so character note: Detective Hale never sits down in an interview. New note. Place note. The lake house smells like wet cedar and gasoline.", "expect": [{ "label": "characters" }, { "label": "places" }] },
+    { "id": "unlabeled", "transcript": "Hmm, something about a neighbor's security camera pointing the wrong way, uh, at the wrong house.", "expect": [{ "label": null }] },
+    { "id": "book-idea", "transcript": "New book idea: a nanny cam catches the wrong crime and the nanny is the only one who knows.", "expect": [{ "label": "book_ideas" }] },
+    { "id": "had-had", "transcript": "She had had enough of his, um, his excuses by the time the fire started.", "expect": [{ "label": null }] },
+    { "id": "like-meaningful", "transcript": "I like that he lies about small things. It makes the big lie, uh, believable.", "expect": [{ "label": null }] },
+    { "id": "numbers", "transcript": "Scene note. Chapter 12, she counts 3 missed calls from a number she doesn't know.", "expect": [{ "label": "scenes" }] },
+    { "id": "question", "transcript": "Question note. Check how long, um, phone carriers keep call records. Is it two years or seven?", "expect": [{ "label": "questions" }] },
+    { "id": "plot-timeline", "transcript": "Plot note: the affair has to start before the fire, not after. Uh, otherwise the insurance motive doesn't work.", "expect": [{ "label": "plot" }] },
+    { "id": "stutter", "transcript": "I I think the the husband is the one being gaslit, not her.", "expect": [{ "label": null }] },
+    { "id": "three-way", "transcript": "Brainstorm: what if the dog knows. New note. Uh, new note. Character note, Marcy always answers a question with a question. New note. Scene note. Marcy at the funeral, standing too close to the casket.", "expect": [{ "label": "brainstorm" }, { "label": "characters" }, { "label": "scenes" }] },
+    { "id": "long-ramble", "transcript": "So, um, the thing about the second phone is it can't just be a burner, it has to be, uh, something she recognizes, like an old phone of her sister's that was supposed to have been, um, buried with her. And when she turns it on there's one text she never sent.", "expect": [{ "label": null }] }
+  ]
+}

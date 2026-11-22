@@ -1,0 +1,135 @@
+{
+  "summary": {
+    "date": "2026-11-22",
+    "cleanup": "code-only (no ANTHROPIC_API_KEY set)",
+    "fixtures": 12,
+    "notes": 15,
+    "split_and_labels_correct": "12/12",
+    "final_notes_passing_word_check": "15/15",
+    "ai_versions_accepted": "n/a",
+    "ai_versions_rejected_by_check": "n/a",
+    "filler_words_removed": 14
+  },
+  "rows": [
+    {
+      "case": "scene-basic",
+      "said": "She finds the, uh, the second phone in the glove box, wrapped in a dish towel.",
+      "kept": "She finds the second phone in the glove box, wrapped in a dish towel.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "two-notes",
+      "said": "Detective Hale never sits down in an interview.",
+      "kept": "Detective Hale never sits down in an interview.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "two-notes",
+      "said": "The lake house smells like wet cedar and gasoline.",
+      "kept": "The lake house smells like wet cedar and gasoline.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "unlabeled",
+      "said": "Hmm, something about a neighbor's security camera pointing the wrong way, uh, at the wrong house.",
+      "kept": "Something about a neighbor's security camera pointing the wrong way, at the wrong house.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "book-idea",
+      "said": "a nanny cam catches the wrong crime and the nanny is the only one who knows.",
+      "kept": "A nanny cam catches the wrong crime and the nanny is the only one who knows.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "had-had",
+      "said": "She had had enough of his, um, his excuses by the time the fire started.",
+      "kept": "She had had enough of his excuses by the time the fire started.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "like-meaningful",
+      "said": "I like that he lies about small things. It makes the big lie, uh, believable.",
+      "kept": "I like that he lies about small things. It makes the big lie, believable.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "numbers",
+      "said": "Chapter 12, she counts 3 missed calls from a number she doesn't know.",
+      "kept": "Chapter 12, she counts 3 missed calls from a number she doesn't know.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "question",
+      "said": "Check how long, um, phone carriers keep call records. Is it two years or seven?",
+      "kept": "Check how long, phone carriers keep call records. Is it two years or seven?",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "plot-timeline",
+      "said": "the affair has to start before the fire, not after. Uh, otherwise the insurance motive doesn't work.",
+      "kept": "The affair has to start before the fire, not after. Otherwise the insurance motive doesn't work.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "stutter",
+      "said": "I I think the the husband is the one being gaslit, not her.",
+      "kept": "I think the husband is the one being gaslit, not her.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "three-way",
+      "said": "what if the dog knows.",
+      "kept": "What if the dog knows.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "three-way",
+      "said": "Marcy always answers a question with a question.",
+      "kept": "Marcy always answers a question with a question.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "three-way",
+      "said": "Marcy at the funeral, standing too close to the casket.",
+      "kept": "Marcy at the funeral, standing too close to the casket.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    },
+    {
+      "case": "long-ramble",
+      "said": "So, um, the thing about the second phone is it can't just be a burner, it has to be, uh, something she recognizes, like an old phone of her sister's that was supposed to have been, um, buried with her. And when she turns it on there's one text she never sent.",
+      "kept": "So, the thing about the second phone is it can't just be a burner, it has to be, something she recognizes, like an old phone of her sister's that was supposed to have been, buried with her. And when she turns it on there's one text she never sent.",
+      "method": "basic",
+      "passes_check": true,
+      "ai_rejected_because": null
+    }
+  ]
+}
