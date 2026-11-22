@@ -10,7 +10,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "probe": "vite-node scripts/probe.ts",
-    "build:page": "node scripts/build-page.mjs"
+    "build:page": "node scripts/build-page.mjs",
+    "sim:games": "vite-node scripts/simprobe.ts",
+    "sim:careers": "vite-node scripts/careerprobe.ts"
   },
   "dependencies": {
     "react": "18.3.1",

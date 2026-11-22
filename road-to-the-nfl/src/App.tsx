@@ -1,14 +1,25 @@
 import { useState, type CSSProperties } from 'react';
 import { CONFIG } from './config';
+import { newCareer, seasonLabel } from './career/career';
+import { overall } from './career/progression';
+import { deleteCareer, loadCareer, SLOTS } from './career/save';
+import type { Career } from './career/types';
 import { Practice } from './screens/Practice';
+import { CareerApp } from './screens/career/CareerApp';
 
-type Screen = 'start' | 'practice';
+type Screen = { name: 'start' } | { name: 'practice' } | { name: 'create'; slot: number } | { name: 'career'; career: Career };
+
+const STAGE = { hs: 'High school', college: 'College', draft: 'Draft', nfl: 'NFL', retired: 'Retired' };
 
 export function App() {
-  const [screen, setScreen] = useState<Screen>('start');
+  const [screen, setScreen] = useState<Screen>({ name: 'start' });
+  const [, refresh] = useState(0);
 
-  if (screen === 'practice') return <Practice onExit={() => setScreen('start')} />;
+  if (screen.name === 'practice') return <Practice onExit={() => setScreen({ name: 'start' })} />;
+  if (screen.name === 'create') return <CreateKicker slot={screen.slot} onBack={() => setScreen({ name: 'start' })} onCreate={(c) => setScreen({ name: 'career', career: c })} />;
+  if (screen.name === 'career') return <CareerApp initial={screen.career} onMenu={() => setScreen({ name: 'start' })} />;
 
+  const slots = SLOTS.map((s) => ({ slot: s, c: loadCareer(s) }));
   return (
     <div className="screen start" style={{ '--accent': CONFIG.practice.accent } as CSSProperties}>
       <div className="start-inner">
@@ -16,18 +27,112 @@ export function App() {
         <h1 className="title">
           Road to the <span>NFL</span>
         </h1>
+        <div className="slots">
+          {slots.map(({ slot, c }) => (
+            <div key={slot} className={`slot ${c ? 'used' : ''}`}>
+              <div className="slot-n">Slot {slot}</div>
+              {c ? (
+                <>
+                  <div className="slot-name">{c.kicker.name}</div>
+                  <div className="slot-meta">
+                    {STAGE[c.stage]}
+                    {c.stage !== 'retired' && c.stage !== 'draft' ? ` · ${seasonLabel(c)}` : ''} · {c.team?.short ?? '—'} · OVR {overall(c.skills)} · {c.year}
+                  </div>
+                  <div className="slot-btns">
+                    <button className="primary small" onClick={() => setScreen({ name: 'career', career: c })}>
+                      {c.stage === 'retired' ? 'View' : 'Continue'}
+                    </button>
+                    <DeleteButton
+                      onDelete={() => {
+                        deleteCareer(slot);
+                        refresh((n) => n + 1);
+                      }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="slot-name dim">Empty</div>
+                  <div className="slot-btns">
+                    <button className="ghost small" onClick={() => setScreen({ name: 'create', slot })}>
+                      New career
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
         <div className="menu">
-          <button className="primary" onClick={() => setScreen('practice')}>
+          <button className="ghost" onClick={() => setScreen({ name: 'practice' })}>
             Free Practice
-          </button>
-          <button disabled title="Arrives with the high school milestone">
-            New Career <small>coming soon</small>
-          </button>
-          <button disabled title="Arrives with the high school milestone">
-            Continue <small>coming soon</small>
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function DeleteButton({ onDelete }: { onDelete: () => void }) {
+  const [sure, setSure] = useState(false);
+  return sure ? (
+    <button className="ghost small danger" onClick={onDelete}>
+      Delete for good
+    </button>
+  ) : (
+    <button className="ghost small" onClick={() => setSure(true)}>
+      Delete
+    </button>
+  );
+}
+
+function CreateKicker({ slot, onBack, onCreate }: { slot: number; onBack: () => void; onCreate: (c: Career) => void }) {
+  const [name, setName] = useState(CONFIG.practice.kickerName);
+  const [hometown, setHometown] = useState('');
+  const [school, setSchool] = useState('');
+  const [foot, setFoot] = useState<'R' | 'L'>('R');
+  const [number, setNumber] = useState(CONFIG.practice.kickerNumber);
+  const ok = name.trim() && school.trim();
+  return (
+    <div className="screen setup" style={{ '--accent': CONFIG.practice.accent } as CSSProperties}>
+      <header className="screen-head">
+        <button className="link" onClick={onBack}>
+          ← Menu
+        </button>
+        <h1>Create a kicker</h1>
+        <div className="sub">High school junior, ratings in the 40s, a leg good for about 40 yards. Slot {slot}.</div>
+      </header>
+      <form
+        className="card create"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!ok) return;
+          const seed = Math.floor(Math.random() * 2 ** 31);
+          onCreate(newCareer(slot, { name: name.trim(), hometown: hometown.trim(), school: school.trim(), foot, number: number.trim() || '3' }, seed));
+        }}
+      >
+        <label htmlFor="cname">Name</label>
+        <input id="cname" value={name} onChange={(e) => setName(e.target.value)} maxLength={28} />
+        <label htmlFor="ctown">Hometown</label>
+        <input id="ctown" value={hometown} onChange={(e) => setHometown(e.target.value)} placeholder="Where you grew up" maxLength={28} />
+        <label htmlFor="cschool">High school</label>
+        <input id="cschool" value={school} onChange={(e) => setSchool(e.target.value)} placeholder="e.g. Lakeview High" maxLength={28} />
+        <label>Kicking foot</label>
+        <div className="seg">
+          {(['R', 'L'] as const).map((f) => (
+            <button type="button" key={f} className={foot === f ? 'on' : ''} onClick={() => setFoot(f)}>
+              {f === 'R' ? 'Right' : 'Left'}
+            </button>
+          ))}
+        </div>
+        <label htmlFor="cnum">Jersey number</label>
+        <input id="cnum" value={number} onChange={(e) => setNumber(e.target.value.replace(/\D/g, '').slice(0, 2))} inputMode="numeric" />
+        <div className="btn-row">
+          <button className="primary" type="submit" disabled={!ok}>
+            Start career
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

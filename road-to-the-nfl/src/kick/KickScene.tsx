@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { CONFIG } from '../config';
 import { Rng } from '../sim/rng';
 import type { Camera } from './camera';
 import { sound } from '../audio/sound';
-import { describeWind, goalPlaneY, powerSpeedFrac, resolveKick, type KickResult, type KickSetup, type KickerRatings, type Vec3 } from './physics';
+import type { Kit } from './figures';
+import { describeWind, goalPlaneY, powerSpeedFrac, rate, resolveKick, type KickResult, type KickSetup, type KickerRatings, type Vec3 } from './physics';
 import { buildCamera, drawMeters, drawScene, type Phase, type SceneView } from './render';
 
 export interface SessionLine {
@@ -18,12 +19,29 @@ interface Props {
   kicker: KickerRatings;
   accent: string;
   kickerName: string;
-  session: SessionLine;
+  kickerNumber?: string;
+  teamKit?: Kit;
+  oppKit?: Kit;
+  session?: SessionLine;
+  /** Replaces the practice score bug (game mode). */
+  bug?: ReactNode;
+  /** Situation card title, e.g. "Extra point". Defaults to "N-yard field goal". */
+  cardTitle?: string;
+  /** Small tag on the card, e.g. "GAME-WINNER". */
+  cardTag?: string;
+  weatherLabel?: string;
+  /** 0..1 raw pressure of the moment (Composure reduces its effect). */
+  pressure?: number;
+  /** Opponent called a timeout to ice the kicker. */
+  iced?: string | null;
+  /** 'practice' shows Kick again / New spot / Setup; 'game' shows one Continue button. */
+  mode?: 'practice' | 'game';
+  continueLabel?: string;
   seed: number;
   onResult: (r: KickResult) => void;
   onAgain: () => void;
-  onNewSpot: () => void;
-  onExit: () => void;
+  onNewSpot?: () => void;
+  onExit?: () => void;
 }
 
 interface Runtime {
@@ -48,6 +66,7 @@ interface Runtime {
   lookBoost: number;
   shakeUntil: number;
   contactAt: number | null;
+  icedUntil: number;
   keys: { left: boolean; right: boolean };
 }
 
@@ -74,6 +93,7 @@ const fresh = (): Runtime => ({
   shakeUntil: -1,
   contactAt: null,
   keys: { left: false, right: false },
+  icedUntil: 0,
 });
 
 /** Playback speed through a close call: normal, easing down to slow motion around the posts, then back. */
@@ -140,7 +160,19 @@ function detailText(r: KickResult, setup: KickSetup): string {
   }
 }
 
-export function KickScene({ setup, kicker, kickerName, accent, session, seed, onResult, onAgain, onNewSpot, onExit }: Props) {
+export function KickScene(props: Props) {
+  const { setup, kicker, kickerName, accent, session, seed, onResult, onAgain, mode = 'practice' } = props;
+  const onNewSpot = props.onNewSpot ?? (() => {});
+  const onExit = props.onExit ?? (() => {});
+  const P = CONFIG.practice;
+  const teamKit = props.teamKit ?? P.team;
+  const oppKit = props.oppKit ?? P.opponent;
+  const kickerNumber = props.kickerNumber ?? P.kickerNumber;
+  // Composure decides how much of the moment's pressure reaches the meters.
+  const cf = rate(kicker.composure, CONFIG.pressure.composureFactor);
+  const eff = Math.min(1, (props.pressure ?? 0) * cf);
+  const speedMult = 1 + eff * CONFIG.pressure.speedGain + (props.iced ? CONFIG.icing.speedGain * cf : 0);
+  const [icing, setIcing] = useState(!!props.iced);
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rt = useRef<Runtime>(fresh());
@@ -149,8 +181,8 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
   const [ui, setUi] = useState<{ phase: Phase; result: KickResult | null; called: boolean; slow: boolean }>({ phase: 'aim', result: null, called: false, slow: false });
   const [muted, setMuted] = useState(sound.muted);
 
-  const cb = useRef({ onResult, onAgain, onNewSpot, onExit, setup, kicker });
-  cb.current = { onResult, onAgain, onNewSpot, onExit, setup, kicker };
+  const cb = useRef({ onResult, onAgain, onNewSpot, onExit, setup, kicker, mode, eff, speedMult, teamKit, oppKit, kickerNumber });
+  cb.current = { onResult, onAgain, onNewSpot, onExit, setup, kicker, mode, eff, speedMult, teamKit, oppKit, kickerNumber };
 
   const now = () => performance.now() / 1000 - t0.current;
 
@@ -159,8 +191,24 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
     rt.current = fresh();
     rt.current.phaseStart = now();
     setUi({ phase: 'aim', result: null, called: false, slow: false });
-    sound.crowd(CONFIG.audio.crowdIdle, 1.5);
+    sound.crowd(CONFIG.audio.crowdIdle + cb.current.eff * 0.35, 1.5);
+    if (props.iced) {
+      rt.current.icedUntil = now() + CONFIG.icing.waitS;
+      setIcing(true);
+      sound.whistle();
+      const id = window.setTimeout(() => setIcing(false), CONFIG.icing.waitS * 1000);
+      return () => window.clearTimeout(id);
+    }
+    setIcing(false);
+    return undefined;
   }, [setup, seed]);
+
+  // Heartbeat while lining up a big kick.
+  useEffect(() => {
+    const live = ui.phase === 'aim' || ui.phase === 'power' || ui.phase === 'accuracy';
+    sound.heartbeat(live && eff > 0.3 ? eff : 0);
+    return () => sound.heartbeat(0);
+  }, [ui.phase, eff]);
 
   const setPhase = (p: Phase) => {
     rt.current.phase = p;
@@ -174,6 +222,7 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
     const t = now();
     switch (s.phase) {
       case 'aim':
+        if (t < s.icedUntil) break;
         setPhase('power');
         break;
       case 'power':
@@ -232,12 +281,12 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
       } else if (e.code === 'ArrowRight') {
         e.preventDefault();
         s.keys.right = true;
-      } else if (e.code === 'KeyN' && (s.phase === 'result' || s.phase === 'aim')) {
+      } else if (e.code === 'KeyN' && cb.current.mode === 'practice' && (s.phase === 'result' || s.phase === 'aim')) {
         cb.current.onNewSpot();
       } else if (e.code === 'KeyM') {
         sound.start();
         setMuted(sound.toggleMute());
-      } else if (e.code === 'Escape') {
+      } else if (e.code === 'Escape' && cb.current.mode === 'practice') {
         cb.current.onExit();
       }
     };
@@ -268,7 +317,7 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
       last = t;
       const s = rt.current;
       const su = cb.current.setup;
-      const pt = t - s.phaseStart;
+      const pt = (t - s.phaseStart) * cb.current.speedMult;
 
       if (s.phase === 'aim') {
         const dir = (s.keys.right ? 1 : 0) - (s.keys.left ? 1 : 0);
@@ -287,6 +336,9 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
           const frac = travel % 2;
           const forward = passes % 2 === 0 === s.accStartLeft;
           s.accuracy = forward ? -1 + frac : 1 - frac;
+          // Pressure makes the marker wobble.
+          const wob = cb.current.eff * CONFIG.pressure.shake;
+          s.accuracy = Math.max(-1, Math.min(1, s.accuracy + wob * (Math.sin(t * 23) + 0.6 * Math.sin(t * 37 + 1))));
         }
       }
 
@@ -354,7 +406,7 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
         }
         if (s.phase === 'flight' && fi >= path.length - 1 + CONFIG.presentation.resultDelayS * 60 && s.called) {
           setPhase('result');
-          sound.crowd(CONFIG.audio.crowdIdle, 3);
+          sound.crowd(CONFIG.audio.crowdIdle + cb.current.eff * 0.2, 3);
         }
         const want = Math.max(0, ball.z - 14) * 0.45;
         s.lookBoost += (want - s.lookBoost) * Math.min(1, dt * 3);
@@ -402,6 +454,11 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
         powerLocked: s.powerLocked,
         accuracy: s.accuracy,
         accuracyLocked: s.accuracyLocked,
+        teamKit: cb.current.teamKit,
+        oppKit: cb.current.oppKit,
+        kickerNumber: cb.current.kickerNumber,
+        kickerName: kickerName,
+        pressure: cb.current.eff,
       };
       drawScene(ctx, cam, w, h, view);
       if (s.slowBlend < 0.03) drawMeters(ctx, w, h, view);
@@ -438,8 +495,9 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
     { key: 'flight', label: 'Flight' },
   ];
   const stepIdx = ui.phase === 'result' ? 3 : steps.findIndex((s) => s.key === ui.phase);
-  const hint =
-    ui.phase === 'aim'
+  const hint = icing
+    ? ''
+    : ui.phase === 'aim'
       ? 'Read the wind · ← → or mouse to aim · SPACE / click to set'
       : ui.phase === 'power'
         ? 'SPACE to stop near the top · past the line = more leg, smaller sweet spot'
@@ -453,20 +511,30 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
     <div className={`scene ${ui.slow ? 'slowmo' : ''}`} ref={wrapRef} style={{ '--accent': accent } as CSSProperties}>
       <canvas ref={canvasRef} className="scene-canvas" onPointerMove={onPointerMove} onPointerDown={() => advance()} />
 
-      <div className="bug">
-        <div className="bug-team">{session.label}</div>
-        <div className="bug-cell">
-          <span className="bug-k">FG</span>
-          <span className="bug-v">
-            {session.made}/{session.att}
-          </span>
+      {props.bug ??
+        (session && (
+          <div className="bug">
+            <div className="bug-team">{session.label}</div>
+            <div className="bug-cell">
+              <span className="bug-k">FG</span>
+              <span className="bug-v">
+                {session.made}/{session.att}
+              </span>
+            </div>
+            <div className="bug-cell">
+              <span className="bug-k">LONG</span>
+              <span className="bug-v">{session.long || '—'}</span>
+            </div>
+            <div className="bug-cell bug-level">{level.label.toUpperCase()}</div>
+          </div>
+        ))}
+
+      {icing && props.iced && (
+        <div className="icing">
+          <div className="icing-big">Timeout</div>
+          <div className="icing-sub">{props.iced}</div>
         </div>
-        <div className="bug-cell">
-          <span className="bug-k">LONG</span>
-          <span className="bug-v">{session.long || '—'}</span>
-        </div>
-        <div className="bug-cell bug-level">{level.label.toUpperCase()}</div>
-      </div>
+      )}
 
       <div className="steps">
         {steps.map((s, i) => (
@@ -498,12 +566,15 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
         <div className="lower-third">
           <div className="lt-accent" />
           <div className="lt-body">
-            <div className="lt-name">{kickerName}</div>
-            <div className="lt-title">{setup.distanceYd}-yard field goal</div>
+            <div className="lt-name">
+              {kickerName}
+              {props.cardTag && <span className="lt-tag">{props.cardTag}</span>}
+            </div>
+            <div className="lt-title">{props.cardTitle ?? `${setup.distanceYd}-yard field goal`}</div>
             <div className="lt-row">
               <span>{HASH_LABEL[setup.hash]}</span>
               <span>Wind {Math.round(setup.windMph)} mph · {describeWind(setup.windMph, setup.windToDeg)}</span>
-              <span>Clear</span>
+              <span>{props.weatherLabel ?? CONFIG.weather[setup.weather ?? 'clear'].label}</span>
             </div>
           </div>
         </div>
@@ -526,7 +597,14 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
         <div className={`call ${call.good ? 'good' : 'miss'}`} key={seed}>
           <div className="call-big">{call.big}</div>
           <div className="call-sub">{detailText(ui.result, setup)}</div>
-          {ui.phase === 'result' && (
+          {ui.phase === 'result' && mode === 'game' && (
+            <div className="actions">
+              <button onClick={() => onAgain()}>
+                <kbd>Space</kbd> {props.continueLabel ?? 'Continue'}
+              </button>
+            </div>
+          )}
+          {ui.phase === 'result' && mode === 'practice' && (
             <div className="actions">
               <button onClick={() => onAgain()}>
                 <kbd>Space</kbd> Kick again

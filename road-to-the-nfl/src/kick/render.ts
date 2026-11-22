@@ -4,7 +4,7 @@ import { CONFIG } from '../config';
 import { Camera, type ScreenPt } from './camera';
 import { goalPlaneY, kickSpotX, sweetSpotHalf, windVectorFtS, type KickSetup, type KickerRatings, type Vec3 } from './physics';
 import { Rng } from '../sim/rng';
-import { at, drawFigure, figureDepth, frame, holderPose, kickerPose, linemanPose, rusherPose, type Figure } from './figures';
+import { at, drawFigure, figureDepth, frame, holderPose, kickerPose, linemanPose, rusherPose, type Figure, type Kit } from './figures';
 
 export type Phase = 'aim' | 'power' | 'accuracy' | 'flight' | 'result';
 
@@ -24,6 +24,11 @@ export interface SceneView {
   sinceDecide: number | null; // seconds since the result was decided
   made: boolean | null;
   slowBlend: number; // 0..1 slow-motion push-in
+  teamKit: Kit;
+  oppKit: Kit;
+  kickerNumber: string;
+  kickerName: string;
+  pressure: number; // 0..1 effective (after Composure), shakes the meters
   lookBoost: number; // camera tilt-up to follow the ball, ft
   shake: number; // 0..1
   power: number; // current power meter value
@@ -92,10 +97,19 @@ const FANS: Fan[] = (() => {
   return out;
 })();
 
-function fanPos(f: Fan, planeY: number): Vec3 {
-  if (f.side === 0) return { x: -260 + 520 * f.u, y: planeY + 50 + 200 * f.v, z: 4 + 110 * f.v };
+interface StadiumSpec {
+  height: number;
+  depth: number;
+  crowd: number;
+  sides: number;
+  lights: number;
+}
+
+function fanPos(f: Fan, planeY: number, st: StadiumSpec): Vec3 {
+  if (f.side === 0) return { x: -260 + 520 * f.u, y: planeY + 50 + st.depth * 0.95 * f.v, z: 4 + (st.height - 8) * f.v };
   const sgn = f.side === 1 ? -1 : 1;
-  return { x: sgn * (125 + 200 * f.v), y: -160 + (planeY + 210) * f.u, z: 4 + 110 * f.v };
+  const sh = st.height * st.sides;
+  return { x: sgn * (125 + st.depth * 0.95 * st.sides * f.v), y: -160 + (planeY + 210) * f.u, z: 4 + Math.max(4, sh - 8) * f.v };
 }
 
 // ---------------------------------------------------------------------------
@@ -164,42 +178,60 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, w, h);
 
-  // Stands (back, then sides)
-  const standBack = cam.polygon([
-    { x: -280, y: planeY + 48, z: 0 },
-    { x: 280, y: planeY + 48, z: 0 },
-    { x: 280, y: planeY + 260, z: 118 },
-    { x: -280, y: planeY + 260, z: 118 },
-  ]);
-  fillPoly(ctx, standBack, '#141a2b');
+  // Stands grow with the level: bleachers, a college bowl, an NFL stadium.
+  const st: StadiumSpec = CONFIG.stadium[setup.level];
+  const H = st.height;
+  const D = st.depth;
+  fillPoly(
+    ctx,
+    cam.polygon([
+      { x: -280, y: planeY + 48, z: 0 },
+      { x: 280, y: planeY + 48, z: 0 },
+      { x: 280, y: planeY + 50 + D, z: H },
+      { x: -280, y: planeY + 50 + D, z: H },
+    ]),
+    '#141a2b',
+  );
   for (const sgn of [-1, 1]) {
     fillPoly(
       ctx,
       cam.polygon([
         { x: sgn * 122, y: -200, z: 0 },
         { x: sgn * 122, y: planeY + 50, z: 0 },
-        { x: sgn * 335, y: planeY + 50, z: 118 },
-        { x: sgn * 335, y: -200, z: 118 },
+        { x: sgn * (125 + D * st.sides), y: planeY + 50, z: H * st.sides },
+        { x: sgn * (125 + D * st.sides), y: -200, z: H * st.sides },
       ]),
       '#121827',
     );
   }
   // Crowd
   const crowd = ['#9aa0b0', '#2f3954', rgba(v.accent, 0.75), '#6b7389', '#454f6a', '#c9ccd6'];
-  for (const f of FANS) {
-    const p = cam.project(fanPos(f, planeY));
+  const every = Math.max(1, Math.round(1 / st.crowd));
+  for (let i = 0; i < FANS.length; i += every) {
+    const f = FANS[i];
+    const p = cam.project(fanPos(f, planeY, st));
     if (!p || p.sx < -10 || p.sx > w + 10 || p.sy < -10 || p.sy > h) continue;
     const s = Math.min(4, Math.max(1, 1.1 * cam.scale(p.depth)));
     const bob = Math.sin(v.time * 3 + f.phase) * s * 0.15;
     ctx.fillStyle = crowd[f.c];
     ctx.fillRect(p.sx - s / 2, p.sy - s + bob, s, s);
   }
-  // Rim of the bowl and light banks
-  line3(ctx, cam, { x: -280, y: planeY + 260, z: 118 }, { x: 280, y: planeY + 260, z: 118 }, 3, '#0a0e18', 2);
-  for (const lx of [-190, -60, 60, 190]) {
-    const p = cam.project({ x: lx, y: planeY + 270, z: 150 });
+  // Rim and lights. High school gets light poles on their own; bigger venues hang them off the rim.
+  line3(ctx, cam, { x: -280, y: planeY + 50 + D, z: H }, { x: 280, y: planeY + 50 + D, z: H }, 3, '#0a0e18', 2);
+  const lightSpots: Vec3[] =
+    st.lights <= 2
+      ? [
+          { x: -150, y: planeY + 40, z: 70 },
+          { x: 150, y: planeY + 40, z: 70 },
+          { x: -150, y: planeY * 0.35, z: 70 },
+          { x: 150, y: planeY * 0.35, z: 70 },
+        ]
+      : [-190, -60, 60, 190].map((lx) => ({ x: lx, y: planeY + 60 + D, z: H + 32 }));
+  for (const L of lightSpots) {
+    if (st.lights <= 2) line3(ctx, cam, { ...L, z: 0 }, L, 1.2, '#2a2f3a', 1.5);
+    const p = cam.project(L);
     if (!p) continue;
-    const r = Math.max(14, 40 * cam.scale(p.depth));
+    const r = Math.max(12, 30 * cam.scale(p.depth));
     const g = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, r * 4);
     g.addColorStop(0, 'rgba(255,250,235,0.9)');
     g.addColorStop(0.06, 'rgba(255,245,220,0.3)');
@@ -277,7 +309,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
   const items: Drawable[] = [];
 
   const dir = { x: -x0, y: planeY };
-  const P = CONFIG.practice;
+  const P = { team: v.teamKit, opponent: v.oppKit, kickerNumber: v.kickerNumber, kickerName: v.kickerName };
   const addFig = (fig: Figure) => {
     const d = figureDepth(cam, fig);
     if (d < 1) return;
@@ -366,6 +398,8 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
     }
   }
 
+  drawWeather(ctx, w, h, v);
+
   // Vignette
   const vg = ctx.createRadialGradient(w / 2, h * 0.45, Math.min(w, h) * 0.35, w / 2, h * 0.5, Math.max(w, h) * 0.8);
   vg.addColorStop(0, 'rgba(0,0,0,0)');
@@ -386,6 +420,48 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
     ctx.fillRect(0, 0, w, bar);
     ctx.fillRect(0, h - bar, w, bar);
   }
+}
+
+const DROPS = (() => {
+  const r = new Rng(77);
+  return Array.from({ length: 260 }, () => ({ x: r.next(), y: r.next(), z: 0.3 + r.next() * 0.7, p: r.next() * 6.28 }));
+})();
+
+function drawWeather(ctx: CanvasRenderingContext2D, w: number, h: number, v: SceneView) {
+  const kind = v.setup.weather ?? 'clear';
+  if (kind !== 'rain' && kind !== 'snow') return;
+  const wind = windVectorFtS(v.setup.windMph, v.setup.windToDeg);
+  const drift = wind.x * 0.004;
+  ctx.save();
+  if (kind === 'rain') {
+    ctx.strokeStyle = 'rgba(190,205,230,0.35)';
+    ctx.lineCap = 'round';
+    for (const d of DROPS) {
+      const speed = 1.6 * d.z;
+      const y = ((d.y + v.time * speed) % 1) * (h + 40) - 20;
+      const x = (((d.x + drift * v.time * 60 * d.z) % 1) + 1) % 1 * w;
+      ctx.lineWidth = d.z * 1.4;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + drift * 400 * d.z + 1, y + 18 * d.z);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(40,50,70,0.18)';
+    ctx.fillRect(0, 0, w, h);
+  } else {
+    ctx.fillStyle = 'rgba(245,248,255,0.85)';
+    for (const d of DROPS) {
+      const speed = 0.12 * d.z;
+      const y = ((d.y + v.time * speed) % 1) * (h + 20) - 10;
+      const x = ((((d.x + drift * v.time * 20 * d.z + Math.sin(v.time + d.p) * 0.01) % 1) + 1) % 1) * w;
+      ctx.beginPath();
+      ctx.arc(x, y, 1 + d.z * 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(200,210,230,0.08)';
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.restore();
 }
 
 function shade(hex: string, amt: number): string {
@@ -501,6 +577,10 @@ function drawBall(ctx: CanvasRenderingContext2D, cam: Camera, v: SceneView) {
 
 export function drawMeters(ctx: CanvasRenderingContext2D, w: number, h: number, v: SceneView) {
   const m = CONFIG.meters;
+  const live = v.phase === 'power' || v.phase === 'accuracy';
+  const jig = live ? v.pressure * CONFIG.pressure.shakePx : 0;
+  ctx.save();
+  ctx.translate(Math.sin(v.time * 53) * jig, Math.cos(v.time * 61) * jig);
   const compact = w < 640;
 
   // POWER: vertical, right side
@@ -564,7 +644,7 @@ export function drawMeters(ctx: CanvasRenderingContext2D, w: number, h: number, 
   ctx.save();
   ctx.globalAlpha = showAcc ? (v.phase === 'accuracy' ? 1 : 0.8) : v.phase === 'power' ? 0.45 : 0.2;
   panel(ctx, ax - 14, ay - 30, aw + 28, ah + 44);
-  const sHalf = sweetSpotHalf(v.kicker, v.powerLocked ?? Math.min(1, v.power));
+  const sHalf = sweetSpotHalf(v.kicker, v.powerLocked ?? Math.min(1, v.power), v.setup.weather);
   const toX = (e: number) => ax + ((e + 1) / 2) * aw;
   const g = ctx.createLinearGradient(ax, 0, ax + aw, 0);
   g.addColorStop(0, '#b3261e');
@@ -600,6 +680,7 @@ export function drawMeters(ctx: CanvasRenderingContext2D, w: number, h: number, 
   ctx.textAlign = 'right';
   ctx.fillStyle = 'rgba(255,255,255,0.6)';
   ctx.fillText(compact ? 'HOOK ◀   ▶ SLICE' : 'HOOK ◀            ▶ SLICE', ax + aw, ay - 14);
+  ctx.restore();
   ctx.restore();
 }
 

@@ -3,6 +3,7 @@
 // interpolated linearly (and extrapolated below 40, clamped to the 1–99 scale).
 
 export type LevelKey = 'hs' | 'college' | 'nfl';
+export type Weather = 'clear' | 'rain' | 'snow' | 'cold';
 
 export interface LevelRules {
   label: string;
@@ -132,6 +133,156 @@ export const CONFIG = {
     closeBackFt: 56, // push-in camera distance in front of the goal plane
     closeFocal: 1.05, // push-in focal length as a fraction of screen span
     letterbox: 0.085, // cinematic bars, fraction of screen height each
+  },
+
+  weather: {
+    // range: fraction of calm-day distance kept (Power reduces the loss); sweet: sweet spot size multiplier
+    clear: { label: 'Clear', range: 1, sweet: 1, tempF: [58, 78] },
+    rain: { label: 'Rain', range: 0.95, sweet: 0.82, tempF: [45, 65] },
+    snow: { label: 'Snow', range: 0.9, sweet: 0.78, tempF: [22, 32] },
+    cold: { label: 'Cold', range: 0.94, sweet: 0.92, tempF: [18, 34] },
+    powerShield: { r40: 1, r99: 0.45 }, // how much of the weather's distance loss you still feel, by Power
+  },
+
+  pressure: {
+    speedGain: 0.55, // meters run this much faster at full pressure (before Composure)
+    shake: 0.07, // accuracy marker wobble at full pressure, in meter units
+    shakePx: 5, // visual meter shake
+    composureFactor: { r40: 1, r99: 0.25 }, // how much of the pressure effect you feel, by Composure
+    playoffBoost: 0.15,
+  },
+
+  icing: {
+    chanceWhenAvailable: 0.55, // opponent ices a high-pressure kick when it has a timeout
+    minPressure: 0.6,
+    waitS: 2.6,
+    speedGain: 0.12, // extra meter speed after being iced (before Composure)
+  },
+
+  stadium: {
+    // Stands grow with the career: bleachers, a college bowl, an NFL stadium.
+    hs: { height: 26, depth: 70, crowd: 0.22, sides: 0.35, lights: 2 },
+    college: { height: 85, depth: 190, crowd: 0.8, sides: 0.85, lights: 4 },
+    nfl: { height: 118, depth: 210, crowd: 1, sides: 1, lights: 4 },
+  },
+
+  career: {
+    startAge: 16,
+    startSkills: { power: 44, accuracy: 42, composure: 40, windControl: 41, consistency: 43 },
+    startYear: 2026,
+    retireAge: 45, // forced retirement
+    agingStartAge: 34, // Power starts to slip
+    agingPowerLoss: [2, 4], // per season, from agingStartAge
+    agingTouchAge: 37, // Accuracy and Consistency start to slip
+    agingTouchLoss: [1, 3],
+
+    skillCost: [
+      // cost per level when going FROM a rating below `below`
+      { below: 60, cost: 1 },
+      { below: 80, cost: 2 },
+      { below: 90, cost: 3 },
+      { below: 100, cost: 5 },
+    ],
+
+    points: {
+      // Points can be fractional; the game shows whole points.
+      levelMult: { hs: 1, college: 1, nfl: 0.45 }, // NFL seasons are long: each kick is worth less
+      fgMade: 0.5,
+      fg40: 0.25, // extra for 40-49
+      fg50: 1, // extra for 50+
+      pressureBonus: 1, // made kick with pressure >= 0.6
+      perfectGame: 2, // at least 2 kicks, all made
+      gameWinner: 3,
+      careerLong: 1,
+      drillPerMake: 0.5, // weekly drill, goes into the skill you pick
+      campBase: 5, // offseason camp: the biggest single chunk of the year
+      campPerMake: 1.5,
+      awards: { allState: 4, allConference: 4, allAmerican: 6, nationalAward: 8, proBowl: 5, allPro: 7, champion: 5 },
+    },
+
+    trust: {
+      start: { hs: 55, college: 45, nfl: 50 },
+      makeBase: 3,
+      makePerYdOver40: 0.4,
+      missBase: -6,
+      missShortExtra: -6, // misses inside 35 hurt more
+      xpMiss: -8,
+      pressureMult: 1.6, // clutch moments move trust more
+      // The coach's kicking range: kicker range (in this weather) times this, by trust 0 → 100
+      rangeFrac: { low: 0.8, high: 1.04 },
+      desperationBonusYd: 4, // last play of a half/game: will try a longer one
+    },
+
+    sim: {
+      quarterMin: 12, // minutes per quarter (HS); college/NFL use 15
+      quarterMinBig: 15,
+      drivesPerTeamApprox: 11,
+      driveMinutes: [1.0, 4.8],
+      // Drive results for an average offense vs average defense, by level
+      hs: { td: 0.33, fgChance: 0.17, turnover: 0.13, safety: 0.006 },
+      college: { td: 0.32, fgChance: 0.19, turnover: 0.12, safety: 0.005 },
+      nfl: { td: 0.235, fgChance: 0.21, turnover: 0.11, safety: 0.004 },
+      strengthEffect: 0.0045, // per point of offense-minus-defense strength
+      twoMinuteFgBoost: 0.18, // late-game drives settle for kicks more often
+      stallYardline: [3, 45], // where a stalled drive ends (opponent's yard line)
+      oppKickerRating: { hs: 45, college: 62, nfl: 78 },
+      autoXpRating: true,
+    },
+
+    pressure: {
+      base: 0.1,
+      q4Close: 0.35, // 4th quarter, within 8
+      lastTwoMin: 0.25,
+      gameWinner: 0.5, // tie or down 1-2, final seconds
+      xpCap: 0.35,
+    },
+
+    seasons: {
+      hs: { games: 10, playoffWins: 7, playoffRounds: 4 },
+      college: { games: 12, bowlWins: 6, playoffWins: 11, playoffRounds: 4 },
+      nfl: { games: 17, playoffWins: 10, byeWins: 13, playoffRounds: 4 },
+    },
+
+    honors: {
+      allState: { pct: 0.8, made: 10, long: 40 },
+      allConference: { pct: 0.82, made: 14 },
+      allAmerican: { pct: 0.87, made: 18, long: 50 },
+      nationalAward: { pct: 0.9, made: 20, long: 52 },
+      proBowl: { pct: 0.92, made: 29, long: 50 },
+      allPro: { pct: 0.95, made: 32, long: 55 },
+    },
+
+    recruiting: {
+      // Stars from a 0..100 score: overall, stats and the summer showcase
+      starCuts: [35, 50, 62, 74], // >= each cut adds a star above 1 (2 stars minimum)
+      showcaseDistances: [30, 35, 40, 45, 50],
+    },
+
+    camp: {
+      kicks: [30, 38, 44, 48, 52],
+      // Rival kicker overall by situation
+      rival: { hsSenior: 50, smallSchool: 52, midSchool: 64, majorProgram: 74, nflIncumbent: 80, udfaVet: 74 },
+    },
+
+    draft: {
+      showcaseDistances: [35, 40, 45, 50, 55, 60],
+      draftedScore: 66, // stock needed to be drafted at all
+      earlyScore: 80, // stock for round 5 instead of 6-7
+    },
+
+    nfl: {
+      rookieSalary: [0.88, 1.1], // $M
+      udfaSalary: 0.84,
+      veteranSalaryPerOvr: 0.09, // $M per overall point above 70 on re-signing
+      contractYears: { drafted: 4, udfa: 3, resign: [2, 4] },
+      hotSeatPct: 0.75, // over the last 10 FG attempts: a rival comes to camp
+      cutPct: 0.65, // worse than this over the last 10 attempts (or trust < cutTrust): cut
+      cutTrust: 12,
+      tryoutChancePerWeek: 0.3,
+      seasonsUnsignedToRetire: 1,
+    },
+
+    hallOfFame: { points: 2300, honors: 8, longFg: 60 },
   },
 
   audio: {

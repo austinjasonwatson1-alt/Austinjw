@@ -233,6 +233,62 @@ class SoundEngine {
     this.noiseBurst(t, 'lowpass', 300, 0.6, 0.3, 0.12, 0.9, this.brown!);
   }
 
+  private beatTimer: number | null = null;
+  private beatLevel = 0;
+
+  /** Heartbeat under pressure. level 0 stops it; higher is louder and faster. */
+  heartbeat(level: number) {
+    this.beatLevel = level;
+    if (level <= 0.01) {
+      if (this.beatTimer !== null) window.clearTimeout(this.beatTimer);
+      this.beatTimer = null;
+      return;
+    }
+    if (this.beatTimer !== null || !this.ctx) return;
+    const beat = () => {
+      if (!this.ctx || this.beatLevel <= 0.01) {
+        this.beatTimer = null;
+        return;
+      }
+      const t = this.ctx.currentTime;
+      const a = 0.35 + 0.5 * this.beatLevel;
+      this.tone(t, 'sine', 62, 40, 0.1, a, 0.004, 0.16);
+      this.tone(t + 0.2, 'sine', 55, 38, 0.1, a * 0.7, 0.004, 0.14);
+      const bpm = 70 + 60 * this.beatLevel;
+      this.beatTimer = window.setTimeout(beat, 60000 / bpm);
+    };
+    beat();
+  }
+
+  /** Referee whistle (timeouts). */
+  whistle() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'square';
+    o.frequency.value = 2900;
+    const trem = ctx.createOscillator();
+    trem.frequency.value = 38;
+    const tremAmt = ctx.createGain();
+    tremAmt.gain.value = 120;
+    trem.connect(tremAmt).connect(o.frequency);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 2900;
+    f.Q.value = 3;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+    g.gain.setValueAtTime(0.25, t + 0.55);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+    o.connect(f).connect(g).connect(this.master!);
+    o.start(t);
+    trem.start(t);
+    o.stop(t + 0.75);
+    trem.stop(t + 0.75);
+  }
+
   /** Crowd explodes. size 0..1.5 */
   roar(size = 1) {
     if (!this.ctx) return;

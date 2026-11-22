@@ -4,7 +4,7 @@
 // World coordinates, in feet: x is across the field (+ is right, from the kicker's view),
 // y is downfield from the holder's spot, z is up. The goalposts stand at y = distance * 3.
 
-import { CONFIG, type LevelKey, type RatingSpec } from '../config';
+import { CONFIG, type LevelKey, type RatingSpec, type Weather } from '../config';
 import { Rng } from '../sim/rng';
 
 export interface Vec3 {
@@ -22,6 +22,7 @@ export interface KickSetup {
   windMph: number;
   /** Direction the wind blows TOWARD, relative to the field: 0 = at the kicker's back, 90 = left to right, 180 = in the face, 270 = right to left. */
   windToDeg: number;
+  weather?: Weather;
 }
 
 export interface KickerRatings {
@@ -98,9 +99,15 @@ export function windVectorFtS(mph: number, toDeg: number): { x: number; y: numbe
 
 export const maxRangeYd = (k: KickerRatings) => rate(k.power, CONFIG.ratings.maxRangeYd);
 
-export function sweetSpotHalf(k: KickerRatings, power: number): number {
+/** Calm-day range after the weather takes its cut (Power shields part of it). */
+export function weatherRangeYd(k: KickerRatings, weather: Weather = 'clear'): number {
+  const loss = 1 - CONFIG.weather[weather].range;
+  return maxRangeYd(k) * (1 - loss * rate(k.power, CONFIG.weather.powerShield));
+}
+
+export function sweetSpotHalf(k: KickerRatings, power: number, weather: Weather = 'clear'): number {
   const m = CONFIG.meters;
-  const base = Math.max(0.02, rate(k.accuracy, CONFIG.ratings.sweetSpotHalf));
+  const base = Math.max(0.02, rate(k.accuracy, CONFIG.ratings.sweetSpotHalf) * CONFIG.weather[weather].sweet);
   const over = Math.max(0, Math.min(1, (power - 1) / (m.powerMax - 1)));
   return base * (1 - m.overdriveSweetSpotShrink * over);
 }
@@ -276,7 +283,7 @@ export function resolveKick(setup: KickSetup, input: KickInputs, kicker: KickerR
   const w = windVectorFtS(windActualMph * windPush, windDir);
 
   // Strike quality from the accuracy meter.
-  const s = sweetSpotHalf(kicker, input.power);
+  const s = sweetSpotHalf(kicker, input.power, setup.weather);
   const e = Math.max(-1, Math.min(1, input.accuracy));
   const inSweetSpot = Math.abs(e) <= s;
   const beyond = inSweetSpot ? 0 : Math.sign(e) * (Math.abs(e) - s);
@@ -284,7 +291,7 @@ export function resolveKick(setup: KickSetup, input: KickInputs, kicker: KickerR
   errDeg += rng.normal() * rate(kicker.consistency, CONFIG.ratings.driftSigmaDeg);
   const hookAccel = beyond * S.hookAccelPerUnit;
 
-  const v0 = launchSpeedForRange(maxRangeYd(kicker)) * powerSpeedFrac(input.power);
+  const v0 = launchSpeedForRange(weatherRangeYd(kicker, setup.weather)) * powerSpeedFrac(input.power);
   const aimDir = Math.atan2(input.aimXFt - x0, planeY);
   const dir = aimDir + (errDeg * Math.PI) / 180;
 
