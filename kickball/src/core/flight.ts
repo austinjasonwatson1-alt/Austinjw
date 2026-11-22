@@ -43,6 +43,7 @@ export function simulateFlight(sprayDeg: number, launchDeg: number, exitSpeed: n
   let maxHeight = z;
   let overFence = false;
   let rolling = false;
+  let prevDist = 0;
 
   while (t < 20) {
     t += dt;
@@ -87,9 +88,11 @@ export function simulateFlight(sprayDeg: number, launchDeg: number, exitSpeed: n
       x += vx * dt;
       y += vy * dt;
     }
-    // A fair ball that reaches the fence on the ground stops there.
-    if (fair && z < 6 && Math.hypot(x, y) >= fence) {
-      const d = Math.hypot(x, y);
+    // A fair ball that reaches the fence low (on the ground or below the top) stops there.
+    const d = Math.hypot(x, y);
+    const crossing = d >= fence && prevDist < fence;
+    prevDist = d;
+    if (fair && crossing && z < CONFIG.field.fenceHeight) {
       x *= fence / d;
       y *= fence / d;
       points.push({ t, x, y, z });
@@ -116,4 +119,31 @@ export function flightPositionAt(f: Flight, t: number): FlightPoint {
   if (t >= f.duration) return f.points[f.points.length - 1];
   const i = Math.min(f.points.length - 1, Math.max(0, Math.floor(t / B.simStep)));
   return f.points[i];
+}
+
+/** Path of a ball rolling along the ground from (x, y) at velocity (vx, vy), until it stops. */
+export function rollPath(x: number, y: number, vx: number, vy: number, t0: number): FlightPoint[] {
+  const pts: FlightPoint[] = [{ t: t0, x, y, z: 0 }];
+  let t = t0;
+  const dt = B.simStep * 2;
+  let speed = Math.hypot(vx, vy);
+  const fence = CONFIG.field.fenceDistance;
+  while (speed > B.stopSpeed && t < t0 + 15) {
+    t += dt;
+    const next = speed - B.rollFriction * dt;
+    vx *= next / speed;
+    vy *= next / speed;
+    speed = next;
+    x += vx * dt;
+    y += vy * dt;
+    const d = Math.hypot(x, y);
+    if (d > fence) {
+      x *= fence / d;
+      y *= fence / d;
+      pts.push({ t, x, y, z: 0 });
+      break;
+    }
+    pts.push({ t, x, y, z: 0 });
+  }
+  return pts;
 }

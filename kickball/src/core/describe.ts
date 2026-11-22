@@ -52,3 +52,16 @@ export function timingLabel(deltaMs: number): string {
   if (ms < 5) return 'right on time';
   return `${ms} ms ${deltaMs < 0 ? 'early' : 'late'}`;
 }
+
+/** Short phrase for where a fair or foul ball went, for the start of a play's result line. */
+export function kickPhrase(k: Extract<KickOutcome, { kind: 'contact' }>, f: Flight): string {
+  if (!f.fair) return k.sprayDeg < 0 ? 'Popped up foul on the left side' : 'Popped up foul on the right side';
+  if (f.overFence) return `Kicked over the fence ${outfieldDirection(k.sprayDeg)}`;
+  if (k.type === 'bunt') return `Bunt ${infieldDirection(k.sprayDeg)}`;
+  if (f.maxHeight > 30 && f.landing.distance < 110) return `Pop-up ${infieldDirection(k.sprayDeg)}`;
+  if (f.maxHeight < 2.5) return `Grounder ${infieldDirection(k.sprayDeg)}`;
+  if (k.type === 'liner') {
+    return `Liner ${f.landing.distance < 90 ? infieldDirection(k.sprayDeg) : outfieldDirection(k.sprayDeg)}`;
+  }
+  return `${f.landing.distance >= 165 ? 'Deep fly' : 'Fly ball'} ${outfieldDirection(k.sprayDeg)}`;
+}

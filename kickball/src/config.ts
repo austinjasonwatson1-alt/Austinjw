@@ -8,12 +8,13 @@ export const CONFIG = {
     baseDistance: 60, // home to first, first to second, etc.
     pitchingDistance: 42, // mound to home
     fenceDistance: 200, // outfield fence, straight away
+    fenceHeight: 6, // a ball crossing the fence lower than this bounces off it
     foulLineDeg: 45, // fair territory is -45..+45 degrees from straight away
     catcherDepth: 8, // a pitch is called ball or strike once it rolls this far past home
     // Default fielding spots in feet (x: + toward right field, y: + toward center field)
     positions: {
       P: { x: 0, y: 44 },
-      C: { x: 3, y: -16 },
+      C: { x: 1, y: -8 },
       '1B': { x: 50, y: 56 },
       '2B': { x: 24, y: 90 },
       SS: { x: -24, y: 90 },
@@ -52,7 +53,7 @@ export const CONFIG = {
 
   // ---------------------------------------------------------------- kicker run-up
   runUp: {
-    start: { x: -5, y: -10 }, // where the kicker waits, in feet
+    start: { x: -9, y: -6 }, // where the kicker waits, in feet
     plant: { x: -1.4, y: -1.8 }, // where the kicker arrives as the ball crosses the plate
     startDelay: 0.25, // fraction of the pitch before the kicker starts running
   },
@@ -119,8 +120,8 @@ export const CONFIG = {
       mishitLaunchDrop: 9, // a poorly struck liner turns into a grounder
     },
     bunt: {
-      speedMin: 24,
-      speedMax: 32,
+      speedMin: 17,
+      speedMax: 25,
       launchDeg: 2,
       launchJitterDeg: 2,
       windowMult: 1.6, // bunting is easier to time
@@ -139,8 +140,50 @@ export const CONFIG = {
     simStep: 1 / 120, // seconds
   },
 
+  // ---------------------------------------------------------------- fielding and running
+  fielding: {
+    // Until Milestone 4 brings real opponents, every fielder uses these ratings.
+    defenseRatings: { speed: 50, glove: 62, arm: 58 },
+    runSpeedMin: 15, // ft/s at Speed 1 (runners and fielders)
+    runSpeedMax: 24, // ft/s at Speed 100
+    fielderSpeedMult: 0.9,
+    reactionTime: 0.45, // seconds before fielders break on a kicked ball
+    reachFt: 2.6, // how far a fielder can reach for the ball
+    catchHeight: 7, // ball must be below this to be caught or fielded
+    catchMin: 0.72, // clean catch chance on a fly at Glove 1 ...
+    catchMax: 0.97, // ... and at Glove 100
+    runningCatchMult: 0.85, // catch chance when the fielder arrives at the last moment
+    hardLinerSpeed: 45, // balls in the air faster than this are hard to snag ...
+    hardLinerMult: 0.55, // ... so the catch chance is multiplied by this
+    pickupMin: 0.88, // clean pickup of a ground ball
+    pickupMax: 0.98,
+    hardGrounderSpeed: 38, // ground balls faster than this are harder to pick up
+    hardGrounderMult: 0.88,
+    receiveMin: 0.9, // catching a throw
+    receiveMax: 0.99,
+    receiveRadius: 4.5, // a throw is catchable if it arrives this close to a fielder
+    throwSpeedMin: 42, // ft/s at Arm 1
+    throwSpeedMax: 78, // ft/s at Arm 100
+    releaseDelay: 0.45, // seconds to set and throw
+    outMargin: 0.15, // the ball must beat the runner by this many seconds to try for the out
+    pegRange: 38, // furthest a fielder will try to peg a runner
+    pegHitMin: 0.35, // peg accuracy at Arm 1, point blank
+    pegHitMax: 0.82, // peg accuracy at Arm 100, point blank
+    pegMinChance: 0.45, // fielders only peg when the chance is at least this
+    pegHitRadius: 3,
+    tagRadius: 2.5,
+    baseRadius: 2.5, // a fielder this close to a base is touching it
+    errorStun: 0.7, // seconds a fielder needs to recover after a bobble
+    looseKeep: 0.3, // share of the ball's speed kept when it pops loose
+    decisionInterval: 0.15,
+    settleTime: 0.8, // play ends once everyone is safe on a base this long
+    maxPlayTime: 30,
+    batterStartDelay: 0.25, // batter-runner leaves home this long after the kick
+  },
+
   // ---------------------------------------------------------------- at-bat rules
   rules: {
+    outsPerHalf: 3,
     strikesForOut: 3,
     foulsForOut: 4,
     ballsForWalk: 4,
@@ -154,6 +197,9 @@ export const CONFIG = {
     shakePowerKick: 0.004, // camera shake on a well-struck power kick
     shakeHomeRun: 0.008,
     perfectTimingMs: 12, // within this of dead center shows PERFECT!
+    nextKickerDelay: 2600, // pause after a play before the next kicker steps up (Space skips)
+    playZoomNear: 1.55, // camera zoom during a live play with the ball in the infield
+    playZoomFar: 1.12, // ... and with the ball deep in the outfield
   },
 };
 

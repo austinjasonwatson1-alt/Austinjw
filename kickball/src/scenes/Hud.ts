@@ -28,6 +28,9 @@ export class Hud {
   private resultText: Phaser.GameObjects.Text;
   private timingText: Phaser.GameObjects.Text;
   private promptText: Phaser.GameObjects.Text;
+  private helpText: Phaser.GameObjects.Text;
+  private runsText: Phaser.GameObjects.Text;
+  private situation = { runs: 0, outs: 0, bases: [false, false, false] };
 
   private ratings = { contact: 0, power: 0 };
   private count: Count = { balls: 0, strikes: 0, fouls: 0 };
@@ -50,6 +53,9 @@ export class Hud {
 
     this.pitchLabel = t(S.width - 196, 20, 9, '#94a3b8', FONT_BODY).setText('PITCH');
     this.pitchText = t(S.width - 196, 31, 15);
+    t(S.width - 196, 68, 9, '#94a3b8', FONT_BODY).setText('RUNS');
+    this.runsText = t(S.width - 196, 80, 26, '#ffffff');
+    t(S.width - 62, 68, 9, '#94a3b8', FONT_BODY).setText('OUTS');
 
     // Lower third
     this.lower = scene.add.container(0, 0).setDepth(110);
@@ -83,15 +89,18 @@ export class Hud {
     })
       .setOrigin(0.5)
       .setDepth(111);
-    this.text(
-      S.width / 2,
-      S.height - 8,
-      '←/→ AIM     ↓ BUNT STANCE     ↑ NORMAL STANCE     HOLD SPACE = POWER     TAP SPACE = LINER     RELEASE = KICK',
-      { fontFamily: FONT_BODY, fontSize: '10px', color: '#d8f3dc', fontStyle: 'bold' },
-    )
+    this.helpText = this.text(S.width / 2, S.height - 8, '', {
+      fontFamily: FONT_BODY,
+      fontSize: '10px',
+      color: '#d8f3dc',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 2,
+    })
       .setOrigin(0.5, 1)
-      .setAlpha(0.75)
+      .setAlpha(0.85)
       .setDepth(101);
+    this.setHelp('kick');
 
     this.redraw();
   }
@@ -124,6 +133,21 @@ export class Hud {
 
   setPitch(type: string | null, mph?: number): void {
     this.pitchText.setText(type ? `${type.toUpperCase()}${mph ? `   ${Math.round(mph)} MPH` : ''}` : '—');
+  }
+
+  setHelp(mode: 'kick' | 'run', selected = 'ALL RUNNERS'): void {
+    this.helpText.setText(
+      mode === 'kick'
+        ? '←/→ AIM     ↓ BUNT STANCE     ↑ NORMAL STANCE     HOLD SPACE = POWER     TAP SPACE = LINER     RELEASE = KICK'
+        : `→ SEND     ← HOLD / GO BACK     ↑/↓ PICK RUNNER  ·  NOW: ${selected}`,
+    );
+    this.helpText.setColor(mode === 'kick' ? '#d8f3dc' : '#ffe066');
+  }
+
+  setSituation(runs: number, outs: number, bases: boolean[]): void {
+    this.situation = { runs, outs, bases: [...bases] };
+    this.runsText.setText(String(runs));
+    this.redraw();
   }
 
   setTiming(s: string): void {
@@ -238,5 +262,39 @@ export class Hud {
     g.fillRoundedRect(S.width - 210, 14, 196, 40, 8);
     g.fillStyle(HUD.accent, 1);
     g.fillRoundedRect(S.width - 210, 14, 5, 40, { tl: 8, bl: 8, tr: 0, br: 0 });
+
+    // Situation: runs, bases, outs
+    const sx = S.width - 210;
+    const sy = 60;
+    g.fillStyle(0x000000, 0.35);
+    g.fillRoundedRect(sx + 3, sy + 4, 196, 58, 8);
+    g.fillStyle(HUD.navy, 0.93);
+    g.fillRoundedRect(sx, sy, 196, 58, 8);
+    const cx = sx + 100;
+    const cy = sy + 31;
+    const diamond = (x: number, y: number, on: boolean) => {
+      const r = 7.5;
+      const pts = [new Phaser.Math.Vector2(x, y - r), new Phaser.Math.Vector2(x + r, y), new Phaser.Math.Vector2(x, y + r), new Phaser.Math.Vector2(x - r, y)];
+      if (on) {
+        g.fillStyle(HUD.accent, 1);
+        g.fillPoints(pts, true);
+      } else {
+        g.lineStyle(1.5, 0x64748b, 1);
+        g.strokePoints(pts, true);
+      }
+    };
+    diamond(cx + 13, cy, this.situation.bases[0]);
+    diamond(cx, cy - 13, this.situation.bases[1]);
+    diamond(cx - 13, cy, this.situation.bases[2]);
+    for (let i = 0; i < CONFIG.rules.outsPerHalf; i++) {
+      const ox = sx + 152 + i * 14;
+      if (i < this.situation.outs) {
+        g.fillStyle(HUD.strike, 1);
+        g.fillCircle(ox, sy + 38, 5);
+      } else {
+        g.lineStyle(1.5, 0x64748b, 1);
+        g.strokeCircle(ox, sy + 38, 4.5);
+      }
+    }
   }
 }

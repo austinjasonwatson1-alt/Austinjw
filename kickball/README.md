@@ -11,7 +11,7 @@ npm run dev
 
 `npm run build` makes a static site in `dist/`. `npm test` runs the unit tests.
 
-## Controls (Milestone 1: one at-bat)
+## Controls (Milestone 2: one half-inning)
 
 | Key | What it does |
 |---|---|
@@ -19,7 +19,10 @@ npm run dev
 | ↓ / ↑ | Bunt stance / normal stance |
 | Hold Space | Wind up. Release = contact. Held past the white line = power kick |
 | Tap Space | Liner |
-| Space (after the at-bat) | Next kicker |
+| → (ball in play) | Send runners one more base |
+| ← (ball in play) | Hold runners, or send them back to the last base |
+| ↑ / ↓ (ball in play) | Pick a single runner, or all runners |
+| Space (after the at-bat) | Next kicker right away |
 
 Timing sets direction: early pulls toward left field, late pushes toward right. Too early or too late is a whiff.
 
