@@ -6,7 +6,7 @@ import { FONT, PAL } from './palette';
 const S = CONFIG.screen;
 const F = CONFIG.field;
 const P = S.pxPerFoot;
-const R = S.renderScale;
+const TS = S.textureScale;
 const DEG = Math.PI / 180;
 
 type Pt = { sx: number; sy: number };
@@ -30,6 +30,81 @@ function speckle(ctx: CanvasRenderingContext2D, rng: () => number, n: number, co
     ctx.fillStyle = colors[Math.floor(rng() * colors.length)];
     ctx.fillRect(rng() * S.width, rng() * S.height, size, size);
   }
+}
+
+/** Tiny strokes that read as grass blades up close. */
+function blades(ctx: CanvasRenderingContext2D, rng: () => number, n: number): void {
+  ctx.lineWidth = 0.35;
+  for (let i = 0; i < n; i++) {
+    const x = rng() * S.width;
+    const y = rng() * S.height;
+    ctx.strokeStyle = rng() < 0.5 ? 'rgba(20,70,25,0.22)' : 'rgba(200,255,190,0.16)';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + (rng() - 0.5) * 1.2, y - 1 - rng() * 1.2);
+    ctx.stroke();
+  }
+}
+
+function lightTower(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  // long late-afternoon shadow, then the pole and lamp bank
+  ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + 70, y + 46);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(x + 62, y + 38, 18, 10);
+  ctx.fillStyle = '#6b7280';
+  ctx.beginPath();
+  ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#374151';
+  ctx.fillRect(x - 9, y - 6, 18, 7);
+  ctx.fillStyle = '#fef9c3';
+  for (let i = 0; i < 4; i++) ctx.fillRect(x - 8 + i * 4.3, y - 5, 3, 2.2);
+  for (let i = 0; i < 4; i++) ctx.fillRect(x - 8 + i * 4.3, y - 2.2, 3, 2.2);
+}
+
+function picnic(ctx: CanvasRenderingContext2D, rng: () => number, x: number, y: number): void {
+  const blanket = ['#ef4444', '#3b82f6', '#f59e0b', '#a855f7'][Math.floor(rng() * 4)];
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate((rng() - 0.5) * 0.8);
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.fillRect(-9, -6, 20, 14);
+  ctx.fillStyle = blanket;
+  ctx.fillRect(-10, -7, 20, 14);
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  ctx.lineWidth = 0.6;
+  for (let i = -6; i <= 6; i += 4) {
+    ctx.beginPath();
+    ctx.moveTo(-10, i);
+    ctx.lineTo(10, i);
+    ctx.stroke();
+  }
+  const shirts = ['#ffffff', '#22c55e', '#facc15', '#0ea5e9', '#f472b6'];
+  const skins = ['#f6d1b0', '#d39b6a', '#a8714a', '#7a4b2c'];
+  for (const [px, py] of [
+    [-4, -1],
+    [4, 2],
+  ]) {
+    ctx.fillStyle = shirts[Math.floor(rng() * shirts.length)];
+    ctx.beginPath();
+    ctx.ellipse(px, py, 3.4, 2.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = skins[Math.floor(rng() * skins.length)];
+    ctx.beginPath();
+    ctx.arc(px, py - 2, 1.7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // cooler
+  ctx.fillStyle = '#e5e7eb';
+  ctx.fillRect(11, -4, 6, 5);
+  ctx.fillStyle = '#2563eb';
+  ctx.fillRect(11, -4, 6, 1.6);
+  ctx.restore();
 }
 
 function tree(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
@@ -56,13 +131,13 @@ function tree(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): v
 export function createField(scene: Phaser.Scene): void {
   const key = 'field';
   if (!scene.textures.exists(key)) {
-    const tex = scene.textures.createCanvas(key, S.width * R, S.height * R)!;
+    const tex = scene.textures.createCanvas(key, S.width * TS, S.height * TS)!;
     const ctx = tex.getContext();
-    ctx.scale(R, R);
+    ctx.scale(TS, TS);
     paint(ctx);
     tex.refresh();
   }
-  scene.add.image(0, 0, key).setOrigin(0).setScale(1 / R);
+  scene.add.image(0, 0, key).setOrigin(0).setScale(1 / TS);
 }
 
 function paint(ctx: CanvasRenderingContext2D): void {
@@ -72,7 +147,7 @@ function paint(ctx: CanvasRenderingContext2D): void {
   // --- park backdrop
   ctx.fillStyle = PAL.park;
   ctx.fillRect(0, 0, S.width, S.height);
-  speckle(ctx, rng, 5000, ['rgba(0,0,0,0.07)', 'rgba(255,255,255,0.05)'], 1.5);
+  speckle(ctx, rng, 26000, ['rgba(0,0,0,0.07)', 'rgba(255,255,255,0.05)'], 0.7);
 
   // foul territory grass near the field
   ctx.fillStyle = PAL.foulGrass;
@@ -81,6 +156,24 @@ function paint(ctx: CanvasRenderingContext2D): void {
   ctx.lineTo(S.homeX, S.homeY + 60);
   ctx.closePath();
   ctx.fill();
+  ctx.save();
+  ctx.clip();
+  ctx.fillStyle = 'rgba(255,255,255,0.035)';
+  for (let y = 0; y < S.height; y += 36) ctx.fillRect(0, y, S.width, 18);
+  ctx.restore();
+
+  // --- light towers and picnics in the park
+  lightTower(ctx, 120, 232);
+  lightTower(ctx, S.width - 120, 232);
+  lightTower(ctx, 140, 520);
+  lightTower(ctx, S.width - 140, 520);
+  for (const [px, py] of [
+    [168, 395],
+    [205, 470],
+    [S.width - 168, 395],
+    [S.width - 205, 470],
+  ])
+    picnic(ctx, rng, px, py);
 
   // --- bleachers and crowd beyond the fence
   const rows = 5;
@@ -137,7 +230,7 @@ function paint(ctx: CanvasRenderingContext2D): void {
       ctx.fill();
     }
   }
-  speckle(ctx, rng, 6000, ['rgba(0,0,0,0.06)', 'rgba(255,255,255,0.06)'], 1.2);
+  blades(ctx, rng, 45000);
   // soft vignette toward the fence
   const vg = ctx.createRadialGradient(S.homeX, S.homeY, 60 * P, S.homeX, S.homeY, fence * P);
   vg.addColorStop(0, 'rgba(255,255,255,0.05)');
@@ -153,7 +246,7 @@ function paint(ctx: CanvasRenderingContext2D): void {
   ctx.save();
   sector(ctx, fence - 10, fence, FAIR_START, FAIR_END);
   ctx.clip();
-  speckle(ctx, rng, 2500, ['rgba(0,0,0,0.12)', 'rgba(255,255,255,0.1)'], 1.2);
+  speckle(ctx, rng, 14000, ['rgba(0,0,0,0.14)', 'rgba(255,255,255,0.12)'], 0.55);
   ctx.restore();
   ctx.lineCap = 'butt';
   ctx.strokeStyle = PAL.fence;
@@ -166,6 +259,27 @@ function paint(ctx: CanvasRenderingContext2D): void {
   ctx.beginPath();
   ctx.arc(S.homeX, S.homeY, fence * P + 6.5, FAIR_START, FAIR_END);
   ctx.stroke();
+  // foul poles
+  for (const sgn of [-1, 1]) {
+    const a = canvasAngle(sgn * F.foulLineDeg);
+    const r = fence * P + 4;
+    const x = S.homeX + Math.cos(a) * r;
+    const y = S.homeY + Math.sin(a) * r;
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + 40, y + 26);
+    ctx.stroke();
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath();
+    ctx.arc(x, y, 3.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#a16207';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
   // distance markers painted on the fence
   ctx.font = `bold 11px ${FONT}`;
   ctx.fillStyle = '#ffffff';
@@ -205,7 +319,7 @@ function paint(ctx: CanvasRenderingContext2D): void {
   ctx.moveTo(S.homeX + 13 * P, S.homeY);
   ctx.arc(S.homeX, S.homeY, 13 * P, 0, Math.PI * 2);
   ctx.clip('nonzero');
-  speckle(ctx, rng, 7000, ['rgba(90,50,20,0.18)', 'rgba(255,230,190,0.18)'], 1.1);
+  speckle(ctx, rng, 30000, ['rgba(90,50,20,0.2)', 'rgba(255,230,190,0.2)', 'rgba(60,35,15,0.15)'], 0.55);
   ctx.restore();
 
   // infield grass with diagonal stripes
@@ -299,6 +413,9 @@ function paint(ctx: CanvasRenderingContext2D): void {
     ctx.fillRect(-4, -2.5, 8.5, 8.5);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(-5, -5, 10, 10);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(-5, 2.5, 10, 2.5);
+    ctx.fillRect(2.5, -5, 2.5, 10);
     ctx.strokeStyle = '#cfd8dc';
     ctx.lineWidth = 1;
     ctx.strokeRect(-5, -5, 10, 10);

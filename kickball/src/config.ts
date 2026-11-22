@@ -9,11 +9,11 @@ export const CONFIG = {
     pitchingDistance: 42, // mound to home
     fenceDistance: 200, // outfield fence, straight away
     foulLineDeg: 45, // fair territory is -45..+45 degrees from straight away
-    catcherDepth: 8, // catcher stands this far behind home
+    catcherDepth: 8, // a pitch is called ball or strike once it rolls this far past home
     // Default fielding spots in feet (x: + toward right field, y: + toward center field)
     positions: {
       P: { x: 0, y: 44 },
-      C: { x: 0, y: -9 },
+      C: { x: 3, y: -16 },
       '1B': { x: 50, y: 56 },
       '2B': { x: 24, y: 90 },
       SS: { x: -24, y: 90 },
@@ -28,6 +28,7 @@ export const CONFIG = {
   // ---------------------------------------------------------------- screen
   screen: {
     renderScale: 2, // draw at 2x for sharp Retina screens; layout below is in 1x units
+    textureScale: 4, // detail of the painted field and figures (covers renderScale x camera zoom)
     width: 1000,
     height: 720,
     homeX: 500,
@@ -36,6 +37,24 @@ export const CONFIG = {
     ballRadiusPx: 5,
     ballHeightScale: 0.035, // ball grows by this fraction per foot of height
     ballHeightLiftPx: 0.9, // ball drawn this many px above its shadow per foot
+  },
+
+  // ---------------------------------------------------------------- camera
+  camera: {
+    homeZoom: 1.8, // close-up framing on the infield for each pitch
+    homeCenter: { x: 0, y: 37 }, // feet; the spot the at-bat camera centers on
+    flightZoomMin: 1.15, // how far it pulls back for a long kick
+    flightZoomFarFt: 170, // ball distance at which it reaches flightZoomMin
+    flightLead: 0.25, // seconds the camera looks ahead of the ball
+    followRate: 5, // higher = snappier camera moves
+    zoomRate: 3,
+  },
+
+  // ---------------------------------------------------------------- kicker run-up
+  runUp: {
+    start: { x: -5, y: -10 }, // where the kicker waits, in feet
+    plant: { x: -1.4, y: -1.8 }, // where the kicker arrives as the ball crosses the plate
+    startDelay: 0.25, // fraction of the pitch before the kicker starts running
   },
 
   // ---------------------------------------------------------------- pitching
