@@ -1,16 +1,16 @@
 import Phaser from 'phaser';
-import { CONFIG } from '../config';
-import teamsData from '../data/teams.json';
-import type { Player, Team } from '../data/types';
+import { CONFIG, type PitchType } from '../config';
+import type { Player } from '../data/types';
 import { InputController, type Action, type Phase } from '../input';
+import { aiKick, aiPitchChoice, pitchScatter, type AiKick } from '../core/ai';
 import { baseXY, pathXY } from '../core/bases';
 import { applyPitch, freshCount, type Count, type PitchEvent } from '../core/count';
 import { describeKick, describeWhiff, kickPhrase, timingLabel } from '../core/describe';
 import { flightPositionAt, simulateFlight, type Flight } from '../core/flight';
-import { HalfInning } from '../core/half';
+import type { GameState, Side } from '../core/game';
 import { kickTypeFor, resolveKick, whiffWindow, type KickOutcome } from '../core/kick';
 import { generatePitch, pitchPosition, type Pitch, type Vec3 } from '../core/pitch';
-import { LivePlay, type RunnerState } from '../core/play';
+import { LivePlay } from '../core/play';
 import { defaultRng } from '../core/rng';
 import { benchSpots, createField, toScreen } from '../art/field';
 import { HUD } from '../art/palette';
@@ -18,8 +18,9 @@ import { addFigure, lookFor, makeStaticTextures, setFigureLook } from '../art/te
 import type { Hud, Tone } from './Hud';
 import type { HudScene } from './HudScene';
 
-type State = 'waiting' | 'windup' | 'pitch' | 'live' | 'call' | 'atBatOver' | 'sideRetired';
+type State = 'waiting' | 'pitchSelect' | 'windup' | 'pitch' | 'live' | 'call' | 'atBatOver' | 'halfOver' | 'gameOver';
 type Contact = Extract<KickOutcome, { kind: 'contact' }>;
+type TeamColor = 'offense' | 'defense';
 
 const S = CONFIG.screen;
 const F = CONFIG.field;
@@ -29,32 +30,50 @@ const CAM = CONFIG.camera;
 const FIGURE_SCALE = 1.05 / TS;
 const FT_PER_S_TO_MPH = 0.6818;
 const SIM_STEP = 1 / 120;
+const PITCH_TYPES = Object.keys(CONFIG.pitch.types) as PitchType[];
+const DEF_OPTIONS = ['1ST', '2ND', '3RD', 'HOME', 'PEG', 'HOLD'];
 
 const DEPTH = { aim: 5, ground: 8, players: 10, runners: 11, clouds: 15, ball: 20, fx: 25, labels: 26 };
+
+/** Short name for the score bug: initials, skipping little words. */
+export function teamAbbr(name: string): string {
+  const words = name.replace(/[^A-Za-z' ]/g, '').split(/\s+/).filter((w) => !['the', 'on', 'and', 'of'].includes(w.toLowerCase()));
+  return words.map((w) => w[0].toUpperCase()).join('').slice(0, 4);
+}
+
+export interface GameSceneData {
+  game: GameState;
+  onEnd: (g: GameState) => void;
+}
 
 export class AtBatScene extends Phaser.Scene {
   private controls!: InputController;
   private hud!: Hud;
-  private roster: Player[] = [];
-  private kickerIdx = 0;
-  private half = new HalfInning();
+  private match!: GameState;
+  private onEnd!: (g: GameState) => void;
 
   private state: State = 'waiting';
   private stateStart = 0;
   private count: Count = freshCount();
   private aimIndex: number = CONFIG.kick.defaultAimIndex;
   private bunt = false;
+  private pitchTypeIdx = 0;
+  private pitchLocIdx = 1;
 
   private pitch: Pitch | null = null;
   private releaseTime = 0;
   private pitchLive = false;
   private holdStart: number | null = null;
+  private aiPlan: AiKick | null = null;
+  private aiKickAt = 0;
 
   private play: LivePlay | null = null;
   private flight: Flight | null = null;
   private lastKick: Contact | null = null;
   private eventsSeen = 0;
-  private selected: number | null = null; // runner id, or null for all runners
+  private selected: number | null = null;
+  private defIdx = 1;
+  private lastHolder: number | null = null;
   private kickTime = -1e9;
   private bouncesShown = 0;
   private lastFrame = 0;
@@ -83,10 +102,19 @@ export class AtBatScene extends Phaser.Scene {
     super('AtBat');
   }
 
-  create(): void {
-    const team = (teamsData.teams as Team[]).find((t) => t.isPlayer)!;
-    this.roster = team.players;
+  init(data: GameSceneData): void {
+    this.match = data.game;
+    this.onEnd = data.onEnd;
+    this.fielderSprites = [];
+    this.runnerSprites = [];
+    this.runnerLabels = [];
+    this.benchSprites = [];
+    this.clouds = [];
+    this.play = null;
+    this.flight = null;
+  }
 
+  create(): void {
     makeStaticTextures(this);
     createField(this);
 
@@ -98,6 +126,7 @@ export class AtBatScene extends Phaser.Scene {
     this.createParticles();
     this.createClouds();
     this.hud = (this.scene.get('Hud') as HudScene).hud;
+    this.hud.setVisible(true);
 
     this.cam = { ...this.homeView() };
     this.cameras.main.setBounds(0, 0, S.width, S.height);
@@ -107,21 +136,19 @@ export class AtBatScene extends Phaser.Scene {
     this.controls.on((a, p, t) => this.handleInput(a, p, t));
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.controls.dispose());
 
-    this.startAtBat();
+    this.startHalf();
     if (import.meta.env.DEV) (window as unknown as { __atBat: AtBatScene }).__atBat = this;
   }
 
   // ------------------------------------------------------------------ setup
 
   private createPlayers(): void {
-    let i = 0;
-    for (const [pos, spot] of Object.entries(F.positions)) {
-      const look = lookFor(`defense-${pos}`, i++ % 3 === 1);
-      const p = toScreen(spot.x, spot.y);
+    const look = lookFor('placeholder', false);
+    for (const pos of Object.keys(F.positions)) {
+      const p = toScreen(F.positions[pos].x, F.positions[pos].y);
       const sprite = addFigure(this, p.sx, p.sy, 'defense', look).setScale(FIGURE_SCALE).setDepth(DEPTH.players);
       this.fielderSprites.push({ sprite, pos });
     }
-    const look = lookFor('placeholder', false);
     this.kickerSprite = addFigure(this, 0, 0, 'offense', look).setScale(FIGURE_SCALE).setDepth(DEPTH.runners);
     this.onDeckSprite = addFigure(this, 0, 0, 'offense', look).setScale(FIGURE_SCALE).setDepth(DEPTH.players);
     for (let k = 0; k < 3; k++) {
@@ -144,7 +171,7 @@ export class AtBatScene extends Phaser.Scene {
           .setVisible(false),
       );
     }
-    for (let k = 0; k < this.roster.length - 2; k++) {
+    for (let k = 0; k < CONFIG.rules.maxKickers - 2; k++) {
       this.benchSprites.push(addFigure(this, 0, 0, 'offense', look).setScale(FIGURE_SCALE * 0.8).setDepth(DEPTH.players));
     }
   }
@@ -185,12 +212,13 @@ export class AtBatScene extends Phaser.Scene {
 
   private createClouds(): void {
     for (let i = 0; i < 3; i++) {
-      const c = this.add
-        .image(i * 420 - 100, 140 + i * 190, 'cloud')
-        .setScale((3 + i * 0.6) / TS)
-        .setAlpha(0.22)
-        .setDepth(DEPTH.clouds);
-      this.clouds.push(c);
+      this.clouds.push(
+        this.add
+          .image(i * 420 - 100, 140 + i * 190, 'cloud')
+          .setScale((3 + i * 0.6) / TS)
+          .setAlpha(0.22)
+          .setDepth(DEPTH.clouds),
+      );
     }
   }
 
@@ -205,15 +233,11 @@ export class AtBatScene extends Phaser.Scene {
     let target = this.homeView();
     if (this.state === 'live' && this.play) {
       const play = this.play;
-      // Follow the ball, looking a little ahead while it is in the air
       let focus: Vec3 = play.ballPosition();
       if (play.ball.kind === 'flight' && this.flight) focus = flightPositionAt(this.flight, play.t + CAM.flightLead);
-      // keep the lead runner in mind too
       const lead = play.activeRunners()[0];
       const lp = lead ? pathXY(lead.pos) : { x: focus.x, y: focus.y };
-      const fx = focus.x * 0.75 + lp.x * 0.25;
-      const fy = focus.y * 0.75 + lp.y * 0.25;
-      const p = toScreen(fx, fy);
+      const p = toScreen(focus.x * 0.75 + lp.x * 0.25, focus.y * 0.75 + lp.y * 0.25);
       const d = Math.max(Math.hypot(focus.x, focus.y - 40), Math.hypot(lp.x, lp.y - 40));
       const far = Phaser.Math.Clamp((d - 30) / (CAM.flightZoomFarFt - 30), 0, 1);
       const home = this.homeView();
@@ -224,7 +248,7 @@ export class AtBatScene extends Phaser.Scene {
         zoom: Phaser.Math.Linear(CONFIG.ui.playZoomNear, CONFIG.ui.playZoomFar, far),
       };
       this.camHold = target;
-    } else if ((this.state === 'call' || this.state === 'atBatOver' || this.state === 'sideRetired') && this.camHold) {
+    } else if (['call', 'atBatOver', 'halfOver', 'gameOver'].includes(this.state) && this.camHold) {
       target = this.camHold;
     }
     const kf = 1 - Math.exp(-dt * CAM.followRate);
@@ -242,7 +266,13 @@ export class AtBatScene extends Phaser.Scene {
   // ------------------------------------------------------------------ helpers
 
   private get kicker(): Player {
-    return this.roster[this.kickerIdx];
+    return this.match.kickerUp;
+  }
+  private get playerKicking(): boolean {
+    return this.match.kicking.isPlayer;
+  }
+  private color(side: Side): TeamColor {
+    return side.isPlayer ? 'offense' : 'defense';
   }
 
   private setState(s: State, now = performance.now()): void {
@@ -259,11 +289,10 @@ export class AtBatScene extends Phaser.Scene {
     return { ...p, by: p.sy - pos.z * S.ballHeightLiftPx };
   }
 
-  private dress(img: Phaser.GameObjects.Image, p: Player): void {
-    setFigureLook(img, 'offense', lookFor(p.name, p.kicksAs === 'girl'));
+  private dress(img: Phaser.GameObjects.Image, p: Player, side: Side): void {
+    setFigureLook(img, this.color(side), lookFor(p.name, p.kicksAs === 'girl'));
   }
 
-  /** A pop-up word on the field that moves with the camera. */
   private worldPop(s: string, x: number, y: number, color: string, size: number): void {
     const t = this.add
       .text(x, y, s, { fontFamily: '"Arial Black", Arial, sans-serif', fontSize: `${size}px`, color, stroke: '#000000', strokeThickness: 4 })
@@ -277,6 +306,19 @@ export class AtBatScene extends Phaser.Scene {
 
   // ------------------------------------------------------------------ flow
 
+  /** New half-inning: dress the fielding team and send them to their spots. */
+  private startHalf(): void {
+    const def = this.match.defense();
+    this.fielderSprites.forEach(({ sprite, pos }) => {
+      const p = def[pos as keyof typeof def];
+      this.dress(sprite, p, this.match.fielding);
+      const spot = toScreen(F.positions[pos].x, F.positions[pos].y);
+      sprite.setPosition(spot.sx, spot.sy);
+    });
+    this.hud.clearResult();
+    this.startAtBat();
+  }
+
   private startAtBat(): void {
     this.count = freshCount();
     this.bunt = false;
@@ -285,66 +327,52 @@ export class AtBatScene extends Phaser.Scene {
     this.play = null;
     this.pitch = null;
     this.pitchLive = false;
+    this.aiPlan = null;
     this.selected = null;
     this.hud.clearResult();
     this.hud.setTiming('');
     this.hud.setPrompt('');
     this.hud.setPitch(null);
-    this.hud.setHelp('kick');
+    this.hud.setHelp(this.playerKicking ? 'kick' : 'pitch');
     this.camHold = null;
     this.kickerFt = { ...CONFIG.runUp.start };
     this.placeOffense();
     this.updateHud();
-    this.setState('waiting');
+    this.setState(this.playerKicking ? 'waiting' : 'pitchSelect');
   }
 
   private placeOffense(): void {
-    const n = this.roster.length;
-    this.dress(this.kickerSprite, this.kicker);
+    const side = this.match.kicking;
+    const order = side.lineup.order;
+    this.dress(this.kickerSprite, this.kicker, side);
     this.kickerSprite.setAlpha(1).setVisible(true);
-    const onDeck = this.roster[(this.kickerIdx + 1) % n];
+    const onDeck = this.match.onDeck;
     const od = toScreen(34, -6);
-    this.dress(this.onDeckSprite, onDeck);
+    this.dress(this.onDeckSprite, onDeck, side);
     this.onDeckSprite.setPosition(od.sx, od.sy).setRotation(-0.6);
     this.placeBaseRunners();
-    // Everyone else on the bench (not the kicker, on-deck kicker or runners)
-    const busy = new Set<Player>([this.kicker, onDeck, ...this.half.bases.filter((b): b is Player => !!b)]);
-    const benchers: Player[] = [];
-    for (let k = 0; k < n; k++) {
-      const p = this.roster[(this.kickerIdx + 2 + k) % n];
-      if (!busy.has(p)) benchers.push(p);
-    }
+    const busy = new Set<Player>([this.kicker, onDeck, ...this.match.half.bases.filter((b): b is Player => !!b)]);
+    const benchers = order.filter((p) => !busy.has(p));
     const spots = benchSpots(this.benchSprites.length);
     this.benchSprites.forEach((s, i) => {
       const p = benchers[i];
-      if (!p) {
-        s.setVisible(false);
-        return;
-      }
-      this.dress(s, p);
+      if (!p) return void s.setVisible(false);
+      this.dress(s, p, side);
       s.setVisible(true).setPosition(spots[i].sx, spots[i].sy).setRotation(spots[i].rot);
     });
   }
 
-  /** Runners standing on their bases between plays. */
   private placeBaseRunners(): void {
-    this.half.bases.forEach((p, i) => {
+    const side = this.match.kicking;
+    this.match.half.bases.forEach((p, i) => {
       const s = this.runnerSprites[i];
-      if (!p) {
-        s.setVisible(false);
-        return;
-      }
-      this.dress(s, p);
+      if (!p) return void s.setVisible(false);
+      this.dress(s, p, side);
       const b = baseXY(i + 1);
       const sp = toScreen(b.x, b.y);
-      s.setVisible(true).setAlpha(1).setPosition(sp.sx, sp.sy);
       const home = toScreen(0, 0);
-      s.setRotation(Math.atan2(home.sy - sp.sy, home.sx - sp.sx) + Math.PI / 2);
+      s.setVisible(true).setAlpha(1).setPosition(sp.sx, sp.sy).setRotation(Math.atan2(home.sy - sp.sy, home.sx - sp.sx) + Math.PI / 2);
     });
-  }
-
-  private runnerChoices(): (number | null)[] {
-    return [null, ...(this.play?.activeRunners().map((r) => r.id) ?? [])];
   }
 
   private selectedName(): string {
@@ -353,62 +381,94 @@ export class AtBatScene extends Phaser.Scene {
     return r ? r.player.name.toUpperCase() : 'ALL RUNNERS';
   }
 
+  private defLabel(): string {
+    return DEF_OPTIONS.map((o, i) => (i === this.defIdx ? `[ ${o} ]` : o)).join('   ');
+  }
+
   private handleInput(action: Action, phase: Phase, time: number): void {
-    if (this.state === 'live' && this.play) {
-      if (phase !== 'press') return;
-      if (action === 'right') this.play.send(this.selected);
-      if (action === 'left') this.play.hold(this.selected);
-      if (action === 'up' || action === 'down') {
-        const choices = this.runnerChoices();
-        let i = choices.indexOf(this.selected);
-        if (i < 0) i = 0;
-        i = (i + (action === 'down' ? 1 : -1) + choices.length) % choices.length;
-        this.selected = choices[i];
-        this.hud.setHelp('run', this.selectedName());
-      }
-      return;
+    if (phase === 'press' && action === 'confirm') {
+      if (this.state === 'atBatOver') return this.startAtBat();
+      if (this.state === 'halfOver') return this.nextHalf();
+      if (this.state === 'gameOver') return this.leave();
     }
+    if (this.state === 'live' && this.play) return this.liveInput(action, phase);
+    if (!this.playerKicking) return this.defenseInput(action, phase);
+
     const canAdjust = this.state === 'waiting' || this.state === 'windup' || this.state === 'call';
     if (phase === 'press') {
       if (action === 'left' && canAdjust) this.aimIndex = Math.max(0, this.aimIndex - 1);
       if (action === 'right' && canAdjust) this.aimIndex = Math.min(CONFIG.kick.aimZones.length - 1, this.aimIndex + 1);
       if (action === 'down' && canAdjust) this.bunt = !this.bunt;
       if (action === 'up' && canAdjust) this.bunt = false;
-      if (action === 'confirm') {
-        if (this.state === 'atBatOver') {
-          this.nextKicker();
-          return;
-        }
-        if (this.state === 'sideRetired') {
-          this.half = new HalfInning();
-          this.nextKicker();
-          return;
-        }
-        if (this.state === 'windup' || this.state === 'pitch') this.holdStart = time;
-      }
+      if (action === 'confirm' && (this.state === 'windup' || this.state === 'pitch')) this.holdStart = time;
       this.updateHud();
     } else if (action === 'confirm' && this.holdStart !== null) {
       const holdStart = this.holdStart;
       this.holdStart = null;
-      if (this.state === 'pitch') this.attemptKick(time, time - holdStart);
+      if (this.state === 'pitch') this.attemptKick(time, time - holdStart, null);
     }
   }
 
-  private nextKicker(): void {
-    this.kickerIdx = (this.kickerIdx + 1) % this.roster.length;
-    this.startAtBat();
+  /** On defense, before the pitch: pick a pitch type and location, then roll it. */
+  private defenseInput(action: Action, phase: Phase): void {
+    if (phase !== 'press' || (this.state !== 'pitchSelect' && this.state !== 'call')) return;
+    const n = PITCH_TYPES.length;
+    if (action === 'left') this.pitchTypeIdx = (this.pitchTypeIdx + n - 1) % n;
+    if (action === 'right') this.pitchTypeIdx = (this.pitchTypeIdx + 1) % n;
+    if (action === 'up') this.pitchLocIdx = Math.max(0, this.pitchLocIdx - 1);
+    if (action === 'down') this.pitchLocIdx = Math.min(CONFIG.pitch.locations.length - 1, this.pitchLocIdx + 1);
+    if (action === 'confirm' && this.state === 'pitchSelect') this.setState('windup');
+    this.updateHud();
   }
 
-  private attemptKick(time: number, holdMs: number): void {
+  private liveInput(action: Action, phase: Phase): void {
+    const play = this.play!;
+    if (phase !== 'press') return;
+    if (play.manualDefense) {
+      if (!play.awaitingThrow()) return;
+      if (action === 'left') this.defIdx = (this.defIdx + DEF_OPTIONS.length - 1) % DEF_OPTIONS.length;
+      if (action === 'right') this.defIdx = (this.defIdx + 1) % DEF_OPTIONS.length;
+      if (action === 'confirm') {
+        const opt = DEF_OPTIONS[this.defIdx];
+        if (opt === 'PEG') {
+          if (!play.pegNearest()) {
+            const h = play.holder()!;
+            const p = toScreen(h.x, h.y);
+            this.worldPop('NOBODY TO PEG', p.sx, p.sy - 16, '#ffffff', 11);
+          }
+        } else if (opt !== 'HOLD') play.throwTo(this.defIdx + 1);
+      }
+      this.hud.setHelp('field', this.defLabel());
+      return;
+    }
+    if (action === 'right') play.send(this.selected);
+    if (action === 'left') play.hold(this.selected);
+    if (action === 'up' || action === 'down') {
+      const choices = [null, ...play.activeRunners().map((r) => r.id)];
+      let i = Math.max(0, choices.indexOf(this.selected));
+      i = (i + (action === 'down' ? 1 : -1) + choices.length) % choices.length;
+      this.selected = choices[i];
+      this.hud.setHelp('run', this.selectedName());
+    }
+  }
+
+  private attemptKick(time: number, holdMs: number, ai: Extract<AiKick, { swing: true }> | null): void {
     if (!this.pitch) return;
     const deltaMs = time - this.plateTime();
     const outcome = resolveKick(
-      { pitch: this.pitch, deltaMs, holdMs, aimIndex: this.aimIndex, bunt: this.bunt, kicker: this.kicker },
+      {
+        pitch: this.pitch,
+        deltaMs,
+        holdMs,
+        aimIndex: ai ? ai.aimIndex : this.aimIndex,
+        bunt: ai ? ai.bunt : this.bunt,
+        kicker: this.kicker,
+      },
       defaultRng,
     );
     this.kickTime = performance.now();
     if (outcome.kind === 'whiff') {
-      this.showTiming(deltaMs, false);
+      if (!ai) this.showTiming(deltaMs, false);
       this.applyCountEvent('whiff', describeWhiff(outcome.reason));
       return;
     }
@@ -418,30 +478,31 @@ export class AtBatScene extends Phaser.Scene {
     this.bouncesShown = 0;
     this.eventsSeen = 0;
     this.selected = null;
+    this.lastHolder = null;
     this.play = new LivePlay({
       flight: this.flight,
       batter: this.kicker,
-      bases: this.half.bases,
-      outs: this.half.outs,
-      defense: {},
+      bases: this.match.half.bases,
+      outs: this.match.half.outs,
+      defense: this.match.defense(),
       rng: defaultRng,
+      manualDefense: !this.playerKicking,
+      autoRun: !this.playerKicking,
     });
-    // The kicker's sprite becomes the batter-runner; base runners keep their sprites.
-    this.showTiming(deltaMs, outcome.clean);
+    if (!ai) this.showTiming(deltaMs, outcome.clean);
     this.hud.clearResult();
-    if (this.flight.fair) this.hud.setHelp('run', this.selectedName());
+    if (this.flight.fair) this.hud.setHelp(this.playerKicking ? 'run' : 'watch', this.selectedName());
 
     const home = toScreen(0, 0.5);
     const strength = outcome.exitSpeed / CONFIG.kick.power.speedMax;
     this.sparks.explode(Math.round(8 + 18 * strength * outcome.quality), home.sx, home.sy);
     this.fxRing = { x: home.sx, y: home.sy, t: performance.now(), color: outcome.type === 'power' ? HUD.power : HUD.liner };
-    if (outcome.type === 'power' && outcome.quality > 0.9) {
-      this.cameras.main.shake(140, CONFIG.ui.shakePowerKick * outcome.quality);
-    }
-    if (Math.abs(deltaMs) <= CONFIG.ui.perfectTimingMs) this.worldPop('PERFECT!', home.sx, home.sy - 30, '#ffe066', 18);
+    if (outcome.type === 'power' && outcome.quality > 0.9) this.cameras.main.shake(140, CONFIG.ui.shakePowerKick * outcome.quality);
+    if (!ai && Math.abs(deltaMs) <= CONFIG.ui.perfectTimingMs) this.worldPop('PERFECT!', home.sx, home.sy - 30, '#ffe066', 18);
     if (this.flight.overFence) {
-      this.time.delayedCall(((this.flight.landing.t / CONFIG.ui.flightPlaybackSpeed) * 1000) | 0, () => {
-        const p = toScreen(this.flight!.landing.x, this.flight!.landing.y);
+      const f = this.flight;
+      this.time.delayedCall(((f.landing.t / CONFIG.ui.flightPlaybackSpeed) * 1000) | 0, () => {
+        const p = toScreen(f.landing.x, f.landing.y);
         this.confetti.explode(90, p.sx, p.sy);
         this.cameras.main.shake(300, CONFIG.ui.shakeHomeRun);
         this.hud.pop('HOME RUN!', S.width / 2, S.height / 2 - 40, '#ffe066', 48);
@@ -455,22 +516,25 @@ export class AtBatScene extends Phaser.Scene {
     const { count, result } = applyPitch(this.count, event);
     this.count = count;
     let line = text;
-    let tone: Tone = event === 'ball' ? 'good' : event === 'foul' ? 'neutral' : 'bad';
+    const forUs = this.playerKicking;
+    const goodForKicker = event === 'ball';
+    let tone: Tone = event === 'foul' ? 'neutral' : goodForKicker === forUs ? 'good' : 'bad';
     if (result === 'walk') {
-      const runs = this.half.walk(this.kicker);
+      const before = this.match.score;
+      this.match.walk();
+      const runs = this.match.score[0] + this.match.score[1] - before[0] - before[1];
       line = runs ? 'Ball four, and that forces in a run!' : 'Ball four. Take your base.';
-      tone = 'good';
+      tone = forUs ? 'good' : 'bad';
       this.placeBaseRunners();
       this.kickerSprite.setAlpha(0);
     }
-    if (result === 'strikeout') {
-      line = `${text.replace(/ Strike\.$/, '')} Strike three, you're out!`;
-      this.half.out();
-    }
-    if (result === 'foulout') {
-      line = `${text} That's four fouls. You're out!`;
-      tone = 'bad';
-      this.half.out();
+    if (result === 'strikeout' || result === 'foulout') {
+      line =
+        result === 'strikeout'
+          ? `${text.replace(/ Strike\.$/, '')} Strike three, ${forUs ? "you're" : "they're"} out!`
+          : `${text} That's four fouls. Out!`;
+      tone = forUs ? 'bad' : 'good';
+      this.match.out();
     }
     this.hud.showResult(line, tone);
     if (event === 'whiff') {
@@ -483,15 +547,40 @@ export class AtBatScene extends Phaser.Scene {
   }
 
   private endAtBat(): void {
-    if (this.half.over) {
-      this.setState('sideRetired');
-      const r = this.half.runs;
-      this.hud.setPrompt(`SIDE RETIRED · ${r} RUN${r === 1 ? '' : 'S'} · PRESS SPACE FOR ANOTHER HALF-INNING`);
+    this.updateHud();
+    if (this.match.over) return this.endGame();
+    if (this.match.half.over) {
+      this.setState('halfOver');
+      const ord = (n: number) => n + (['th', 'st', 'nd', 'rd'][n % 10 < 4 && (n % 100 < 11 || n % 100 > 13) ? n % 10 : 0] ?? 'th');
+      this.hud.setPrompt(`THAT'S THREE · END OF THE ${this.match.top ? 'TOP' : 'BOTTOM'} OF THE ${ord(this.match.inning).toUpperCase()} · SPACE`);
       return;
     }
     this.setState('atBatOver');
-    const next = this.roster[(this.kickerIdx + 1) % this.roster.length];
-    this.hud.setPrompt(`NEXT KICKER: ${next.name.toUpperCase()}  ·  SPACE TO SKIP`);
+    this.hud.setPrompt(`NEXT KICKER: ${this.kicker.name.toUpperCase()}  ·  SPACE TO SKIP`);
+  }
+
+  private nextHalf(): void {
+    if (this.match.endHalf()) return this.endGame();
+    this.startHalf();
+  }
+
+  private endGame(): void {
+    this.setState('gameOver');
+    this.updateHud();
+    const [a, h] = this.match.score;
+    const mine = this.match.away.isPlayer ? a : h;
+    const theirs = this.match.away.isPlayer ? h : a;
+    const word = mine > theirs ? 'YOU WIN!' : mine < theirs ? 'TOUGH LOSS' : 'TIE GAME';
+    this.hud.pop(word, S.width / 2, S.height / 2 - 40, mine >= theirs ? '#ffe066' : '#ff6b6b', 44);
+    if (mine > theirs) this.confetti.explode(120, this.cam.x, this.cam.y - 60);
+    this.hud.setPrompt(`FINAL ${a}–${h} · SPACE FOR THE BOX SCORE`);
+  }
+
+  private leave(): void {
+    this.hud.setVisible(false);
+    const g = this.match;
+    this.scene.stop();
+    this.onEnd(g);
   }
 
   private finishPlay(): void {
@@ -503,18 +592,15 @@ export class AtBatScene extends Phaser.Scene {
       this.applyCountEvent('foul', describeKick(k, f));
       return;
     }
-    this.half.applyPlay(play);
-    // Runners now stand where the play left them; the kicker is a runner, out, or home.
-    this.placeBaseRunners();
-    this.kickerSprite.setAlpha(0);
     const bl = play.batterLine();
     const sum = play.summary();
-    let line = `${kickPhrase(k, f)}${bl ? `, ${bl}` : ''}.${sum ? ' ' + sum : ''}`;
-    if (play.caughtFly && !f.fair) line = `${kickPhrase(k, f)}, ${bl}.`;
-    const good = play.batterResult() > 0 || play.runs > 0;
-    this.hud.showResult(line, good ? 'good' : 'bad');
-    this.hud.setHelp('kick');
-    this.updateHud();
+    this.match.applyPlay(play);
+    this.placeBaseRunners();
+    this.kickerSprite.setAlpha(0);
+    const line = play.caughtFly && !f.fair ? `${kickPhrase(k, f)}, ${bl}.` : `${kickPhrase(k, f)}${bl ? `, ${bl}` : ''}.${sum ? ' ' + sum : ''}`;
+    const goodForKicker = play.batterResult() > 0 || play.runs > 0;
+    this.hud.showResult(line, goodForKicker === this.playerKicking ? 'good' : 'bad');
+    this.hud.setHelp(this.playerKicking ? 'kick' : 'pitch');
     this.endAtBat();
   }
 
@@ -524,21 +610,26 @@ export class AtBatScene extends Phaser.Scene {
   }
 
   private updateHud(): void {
-    this.hud.setKicker(this.kickerIdx + 1, this.kicker);
+    const g = this.match;
+    this.hud.setKicker(g.kicking.next + 1, this.kicker);
     this.hud.setCount(this.count);
-    this.hud.setAim(CONFIG.kick.aimZones[this.aimIndex].name, this.bunt);
-    let bases = this.half.bases.map((b) => !!b);
-    let outs = this.half.outs;
-    let runs = this.half.runs;
+    if (this.playerKicking) this.hud.setAim(CONFIG.kick.aimZones[this.aimIndex].name, this.bunt);
+    else this.hud.setPitchCall(PITCH_TYPES[this.pitchTypeIdx], CONFIG.pitch.locations[this.pitchLocIdx].name);
+    let bases = g.half.bases.map((b) => !!b);
+    let outs = g.half.outs;
+    let runs = g.half.runs;
+    let [a, h] = g.score;
     if (this.state === 'live' && this.play) {
       bases = [1, 2, 3].map((b) => this.play!.activeRunners().some((r) => r.pos === b));
       outs = this.play.outs;
-      runs = this.half.runs + this.play.runs;
+      runs = g.half.runs + this.play.runs;
+      if (g.top) a += this.play.runs;
+      else h += this.play.runs;
     }
     this.hud.setSituation(runs, outs, bases);
+    this.hud.setScore(teamAbbr(g.away.team.name), a, teamAbbr(g.home.team.name), h, g.inning, g.top, this.state === 'gameOver');
   }
 
-  /** Pops for outs, runs, catches and errors as they happen. */
   private showPlayEvents(): void {
     const play = this.play!;
     while (this.eventsSeen < play.events.length) {
@@ -546,8 +637,7 @@ export class AtBatScene extends Phaser.Scene {
       if (e.type === 'out') {
         const at = e.runner.id >= 0 ? pathXY(e.runner.pos) : play.ballPosition();
         const p = toScreen(at.x, at.y);
-        const word = e.how === 'peg' ? 'PEGGED!' : 'OUT!';
-        this.worldPop(word, p.sx, p.sy - 16, '#ff6b6b', 16);
+        this.worldPop(e.how === 'peg' ? 'PEGGED!' : 'OUT!', p.sx, p.sy - 16, '#ff6b6b', 16);
       } else if (e.type === 'run') {
         const p = toScreen(0, 0);
         this.worldPop('RUN SCORES!', p.sx, p.sy - 20, '#7CFC9A', 15);
@@ -587,18 +677,16 @@ export class AtBatScene extends Phaser.Scene {
         if (elapsed >= CONFIG.pitch.delayBeforePitch) this.setState('windup', now);
         break;
       case 'windup':
-        if (elapsed >= CONFIG.pitch.windupTime) {
-          this.pitch = generatePitch(defaultRng);
-          this.releaseTime = now;
-          this.pitchLive = true;
-          this.hud.setPitch(this.pitch.type, this.pitch.speed * FT_PER_S_TO_MPH);
-          this.hud.setTiming('');
-          this.hud.clearResult();
-          this.setState('pitch', now);
-        }
+        if (elapsed >= CONFIG.pitch.windupTime) this.releasePitch(now);
         break;
       case 'pitch': {
         if (!this.pitch) break;
+        if (this.aiPlan?.swing && now >= this.aiKickAt) {
+          const plan = this.aiPlan;
+          this.aiPlan = null;
+          this.attemptKick(this.aiKickAt, plan.holdMs, plan);
+          break;
+        }
         const sincePlate = now - this.plateTime();
         if (this.holdStart !== null && sincePlate > whiffWindow(this.kicker.contact, this.pitch, this.bunt)) {
           this.holdStart = null;
@@ -612,7 +700,7 @@ export class AtBatScene extends Phaser.Scene {
           this.pitchLive = false;
           this.applyCountEvent(
             this.pitch.isStrike ? 'calledStrike' : 'ball',
-            this.pitch.isStrike ? 'Right down the middle and taken. Strike.' : 'Wide of the plate. Ball.',
+            this.pitch.isStrike ? 'Right over the plate and taken. Strike.' : 'Wide of the plate. Ball.',
           );
         }
         break;
@@ -627,19 +715,27 @@ export class AtBatScene extends Phaser.Scene {
         }
         this.emitBounces();
         this.showPlayEvents();
+        if (play.manualDefense) {
+          const h = play.ball.kind === 'held' && play.awaitingThrow() ? play.ball.f : null;
+          if (h !== this.lastHolder) {
+            this.lastHolder = h;
+            if (h !== null) this.defIdx = Math.min(3, Math.max(0, play.suggestedBase() - 1));
+            this.hud.setHelp(h !== null ? 'field' : 'watch', this.defLabel());
+          }
+        }
         if (play.over) this.finishPlay();
         break;
       }
       case 'call':
         if (elapsed >= CONFIG.ui.resultHold) {
           this.flight = null;
-          this.setState('waiting');
+          this.setState(this.playerKicking ? 'waiting' : 'pitchSelect');
         }
         break;
       case 'atBatOver':
-        if (elapsed >= CONFIG.ui.nextKickerDelay) this.nextKicker();
+        if (elapsed >= CONFIG.ui.nextKickerDelay) this.startAtBat();
         break;
-      case 'sideRetired':
+      default:
         break;
     }
 
@@ -651,7 +747,28 @@ export class AtBatScene extends Phaser.Scene {
     }
   }
 
-  /** Dust or grass puffs each time the kicked ball hits the ground. */
+  private releasePitch(now: number): void {
+    const pitcher = this.match.defense().P;
+    const scatter = pitchScatter(pitcher.arm);
+    if (this.playerKicking) {
+      this.pitch = generatePitch(defaultRng, undefined, { ...aiPitchChoice(defaultRng), scatter });
+    } else {
+      this.pitch = generatePitch(defaultRng, undefined, {
+        type: PITCH_TYPES[this.pitchTypeIdx],
+        aim: CONFIG.pitch.locations[this.pitchLocIdx].x,
+        scatter,
+      });
+      this.aiPlan = aiKick(this.pitch, this.kicker, defaultRng);
+    }
+    this.releaseTime = now;
+    this.pitchLive = true;
+    if (this.aiPlan?.swing) this.aiKickAt = this.plateTime() + this.aiPlan.deltaMs;
+    this.hud.setPitch(this.pitch.type, this.pitch.speed * FT_PER_S_TO_MPH);
+    this.hud.setTiming('');
+    this.hud.clearResult();
+    this.setState('pitch', now);
+  }
+
   private emitBounces(): void {
     const play = this.play;
     const f = this.flight;
@@ -683,7 +800,6 @@ export class AtBatScene extends Phaser.Scene {
     g.clear();
     fx.clear();
 
-    // Where is the ball right now?
     let ballPos: Vec3 | null = null;
     const play = this.play;
     if (this.pitch && this.pitchLive) {
@@ -692,10 +808,10 @@ export class AtBatScene extends Phaser.Scene {
       ballPos = play.ballPosition();
       if (play.ball.kind === 'flight' && this.flight) this.drawFlightTrack(g, play.t);
       if (this.flight?.overFence && play.t >= this.flight.landing.t) ballPos = null;
-    } else if (this.state === 'windup' || this.state === 'waiting') {
-      ballPos = { x: 1.2, y: F.pitchingDistance + 1, z: 1.5 }; // in the pitcher's hands
-    } else if (this.state === 'call' || this.state === 'atBatOver' || this.state === 'sideRetired') {
-      ballPos = { x: F.positions.C.x - 1, y: F.positions.C.y + 1.5, z: 1 }; // with the catcher
+    } else if (this.state === 'windup' || this.state === 'waiting' || this.state === 'pitchSelect') {
+      ballPos = { x: 1.2, y: F.pitchingDistance + 1, z: 1.5 };
+    } else {
+      ballPos = { x: F.positions.C.x - 1, y: F.positions.C.y + 1.5, z: 1 };
     }
 
     if (ballPos) {
@@ -703,11 +819,16 @@ export class AtBatScene extends Phaser.Scene {
       const r = S.ballRadiusPx * (1 + ballPos.z * S.ballHeightScale);
       g.fillStyle(0x000000, Math.max(0.12, 0.32 - ballPos.z * 0.004));
       g.fillEllipse(b.sx + ballPos.z * 0.25, b.sy + 2, r * 2.1, r * 1.2);
-      const moving = this.pitchLive || (play && play.ball.kind !== 'held');
-      if (moving) this.ball.rotation += dt * 12;
+      if (this.pitchLive || (play && play.ball.kind !== 'held')) this.ball.rotation += dt * 12;
       this.ball.setVisible(true).setPosition(b.sx, b.by).setScale(((r / S.ballRadiusPx) * 0.8) / TS);
-    } else {
-      this.ball.setVisible(false);
+    } else this.ball.setVisible(false);
+
+    // Highlight the base you're about to throw to
+    if (play?.awaitingThrow() && this.defIdx < 4) {
+      const b = baseXY(this.defIdx + 1);
+      const p = toScreen(b.x, b.y);
+      g.lineStyle(2.5, 0xffe066, 0.6 + 0.4 * Math.sin(now / 120));
+      g.strokeCircle(p.sx, p.sy, 12);
     }
 
     this.animateDefense(now, ballPos);
@@ -727,17 +848,27 @@ export class AtBatScene extends Phaser.Scene {
   private drawAim(): void {
     const g = this.aimGfx;
     g.clear();
-    if (this.state === 'live' || this.state === 'atBatOver' || this.state === 'sideRetired') return;
-    const locked = this.state === 'pitch';
+    if (!['waiting', 'windup', 'pitch', 'call', 'pitchSelect'].includes(this.state)) return;
     const home = toScreen(0, 0);
+    if (!this.playerKicking) {
+      // Your pitch target at the plate
+      if (this.state === 'pitch') return;
+      const x = CONFIG.pitch.locations[this.pitchLocIdx].x;
+      const p = toScreen(x, 0.5);
+      g.lineStyle(2, 0xffe066, 0.95);
+      g.strokeCircle(p.sx, p.sy, 6);
+      g.lineBetween(p.sx - 9, p.sy, p.sx + 9, p.sy);
+      g.lineBetween(p.sx, p.sy - 9, p.sx, p.sy + 9);
+      return;
+    }
+    const locked = this.state === 'pitch';
     const zone = CONFIG.kick.aimZones[this.aimIndex];
     const deg = this.bunt ? (zone.deg / 30) * CONFIG.kick.bunt.maxSprayDeg : zone.deg;
     const lenFt = this.bunt ? 34 : 95;
     const color = this.bunt ? HUD.bunt : 0xffffff;
-    const half = 7.5;
     const ang = (d: number) => Phaser.Math.DegToRad(d - 90);
     g.fillStyle(color, locked ? 0.08 : 0.16);
-    g.slice(home.sx, home.sy, lenFt * S.pxPerFoot, ang(deg - half), ang(deg + half), false);
+    g.slice(home.sx, home.sy, lenFt * S.pxPerFoot, ang(deg - 7.5), ang(deg + 7.5), false);
     g.fillPath();
     const a = ang(deg);
     const len = lenFt * S.pxPerFoot;
@@ -751,14 +882,7 @@ export class AtBatScene extends Phaser.Scene {
     const px = -Math.sin(a);
     const py = Math.cos(a);
     g.fillStyle(color, locked ? 0.3 : 0.85);
-    g.fillTriangle(
-      tx,
-      ty,
-      tx - Math.cos(a) * 13 + px * 7,
-      ty - Math.sin(a) * 13 + py * 7,
-      tx - Math.cos(a) * 13 - px * 7,
-      ty - Math.sin(a) * 13 - py * 7,
-    );
+    g.fillTriangle(tx, ty, tx - Math.cos(a) * 13 + px * 7, ty - Math.sin(a) * 13 + py * 7, tx - Math.cos(a) * 13 - px * 7, ty - Math.sin(a) * 13 - py * 7);
   }
 
   private drawFlightTrack(g: Phaser.GameObjects.Graphics, t: number): void {
@@ -781,8 +905,7 @@ export class AtBatScene extends Phaser.Scene {
     }
     if (t >= f.landing.t) {
       const lp = toScreen(f.landing.x, f.landing.y);
-      const col = f.fair ? 0xffe066 : 0xff6b6b;
-      g.lineStyle(2.5, col, 1);
+      g.lineStyle(2.5, f.fair ? 0xffe066 : 0xff6b6b, 1);
       g.strokeCircle(lp.sx, lp.sy, 7);
       g.lineBetween(lp.sx - 4, lp.sy - 4, lp.sx + 4, lp.sy + 4);
       g.lineBetween(lp.sx - 4, lp.sy + 4, lp.sx + 4, lp.sy - 4);
@@ -802,22 +925,23 @@ export class AtBatScene extends Phaser.Scene {
         const moved = Math.hypot(p.sx - sprite.x, p.sy - sprite.y);
         sprite.setPosition(p.sx, p.sy);
         const holding = play.holder() === f;
-        // run facing where they're going; otherwise watch the ball
+        const tgt = toScreen(f.tx, f.ty);
         target =
           moved > 0.2 && !holding
-            ? Math.atan2(toScreen(f.tx, f.ty).sy - p.sy, toScreen(f.tx, f.ty).sx - p.sx) + Math.PI / 2
+            ? Math.atan2(tgt.sy - p.sy, tgt.sx - p.sx) + Math.PI / 2
             : Math.atan2(ballScreen.sy - p.sy, ballScreen.sx - p.sx) + Math.PI / 2;
         sprite.setScale(FIGURE_SCALE * (moved > 0.2 ? 1 + Math.abs(Math.sin(now / 60)) * 0.05 : 1));
+        if (holding && play.manualDefense && play.awaitingThrow()) {
+          this.groundGfx.lineStyle(2, 0xffe066, 0.9);
+          this.groundGfx.strokeEllipse(p.sx, p.sy + 3, 24, 14);
+        }
       } else {
-        // walk back to the regular spot between plays
-        const spot = F.positions[pos];
-        const p = toScreen(spot.x, spot.y);
-        sprite.x += (p.sx - sprite.x) * 0.06;
-        sprite.y += (p.sy - sprite.y) * 0.06;
+        const spot = toScreen(F.positions[pos].x, F.positions[pos].y);
+        sprite.x += (spot.sx - sprite.x) * 0.06;
+        sprite.y += (spot.sy - sprite.y) * 0.06;
         target = Math.atan2(home.sy - sprite.y, home.sx - sprite.x) + Math.PI / 2;
         const breathe = 1 + Math.sin(now / 420 + sprite.x) * 0.015;
-        const crouch = ready && pos !== 'P' ? 1.05 : 1;
-        sprite.setScale(FIGURE_SCALE * breathe * crouch);
+        sprite.setScale(FIGURE_SCALE * breathe * (ready && pos !== 'P' ? 1.05 : 1));
       }
       sprite.rotation = Phaser.Math.Angle.RotateTo(sprite.rotation, target, 0.15);
     });
@@ -835,6 +959,7 @@ export class AtBatScene extends Phaser.Scene {
     if (play && this.state === 'live') {
       const g = this.groundGfx;
       const ballScreen = ballPos ? toScreen(ballPos.x, ballPos.y) : toScreen(0, 0);
+      const mine = this.playerKicking;
       let label = 0;
       for (const r of play.runners) {
         const sprite = r.origin === 0 ? this.kickerSprite : this.runnerSprites[r.origin - 1];
@@ -853,15 +978,14 @@ export class AtBatScene extends Phaser.Scene {
           : Math.atan2(ballScreen.sy - sp.sy, ballScreen.sx - sp.sx) + Math.PI / 2;
         sprite.rotation = Phaser.Math.Angle.RotateTo(sprite.rotation, face, 0.2) + (moving ? Math.sin(now / 55) * 0.12 : 0);
         sprite.setScale(FIGURE_SCALE * (moving ? 1 + Math.abs(Math.sin(now / 55)) * 0.06 : 1));
-        // selection ring
-        const chosen = this.selected === null || this.selected === r.id;
-        if (this.flight?.fair || r.origin > 0) {
+        const chosen = mine && (this.selected === null || this.selected === r.id);
+        if (mine && (this.flight?.fair || r.origin > 0)) {
           g.lineStyle(chosen ? 2 : 1, chosen ? 0xffe066 : 0xffffff, chosen ? 0.95 : 0.35);
           g.strokeEllipse(sp.sx, sp.sy + 3, 22, 13);
-          if (r.mustReturn) {
-            g.lineStyle(2, 0xff6b6b, 0.9);
-            g.strokeEllipse(sp.sx, sp.sy + 3, 26, 16);
-          }
+        }
+        if (r.mustReturn) {
+          g.lineStyle(2, 0xff6b6b, 0.9);
+          g.strokeEllipse(sp.sx, sp.sy + 3, 26, 16);
         }
         const lbl = this.runnerLabels[label++];
         if (lbl) {
@@ -871,37 +995,30 @@ export class AtBatScene extends Phaser.Scene {
       }
       return;
     }
-    // Between plays: base runners stand on their bases; the kicker runs up with the pitch.
-    for (let i = 0; i < 3; i++) if (!this.half.bases[i]) this.runnerSprites[i].setVisible(false);
-    this.animateKickerRunUp(now, ballPos);
+    for (let i = 0; i < 3; i++) if (!this.match.half.bases[i]) this.runnerSprites[i].setVisible(false);
+    this.animateKickerRunUp(now);
   }
 
-  private animateKickerRunUp(now: number, ballPos: Vec3 | null): void {
+  private animateKickerRunUp(now: number): void {
     const k = this.kickerSprite;
-    if (this.state === 'atBatOver' || this.state === 'sideRetired') {
-      // the kicker's at-bat is over; keep them where the play left them, fading if out
-      return;
-    }
+    if (['atBatOver', 'halfOver', 'gameOver'].includes(this.state)) return;
     const U = CONFIG.runUp;
     let running = false;
     if (this.state === 'pitch' && this.pitch) {
       const t = (now - this.releaseTime) / (this.pitch.timeToPlate * 1000);
       const u = Phaser.Math.Clamp((t - U.startDelay) / (1 - U.startDelay), 0, 1);
-      this.kickerFt = {
-        x: Phaser.Math.Linear(U.start.x, U.plant.x, u),
-        y: Phaser.Math.Linear(U.start.y, U.plant.y, u),
-      };
+      this.kickerFt = { x: Phaser.Math.Linear(U.start.x, U.plant.x, u), y: Phaser.Math.Linear(U.start.y, U.plant.y, u) };
       running = u > 0 && u < 1;
-    } else if (this.state === 'waiting' || this.state === 'windup') {
+    } else if (this.state !== 'call') {
       this.kickerFt.x += (U.start.x - this.kickerFt.x) * 0.08;
       this.kickerFt.y += (U.start.y - this.kickerFt.y) * 0.08;
     }
     const kp = toScreen(this.kickerFt.x, this.kickerFt.y);
-    k.setPosition(kp.sx, kp.sy).setAlpha(1);
+    k.setPosition(kp.sx, kp.sy);
+    if (k.alpha > 0) k.setAlpha(1);
     const plant = toScreen(U.plant.x, U.plant.y);
     const start = toScreen(U.start.x, U.start.y);
     const runAngle = Math.atan2(plant.sy - start.sy, plant.sx - start.sx) + Math.PI / 2;
-    void ballPos;
     this.kickerRot = Phaser.Math.Angle.RotateTo(this.kickerRot, runAngle, 0.12);
     k.rotation = this.kickerRot + (running ? Math.sin(now / 55) * 0.12 : 0);
     k.setScale(FIGURE_SCALE * (running ? 1 + Math.abs(Math.sin(now / 55)) * 0.06 : 1));
@@ -918,12 +1035,11 @@ export class AtBatScene extends Phaser.Scene {
       const hipY = k.y + 1;
       const fx = hipX + Math.cos(ang) * 15;
       const fy = hipY + Math.sin(ang) * 15;
-      g.lineStyle(5, 0x1e3a8a, 1 - p * 0.6);
+      g.lineStyle(5, this.playerKicking ? 0x1e3a8a : 0x7f1d1d, 1 - p * 0.6);
       g.lineBetween(hipX, hipY, fx, fy);
       g.fillStyle(0xffffff, 1 - p * 0.6);
       g.fillCircle(fx, fy, 3.5);
     }
-
     if (this.holdStart === null) return;
     const hold = now - this.holdStart;
     const K = CONFIG.kick;
@@ -949,5 +1065,3 @@ export class AtBatScene extends Phaser.Scene {
     }
   }
 }
-
-export type { RunnerState };

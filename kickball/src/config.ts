@@ -67,6 +67,15 @@ export const CONFIG = {
     missMin: 2.0, // a missed pitch lands this far off the middle ...
     missMax: 4.5, // ... up to this far
     reach: 3.5, // kicker can reach a ball this far off the middle
+    // Where you can aim a pitch (ft from the middle of the plate)
+    locations: [
+      { name: 'Left edge', x: -1.0 },
+      { name: 'Middle', x: 0 },
+      { name: 'Right edge', x: 1.0 },
+    ],
+    scatterWorst: 1.6, // how far a pitch strays from the aim (ft) at Arm 1 ...
+    scatterBest: 0.55, // ... and at Arm 100
+    edgeQualityMult: 0.92, // kicks off the edge of the plate come off a little weaker
     offPlatePenalty: 0.85, // contact quality multiplier for kicking a ball off the plate
     types: {
       fast: { weight: 3, speed: 42, bounceHeight: 0, bounces: 0, curve: 0, timingMult: 1.0 },
@@ -106,15 +115,15 @@ export const CONFIG = {
     powerChargeMinFrac: 0.88, // power kick distance at the threshold, vs full charge
 
     power: {
-      speedMin: 56, // exit speed at Power 1
-      speedMax: 84, // exit speed at Power 100
+      speedMin: 62, // exit speed at Power 1
+      speedMax: 88, // exit speed at Power 100
       launchDeg: 40,
       launchJitterDeg: 5,
       mishitLaunchRise: 16, // a poorly struck power kick pops up higher and shorter
     },
     liner: {
-      speedMin: 52,
-      speedMax: 80,
+      speedMin: 58,
+      speedMax: 84,
       launchDeg: 13,
       launchJitterDeg: 4,
       mishitLaunchDrop: 9, // a poorly struck liner turns into a grounder
@@ -146,24 +155,24 @@ export const CONFIG = {
     defenseRatings: { speed: 50, glove: 62, arm: 58 },
     runSpeedMin: 15, // ft/s at Speed 1 (runners and fielders)
     runSpeedMax: 24, // ft/s at Speed 100
-    fielderSpeedMult: 0.9,
-    reactionTime: 0.45, // seconds before fielders break on a kicked ball
+    fielderSpeedMult: 0.78,
+    reactionTime: 0.65, // seconds before fielders break on a kicked ball
     reachFt: 2.6, // how far a fielder can reach for the ball
     catchHeight: 7, // ball must be below this to be caught or fielded
-    catchMin: 0.72, // clean catch chance on a fly at Glove 1 ...
-    catchMax: 0.97, // ... and at Glove 100
+    catchMin: 0.62, // clean catch chance on a fly at Glove 1 ...
+    catchMax: 0.93, // ... and at Glove 100
     runningCatchMult: 0.85, // catch chance when the fielder arrives at the last moment
     hardLinerSpeed: 45, // balls in the air faster than this are hard to snag ...
     hardLinerMult: 0.55, // ... so the catch chance is multiplied by this
-    pickupMin: 0.88, // clean pickup of a ground ball
+    pickupMin: 0.84, // clean pickup of a ground ball
     pickupMax: 0.98,
     hardGrounderSpeed: 38, // ground balls faster than this are harder to pick up
     hardGrounderMult: 0.88,
     receiveMin: 0.9, // catching a throw
     receiveMax: 0.99,
     receiveRadius: 4.5, // a throw is catchable if it arrives this close to a fielder
-    throwSpeedMin: 42, // ft/s at Arm 1
-    throwSpeedMax: 78, // ft/s at Arm 100
+    throwSpeedMin: 36, // ft/s at Arm 1
+    throwSpeedMax: 70, // ft/s at Arm 100
     releaseDelay: 0.45, // seconds to set and throw
     outMargin: 0.15, // the ball must beat the runner by this many seconds to try for the out
     pegRange: 38, // furthest a fielder will try to peg a runner
@@ -181,8 +190,24 @@ export const CONFIG = {
     batterStartDelay: 0.25, // batter-runner leaves home this long after the kick
   },
 
+  // ---------------------------------------------------------------- computer players
+  ai: {
+    swingAtStrike: 0.88,
+    swingAtBall: 0.22, // chases a ball it can still reach
+    timingSdWorst: 75, // timing miss (ms, standard deviation) at Contact 1 ...
+    timingSdBest: 22, // ... and at Contact 100
+    trickyPitchSdMult: 1.25, // bouncy and curving pitches throw off the timing
+    buntChance: 0.05,
+    runAggression: 0.25, // seconds of cushion a runner wants before taking an extra base
+    runDecisionInterval: 0.25,
+  },
+
   // ---------------------------------------------------------------- at-bat rules
   rules: {
+    innings: 9, // 3, 5 or 7 can be picked on the lineup card
+    inningChoices: [3, 5, 7, 9],
+    minKickers: 10,
+    maxKickers: 12,
     outsPerHalf: 3,
     strikesForOut: 3,
     foulsForOut: 4,

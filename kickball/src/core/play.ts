@@ -88,6 +88,8 @@ export interface PlaySetup {
   outs: number;
   defense: Record<string, Ratings>;
   rng: Rng;
+  manualDefense?: boolean; // the player chooses every throw
+  autoRun?: boolean; // the computer runs the bases
 }
 
 export type EndReason = 'settled' | 'threeOuts' | 'foul' | 'homeRun' | 'timeout';
@@ -120,12 +122,17 @@ export class LivePlay {
   private settledFor = 0;
   private nextDecision = 0;
   private attempted = new Map<number, number>(); // fielder -> time of last fielding try
+  readonly manualDefense: boolean;
+  private autoRun: boolean;
+  private nextRunDecision = 0;
 
   constructor(s: PlaySetup) {
     this.flight = s.flight;
     this.rng = s.rng;
     this.fair = s.flight.fair;
     this.outs = s.outs;
+    this.manualDefense = !!s.manualDefense;
+    this.autoRun = !!s.autoRun;
 
     this.fielders = Object.entries(CONFIG.field.positions).map(([pos, spot]) => {
       const ratings = s.defense[pos] ?? FC.defenseRatings;
@@ -163,7 +170,8 @@ export class LivePlay {
     this.updateForces();
     // The kicker always runs. Other forced runners run on ground balls, but wait
     // on a catchable ball in the air until it lands (you can still send them).
-    this.waitingOnFly = this.fair && !this.flight.overFence && this.flight.maxHeight > FC.catchHeight;
+    this.waitingOnFly =
+      this.fair && !this.flight.overFence && this.flight.maxHeight > FC.catchHeight && this.catchableInAir();
     if (this.fair) for (const r of this.runners) if (r.forced && (r.origin === 0 || !this.waitingOnFly)) r.target = r.origin + 1;
 
     if (this.fair && this.flight.overFence) {
@@ -251,7 +259,8 @@ export class LivePlay {
     if (this.over) return;
     this.checkOuts();
     if (this.over) return;
-    this.decide();
+    if (!this.manualDefense) this.decide();
+    if (this.autoRun) this.runAi();
     this.checkEnd(dt);
   }
 
@@ -381,6 +390,19 @@ export class LivePlay {
     }
     if (b.kind === 'loose') return b.path.filter((p) => p.t >= this.t).concat(b.path.slice(-1));
     return [];
+  }
+
+  /** Can any fielder get under this kick before it lands? */
+  private catchableInAir(): boolean {
+    const f = this.flight;
+    return this.fielders.some((fl) =>
+      f.points.some(
+        (p) =>
+          p.t < f.landing.t &&
+          p.z <= FC.catchHeight &&
+          Math.max(0, dist(fl.x, fl.y, p.x, p.y) - FC.reachFt) <= Math.max(0, p.t - FC.reactionTime) * fl.speed,
+      ),
+    );
   }
 
   /** Sends the fielder who can reach the ball first, and sets base coverage for the rest. */
@@ -644,6 +666,95 @@ export class LivePlay {
     }
   }
 
+  // ------------------------------------------------------------------ the player's defense
+
+  /** True while a fielder has the ball and is waiting for the player's call. */
+  awaitingThrow(): boolean {
+    return this.manualDefense && this.ball.kind === 'held' && this.ball.releaseAt === null && !this.over;
+  }
+
+  /** Throw to a base (1-4). A fielder close to that base runs there instead. */
+  throwTo(base: number): void {
+    const b = this.ball;
+    if (b.kind !== 'held' || b.releaseAt !== null) return;
+    const h = this.fielders[b.f];
+    const bp = baseXY(base);
+    if (dist(h.x, h.y, bp.x, bp.y) < 18) {
+      h.tx = bp.x;
+      h.ty = bp.y;
+      return;
+    }
+    b.action = { kind: 'throw', base, toX: bp.x, toY: bp.y };
+    b.releaseAt = this.t + FC.releaseDelay;
+  }
+
+  /** Peg the closest runner caught between bases. Returns false if nobody is in range. */
+  pegNearest(): boolean {
+    const b = this.ball;
+    if (b.kind !== 'held' || b.releaseAt !== null) return false;
+    const h = this.fielders[b.f];
+    const throwSpeed = lerp(FC.throwSpeedMin, FC.throwSpeedMax, h.ratings.arm / 100);
+    const targets = this.activeRunners()
+      .filter((r) => !isOnBase(r))
+      .map((r) => ({ r, d: dist(h.x, h.y, this.runnerXY(r).x, this.runnerXY(r).y) }))
+      .filter((x) => x.d <= FC.pegRange * 1.3)
+      .sort((a, c) => a.d - c.d);
+    if (!targets.length) return false;
+    const { r, d } = targets[0];
+    const chance = lerp(FC.pegHitMin, FC.pegHitMax, h.ratings.arm / 100) * Math.max(0.1, 1 - 0.5 * (d / FC.pegRange));
+    const travel = FC.releaseDelay + d / throwSpeed;
+    const dir = Math.sign(r.target - r.pos);
+    const aim = pathXY(clamp(r.pos + (dir * r.speed * travel) / BASE_FT, 0, 4));
+    b.action = { kind: 'peg', runner: r, toX: aim.x, toY: aim.y, hit: this.rng() < chance };
+    b.releaseAt = this.t + FC.releaseDelay;
+    return true;
+  }
+
+  /** The base the lead runner is heading for: a sensible default throw. */
+  suggestedBase(): number {
+    const moving = this.activeRunners().filter((r) => r.target !== r.pos || !isOnBase(r));
+    if (!moving.length) return 2;
+    const lead = moving[0];
+    return lead.target === 0 ? 1 : lead.target;
+  }
+
+  // ------------------------------------------------------------------ computer baserunning
+
+  private runAi(): void {
+    if (this.t < this.nextRunDecision) return;
+    this.nextRunDecision = this.t + CONFIG.ai.runDecisionInterval;
+    // While a catchable fly is up, wait.
+    if (this.ball.kind === 'flight' && this.waitingOnFly) return;
+    const ballPos = this.ballPosition();
+    const holder = this.holder();
+    // Time for the defense to get the ball into a fielder's hands
+    let getBall = 0;
+    if (!holder) {
+      getBall = Math.min(...this.fielders.map((f) => Math.max(0, dist(f.x, f.y, ballPos.x, ballPos.y) - FC.reachFt) / f.speed));
+    }
+    const fromX = holder ? holder.x : ballPos.x;
+    const fromY = holder ? holder.y : ballPos.y;
+    for (const r of this.activeRunners()) {
+      if (r.mustReturn || this.t < r.startAt) continue;
+      // Decide on the base past the one the runner is already heading for, while still running.
+      if (r.target < r.pos || r.target >= 4) continue;
+      const next = Math.max(r.target, Math.floor(r.pos)) + 1;
+      if (next > 4) continue;
+      const bp = baseXY(next);
+      const avgThrow = (FC.throwSpeedMin + FC.throwSpeedMax) / 2;
+      const ballT = getBall + FC.releaseDelay + dist(fromX, fromY, bp.x, bp.y) / avgThrow;
+      const runT = ((next - r.pos) * BASE_FT) / r.speed;
+      if (runT + CONFIG.ai.runAggression < ballT) r.target = next;
+      else if (!isOnBase(r) && r.target > r.pos && !(r.forced && r.pos < r.origin + 1)) {
+        // heading for a base it can't make: go back
+        const back = Math.floor(r.pos);
+        const backT = ((r.pos - back) * BASE_FT) / r.speed;
+        if (runT > ballT && backT < runT) r.target = back;
+      }
+    }
+    this.clampTargets();
+  }
+
   // ------------------------------------------------------------------ defensive decisions
 
   private decide(): void {
@@ -743,7 +854,8 @@ export class LivePlay {
     }
     const allSafe = this.activeRunners().every((r) => isOnBase(r) && r.target === r.pos && !r.mustReturn);
     const b = this.ball;
-    const settledBall = b.kind === 'held' && b.releaseAt === null && INFIELD.has(this.fielders[b.f].pos);
+    const settledBall =
+      b.kind === 'held' && b.releaseAt === null && (this.manualDefense || INFIELD.has(this.fielders[b.f].pos));
     if (allSafe && settledBall) {
       this.settledFor += dt;
       if (this.settledFor >= FC.settleTime) this.finish('settled');

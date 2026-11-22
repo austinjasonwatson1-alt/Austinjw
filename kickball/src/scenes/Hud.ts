@@ -30,6 +30,8 @@ export class Hud {
   private promptText: Phaser.GameObjects.Text;
   private helpText: Phaser.GameObjects.Text;
   private runsText: Phaser.GameObjects.Text;
+  private scoreTexts: Phaser.GameObjects.Text[] = [];
+  private inningText!: Phaser.GameObjects.Text;
   private situation = { runs: 0, outs: 0, bases: [false, false, false] };
 
   private ratings = { contact: 0, power: 0 };
@@ -53,9 +55,13 @@ export class Hud {
 
     this.pitchLabel = t(S.width - 196, 20, 9, '#94a3b8', FONT_BODY).setText('PITCH');
     this.pitchText = t(S.width - 196, 31, 15);
-    t(S.width - 196, 68, 9, '#94a3b8', FONT_BODY).setText('RUNS');
+    t(S.width - 196, 68, 9, '#94a3b8', FONT_BODY).setText('RUNS THIS HALF');
     this.runsText = t(S.width - 196, 80, 26, '#ffffff');
     t(S.width - 62, 68, 9, '#94a3b8', FONT_BODY).setText('OUTS');
+    // Score bug, top center
+    const cx = S.width / 2;
+    this.scoreTexts = [t(cx - 112, 20, 13), t(cx - 30, 17, 18).setOrigin(1, 0), t(cx - 112, 42, 13), t(cx - 30, 39, 18).setOrigin(1, 0)];
+    this.inningText = t(cx + 52, 30, 15, '#f2c230').setOrigin(0.5, 0);
 
     // Lower third
     this.lower = scene.add.container(0, 0).setDepth(110);
@@ -109,6 +115,11 @@ export class Hud {
     return this.scene.add.text(x, y, s, style).setResolution(S.renderScale);
   }
 
+  /** Shows or hides the whole overlay (hidden behind the lineup card and box score). */
+  setVisible(v: boolean): void {
+    this.scene.cameras.main.setVisible(v);
+  }
+
   setKicker(order: number, p: Player): void {
     this.orderText.setText(`#${order}`);
     this.nameText.setText(p.name.toUpperCase());
@@ -131,17 +142,37 @@ export class Hud {
     this.redraw();
   }
 
+  /** On defense the card's last row shows your pitch call instead of the kick aim. */
+  setPitchCall(type: string, location: string): void {
+    this.aimText.setText(`PITCH  ◀ ${type.toUpperCase()} ▶   ▲ ${location.toUpperCase()} ▼`);
+    this.bunt = false;
+    this.stanceText.setText('DEFENSE');
+    this.redraw();
+  }
+
+  setScore(away: string, a: number, home: string, h: number, inning: number, top: boolean, final = false): void {
+    this.scoreTexts[0].setText(away);
+    this.scoreTexts[1].setText(String(a));
+    this.scoreTexts[2].setText(home);
+    this.scoreTexts[3].setText(String(h));
+    const ord = (n: number) => n + (['th', 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10 < 4 ? n % 10 : 0] ?? 'th');
+    this.inningText.setText(final ? 'FINAL' : `${top ? '▲' : '▼'} ${ord(inning)}`);
+  }
+
   setPitch(type: string | null, mph?: number): void {
     this.pitchText.setText(type ? `${type.toUpperCase()}${mph ? `   ${Math.round(mph)} MPH` : ''}` : '—');
   }
 
-  setHelp(mode: 'kick' | 'run', selected = 'ALL RUNNERS'): void {
-    this.helpText.setText(
-      mode === 'kick'
-        ? '←/→ AIM     ↓ BUNT STANCE     ↑ NORMAL STANCE     HOLD SPACE = POWER     TAP SPACE = LINER     RELEASE = KICK'
-        : `→ SEND     ← HOLD / GO BACK     ↑/↓ PICK RUNNER  ·  NOW: ${selected}`,
-    );
-    this.helpText.setColor(mode === 'kick' ? '#d8f3dc' : '#ffe066');
+  setHelp(mode: 'kick' | 'run' | 'pitch' | 'field' | 'watch', selected = 'ALL RUNNERS'): void {
+    const text = {
+      kick: '←/→ AIM     ↓ BUNT STANCE     ↑ NORMAL STANCE     HOLD SPACE = POWER     TAP SPACE = LINER     RELEASE = KICK',
+      run: `→ SEND     ← HOLD / GO BACK     ↑/↓ PICK RUNNER  ·  NOW: ${selected}`,
+      pitch: '←/→ PITCH TYPE     ↑/↓ LOCATION     SPACE = ROLL IT',
+      field: `←/→ CHOOSE     SPACE = DO IT     ·     ${selected}`,
+      watch: 'YOUR FIELDERS ARE CHASING IT DOWN...',
+    }[mode];
+    this.helpText.setText(text);
+    this.helpText.setColor(mode === 'kick' || mode === 'pitch' ? '#d8f3dc' : '#ffe066');
   }
 
   setSituation(runs: number, outs: number, bases: boolean[]): void {
@@ -262,6 +293,16 @@ export class Hud {
     g.fillRoundedRect(S.width - 210, 14, 196, 40, 8);
     g.fillStyle(HUD.accent, 1);
     g.fillRoundedRect(S.width - 210, 14, 5, 40, { tl: 8, bl: 8, tr: 0, br: 0 });
+
+    // Score bug
+    const bx = S.width / 2 - 122;
+    g.fillStyle(0x000000, 0.35);
+    g.fillRoundedRect(bx + 3, 18, 244, 50, 8);
+    g.fillStyle(HUD.navy, 0.93);
+    g.fillRoundedRect(bx, 14, 244, 50, 8);
+    g.fillStyle(HUD.navyLight, 1);
+    g.fillRect(bx + 8, 38.5, 152, 1);
+    g.fillRect(bx + 166, 20, 1, 38);
 
     // Situation: runs, bases, outs
     const sx = S.width - 210;

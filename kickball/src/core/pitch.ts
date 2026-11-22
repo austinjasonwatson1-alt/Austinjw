@@ -18,20 +18,34 @@ export interface Vec3 {
   z: number; // feet, height
 }
 
-export function generatePitch(rng: Rng, forcedType?: PitchType): Pitch {
+export interface PitchAim {
+  type: PitchType;
+  aim: number; // ft from the middle of the plate
+  scatter: number; // how far it can stray, ft (standard deviation)
+}
+
+/** A pitch. With `aim`, it is thrown at a spot and strays by the pitcher's accuracy. */
+export function generatePitch(rng: Rng, forcedType?: PitchType, aim?: PitchAim): Pitch {
   const types = CONFIG.pitch.types;
   const type =
+    aim?.type ??
     forcedType ??
     pickWeighted(
       rng,
       (Object.keys(types) as PitchType[]).map((t) => ({ item: t, weight: types[t].weight })),
     );
   const spec = types[type];
-  const isStrike = rng() < CONFIG.pitch.strikeChance;
   const half = CONFIG.pitch.plateHalfWidth;
-  const targetX = isStrike
-    ? randRange(rng, -half * 0.9, half * 0.9)
-    : (rng() < 0.5 ? -1 : 1) * randRange(rng, CONFIG.pitch.missMin, CONFIG.pitch.missMax);
+  let targetX: number;
+  if (aim) {
+    const g = Math.sqrt(-2 * Math.log(rng() + 1e-9)) * Math.cos(2 * Math.PI * rng());
+    targetX = Math.max(-CONFIG.pitch.missMax, Math.min(CONFIG.pitch.missMax, aim.aim + g * aim.scatter));
+  } else {
+    const isStrike = rng() < CONFIG.pitch.strikeChance;
+    targetX = isStrike
+      ? randRange(rng, -half * 0.9, half * 0.9)
+      : (rng() < 0.5 ? -1 : 1) * randRange(rng, CONFIG.pitch.missMin, CONFIG.pitch.missMax);
+  }
   const curve = spec.curve * (rng() < 0.5 ? -1 : 1);
   return {
     type,
@@ -40,7 +54,7 @@ export function generatePitch(rng: Rng, forcedType?: PitchType): Pitch {
     curve,
     bounceHeight: spec.bounceHeight,
     bounces: spec.bounces,
-    isStrike,
+    isStrike: Math.abs(targetX) <= half,
     timeToPlate: CONFIG.field.pitchingDistance / spec.speed,
   };
 }

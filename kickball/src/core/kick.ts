@@ -74,6 +74,7 @@ export function resolveKick(input: KickInput, rng: Rng): KickOutcome {
   const type = kickTypeFor(holdMs, bunt);
   let quality = contactQuality(deltaMs, clean, whiff);
   if (Math.abs(pitch.targetX) > CONFIG.pitch.plateHalfWidth) quality *= CONFIG.pitch.offPlatePenalty;
+  else if (Math.abs(pitch.targetX) > 1) quality *= CONFIG.pitch.edgeQualityMult;
 
   const jitter = (rng() * 2 - 1) * K.sprayJitterDeg;
   const aim = K.aimZones[clamp(aimIndex, 0, K.aimZones.length - 1)].deg;

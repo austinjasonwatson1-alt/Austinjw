@@ -7,6 +7,7 @@ export class HalfInning {
   outs = 0;
   runs = 0;
   bases: (Player | null)[] = [null, null, null];
+  lastForcedHome: Player | null = null;
 
   get over(): boolean {
     return this.outs >= CONFIG.rules.outsPerHalf;
@@ -21,7 +22,10 @@ export class HalfInning {
       this.bases[i] = carry;
       carry = here;
     }
-    if (carry) runs = 1;
+    if (carry) {
+      runs = 1;
+      this.lastForcedHome = carry;
+    }
     this.runs += runs;
     return runs;
   }

@@ -6,18 +6,1480 @@
       "name": "Don't Stop Balleving",
       "isPlayer": true,
       "players": [
-        { "name": "Trevor",    "kicksAs": "guy",  "position": "CF", "contact": 70, "power": 60, "speed": 90, "arm": 65, "glove": 90 },
-        { "name": "Austin",    "kicksAs": "guy",  "position": "1B", "contact": 95, "power": 75, "speed": 90, "arm": 60, "glove": 95 },
-        { "name": "Abby",      "kicksAs": "girl", "position": "2B", "contact": 58, "power": 45, "speed": 62, "arm": 48, "glove": 55, "generated": true },
-        { "name": "Connor",    "kicksAs": "guy",  "position": "P",  "contact": 80, "power": 90, "speed": 85, "arm": 95, "glove": 90 },
-        { "name": "Christian", "kicksAs": "guy",  "position": "RF", "contact": 55, "power": 68, "speed": 64, "arm": 66, "glove": 55, "generated": true },
-        { "name": "Julie",     "kicksAs": "girl", "position": "C",  "contact": 20, "power": 20, "speed": 20, "arm": 20, "glove": 20 },
-        { "name": "Emre",      "kicksAs": "guy",  "position": "RF", "contact": 57, "power": 66, "speed": 61, "arm": 62, "glove": 52, "generated": true },
-        { "name": "Mitch",     "kicksAs": "guy",  "position": "SS", "contact": 60, "power": 70, "speed": 90, "arm": 70, "glove": 90 },
-        { "name": "Alex",      "kicksAs": "girl", "position": "LF", "contact": 54, "power": 47, "speed": 58, "arm": 46, "glove": 57, "generated": true },
-        { "name": "Zach",      "kicksAs": "guy",  "position": "RC", "contact": 61, "power": 64, "speed": 70, "arm": 68, "glove": 60, "generated": true },
-        { "name": "Kelly",     "kicksAs": "girl", "position": "3B", "contact": 60, "power": 60, "speed": 60, "arm": 60, "glove": 70 },
-        { "name": "Chloe",     "kicksAs": "girl", "position": "3B", "contact": 60, "power": 60, "speed": 60, "arm": 60, "glove": 60 }
+        {
+          "name": "Trevor",
+          "kicksAs": "guy",
+          "position": "CF",
+          "contact": 70,
+          "power": 60,
+          "speed": 90,
+          "arm": 65,
+          "glove": 90
+        },
+        {
+          "name": "Austin",
+          "kicksAs": "guy",
+          "position": "1B",
+          "contact": 95,
+          "power": 75,
+          "speed": 90,
+          "arm": 60,
+          "glove": 95
+        },
+        {
+          "name": "Abby",
+          "kicksAs": "girl",
+          "position": "2B",
+          "contact": 58,
+          "power": 45,
+          "speed": 62,
+          "arm": 48,
+          "glove": 55,
+          "generated": true
+        },
+        {
+          "name": "Connor",
+          "kicksAs": "guy",
+          "position": "P",
+          "contact": 80,
+          "power": 90,
+          "speed": 85,
+          "arm": 95,
+          "glove": 90
+        },
+        {
+          "name": "Christian",
+          "kicksAs": "guy",
+          "position": "RF",
+          "contact": 55,
+          "power": 68,
+          "speed": 64,
+          "arm": 66,
+          "glove": 55,
+          "generated": true
+        },
+        {
+          "name": "Julie",
+          "kicksAs": "girl",
+          "position": "C",
+          "contact": 20,
+          "power": 20,
+          "speed": 20,
+          "arm": 20,
+          "glove": 20
+        },
+        {
+          "name": "Emre",
+          "kicksAs": "guy",
+          "position": "RF",
+          "contact": 57,
+          "power": 66,
+          "speed": 61,
+          "arm": 62,
+          "glove": 52,
+          "generated": true
+        },
+        {
+          "name": "Mitch",
+          "kicksAs": "guy",
+          "position": "SS",
+          "contact": 60,
+          "power": 70,
+          "speed": 90,
+          "arm": 70,
+          "glove": 90
+        },
+        {
+          "name": "Alex",
+          "kicksAs": "girl",
+          "position": "LF",
+          "contact": 54,
+          "power": 47,
+          "speed": 58,
+          "arm": 46,
+          "glove": 57,
+          "generated": true
+        },
+        {
+          "name": "Zach",
+          "kicksAs": "guy",
+          "position": "RC",
+          "contact": 61,
+          "power": 64,
+          "speed": 70,
+          "arm": 68,
+          "glove": 60,
+          "generated": true
+        },
+        {
+          "name": "Kelly",
+          "kicksAs": "girl",
+          "position": "3B",
+          "contact": 60,
+          "power": 60,
+          "speed": 60,
+          "arm": 60,
+          "glove": 70
+        },
+        {
+          "name": "Chloe",
+          "kicksAs": "girl",
+          "position": "3B",
+          "contact": 60,
+          "power": 60,
+          "speed": 60,
+          "arm": 60,
+          "glove": 60
+        }
+      ],
+      "tier": "player"
+    },
+    {
+      "id": "ballbarians",
+      "name": "Ballbarians",
+      "tier": "contender",
+      "players": [
+        {
+          "name": "Elle",
+          "kicksAs": "girl",
+          "position": "P",
+          "contact": 68,
+          "power": 50,
+          "speed": 66,
+          "arm": 64,
+          "glove": 78
+        },
+        {
+          "name": "Bella",
+          "kicksAs": "girl",
+          "position": "C",
+          "contact": 76,
+          "power": 56,
+          "speed": 72,
+          "arm": 69,
+          "glove": 60
+        },
+        {
+          "name": "Tess",
+          "kicksAs": "girl",
+          "position": "1B",
+          "contact": 61,
+          "power": 72,
+          "speed": 74,
+          "arm": 73,
+          "glove": 64
+        },
+        {
+          "name": "Cara",
+          "kicksAs": "girl",
+          "position": "2B",
+          "contact": 92,
+          "power": 58,
+          "speed": 64,
+          "arm": 84,
+          "glove": 67
+        },
+        {
+          "name": "Ava",
+          "kicksAs": "girl",
+          "position": "3B",
+          "contact": 80,
+          "power": 70,
+          "speed": 69,
+          "arm": 71,
+          "glove": 65
+        },
+        {
+          "name": "Neil",
+          "kicksAs": "guy",
+          "position": "SS",
+          "contact": 78,
+          "power": 61,
+          "speed": 62,
+          "arm": 65,
+          "glove": 67
+        },
+        {
+          "name": "Liam",
+          "kicksAs": "guy",
+          "position": "LF",
+          "contact": 70,
+          "power": 85,
+          "speed": 67,
+          "arm": 67,
+          "glove": 73
+        },
+        {
+          "name": "Marcus",
+          "kicksAs": "guy",
+          "position": "CF",
+          "contact": 92,
+          "power": 84,
+          "speed": 91,
+          "arm": 91,
+          "glove": 98,
+          "star": true
+        },
+        {
+          "name": "Dante",
+          "kicksAs": "guy",
+          "position": "RC",
+          "contact": 57,
+          "power": 57,
+          "speed": 93,
+          "arm": 72,
+          "glove": 78
+        },
+        {
+          "name": "Hector",
+          "kicksAs": "guy",
+          "position": "RF",
+          "contact": 86,
+          "power": 53,
+          "speed": 66,
+          "arm": 63,
+          "glove": 82
+        },
+        {
+          "name": "Bryce",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 61,
+          "power": 65,
+          "speed": 69,
+          "arm": 78,
+          "glove": 64
+        }
+      ]
+    },
+    {
+      "id": "roll-models",
+      "name": "Roll Models",
+      "tier": "contender",
+      "players": [
+        {
+          "name": "Erin",
+          "kicksAs": "girl",
+          "position": "P",
+          "contact": 74,
+          "power": 73,
+          "speed": 58,
+          "arm": 79,
+          "glove": 61
+        },
+        {
+          "name": "Yara",
+          "kicksAs": "girl",
+          "position": "C",
+          "contact": 70,
+          "power": 52,
+          "speed": 77,
+          "arm": 82,
+          "glove": 55
+        },
+        {
+          "name": "Vera",
+          "kicksAs": "girl",
+          "position": "1B",
+          "contact": 71,
+          "power": 60,
+          "speed": 81,
+          "arm": 66,
+          "glove": 85
+        },
+        {
+          "name": "Lucy",
+          "kicksAs": "girl",
+          "position": "2B",
+          "contact": 76,
+          "power": 71,
+          "speed": 71,
+          "arm": 67,
+          "glove": 69
+        },
+        {
+          "name": "Kayla",
+          "kicksAs": "girl",
+          "position": "3B",
+          "contact": 77,
+          "power": 67,
+          "speed": 59,
+          "arm": 73,
+          "glove": 70
+        },
+        {
+          "name": "Miles",
+          "kicksAs": "guy",
+          "position": "SS",
+          "contact": 71,
+          "power": 90,
+          "speed": 69,
+          "arm": 69,
+          "glove": 65
+        },
+        {
+          "name": "Toby",
+          "kicksAs": "guy",
+          "position": "LF",
+          "contact": 67,
+          "power": 72,
+          "speed": 77,
+          "arm": 77,
+          "glove": 78
+        },
+        {
+          "name": "Xavier",
+          "kicksAs": "guy",
+          "position": "CF",
+          "contact": 62,
+          "power": 59,
+          "speed": 67,
+          "arm": 78,
+          "glove": 81
+        },
+        {
+          "name": "Jonah",
+          "kicksAs": "guy",
+          "position": "RC",
+          "contact": 72,
+          "power": 71,
+          "speed": 78,
+          "arm": 67,
+          "glove": 71
+        },
+        {
+          "name": "Nico",
+          "kicksAs": "guy",
+          "position": "RF",
+          "contact": 95,
+          "power": 78,
+          "speed": 87,
+          "arm": 86,
+          "glove": 89,
+          "star": true
+        },
+        {
+          "name": "Ian",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 64,
+          "power": 54,
+          "speed": 85,
+          "arm": 72,
+          "glove": 63
+        }
+      ]
+    },
+    {
+      "id": "base-invaders",
+      "name": "Base Invaders",
+      "tier": "contender",
+      "players": [
+        {
+          "name": "Nina",
+          "kicksAs": "girl",
+          "position": "P",
+          "contact": 70,
+          "power": 70,
+          "speed": 75,
+          "arm": 79,
+          "glove": 71
+        },
+        {
+          "name": "Gina",
+          "kicksAs": "girl",
+          "position": "C",
+          "contact": 69,
+          "power": 57,
+          "speed": 65,
+          "arm": 73,
+          "glove": 79
+        },
+        {
+          "name": "Sara",
+          "kicksAs": "girl",
+          "position": "1B",
+          "contact": 99,
+          "power": 73,
+          "speed": 96,
+          "arm": 81,
+          "glove": 81,
+          "star": true
+        },
+        {
+          "name": "Paige",
+          "kicksAs": "girl",
+          "position": "2B",
+          "contact": 73,
+          "power": 72,
+          "speed": 76,
+          "arm": 75,
+          "glove": 70
+        },
+        {
+          "name": "Aaron",
+          "kicksAs": "guy",
+          "position": "3B",
+          "contact": 68,
+          "power": 66,
+          "speed": 76,
+          "arm": 71,
+          "glove": 81
+        },
+        {
+          "name": "Jared",
+          "kicksAs": "guy",
+          "position": "SS",
+          "contact": 82,
+          "power": 70,
+          "speed": 54,
+          "arm": 63,
+          "glove": 63
+        },
+        {
+          "name": "Chris",
+          "kicksAs": "guy",
+          "position": "LF",
+          "contact": 55,
+          "power": 76,
+          "speed": 71,
+          "arm": 64,
+          "glove": 73
+        },
+        {
+          "name": "Quinn",
+          "kicksAs": "guy",
+          "position": "CF",
+          "contact": 61,
+          "power": 72,
+          "speed": 67,
+          "arm": 73,
+          "glove": 61
+        },
+        {
+          "name": "Vince",
+          "kicksAs": "guy",
+          "position": "RC",
+          "contact": 67,
+          "power": 65,
+          "speed": 82,
+          "arm": 79,
+          "glove": 78
+        },
+        {
+          "name": "Owen",
+          "kicksAs": "guy",
+          "position": "RF",
+          "contact": 72,
+          "power": 53,
+          "speed": 62,
+          "arm": 55,
+          "glove": 76
+        },
+        {
+          "name": "Dean",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 67,
+          "power": 64,
+          "speed": 66,
+          "arm": 77,
+          "glove": 72
+        }
+      ]
+    },
+    {
+      "id": "sole-survivors",
+      "name": "Sole Survivors",
+      "tier": "middle",
+      "players": [
+        {
+          "name": "Daisy",
+          "kicksAs": "girl",
+          "position": "P",
+          "contact": 80,
+          "power": 58,
+          "speed": 60,
+          "arm": 51,
+          "glove": 51
+        },
+        {
+          "name": "Brooke",
+          "kicksAs": "girl",
+          "position": "C",
+          "contact": 74,
+          "power": 58,
+          "speed": 53,
+          "arm": 63,
+          "glove": 63
+        },
+        {
+          "name": "Rosa",
+          "kicksAs": "girl",
+          "position": "1B",
+          "contact": 51,
+          "power": 65,
+          "speed": 63,
+          "arm": 57,
+          "glove": 68
+        },
+        {
+          "name": "Jade",
+          "kicksAs": "girl",
+          "position": "2B",
+          "contact": 58,
+          "power": 55,
+          "speed": 52,
+          "arm": 57,
+          "glove": 50
+        },
+        {
+          "name": "Garrett",
+          "kicksAs": "guy",
+          "position": "3B",
+          "contact": 40,
+          "power": 58,
+          "speed": 67,
+          "arm": 56,
+          "glove": 58
+        },
+        {
+          "name": "Ulysses",
+          "kicksAs": "guy",
+          "position": "SS",
+          "contact": 56,
+          "power": 59,
+          "speed": 52,
+          "arm": 65,
+          "glove": 60
+        },
+        {
+          "name": "Kevin",
+          "kicksAs": "guy",
+          "position": "LF",
+          "contact": 51,
+          "power": 62,
+          "speed": 66,
+          "arm": 56,
+          "glove": 48
+        },
+        {
+          "name": "Wes",
+          "kicksAs": "guy",
+          "position": "CF",
+          "contact": 52,
+          "power": 58,
+          "speed": 67,
+          "arm": 65,
+          "glove": 46
+        },
+        {
+          "name": "Hugo",
+          "kicksAs": "guy",
+          "position": "RC",
+          "contact": 56,
+          "power": 59,
+          "speed": 50,
+          "arm": 65,
+          "glove": 59
+        },
+        {
+          "name": "Paul",
+          "kicksAs": "guy",
+          "position": "RF",
+          "contact": 63,
+          "power": 55,
+          "speed": 66,
+          "arm": 55,
+          "glove": 65
+        },
+        {
+          "name": "Lance",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 60,
+          "power": 48,
+          "speed": 74,
+          "arm": 50,
+          "glove": 65
+        },
+        {
+          "name": "Trent",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 81,
+          "power": 68,
+          "speed": 75,
+          "arm": 66,
+          "glove": 75,
+          "star": true
+        }
+      ]
+    },
+    {
+      "id": "new-kicks-on-the-block",
+      "name": "New Kicks on the Block",
+      "tier": "middle",
+      "players": [
+        {
+          "name": "Olivia",
+          "kicksAs": "girl",
+          "position": "P",
+          "contact": 63,
+          "power": 49,
+          "speed": 64,
+          "arm": 56,
+          "glove": 51
+        },
+        {
+          "name": "Lena",
+          "kicksAs": "girl",
+          "position": "C",
+          "contact": 57,
+          "power": 49,
+          "speed": 52,
+          "arm": 64,
+          "glove": 56
+        },
+        {
+          "name": "Rachel",
+          "kicksAs": "girl",
+          "position": "1B",
+          "contact": 63,
+          "power": 52,
+          "speed": 59,
+          "arm": 51,
+          "glove": 50
+        },
+        {
+          "name": "Amber",
+          "kicksAs": "girl",
+          "position": "2B",
+          "contact": 76,
+          "power": 62,
+          "speed": 81,
+          "arm": 59,
+          "glove": 36
+        },
+        {
+          "name": "Kim",
+          "kicksAs": "girl",
+          "position": "3B",
+          "contact": 62,
+          "power": 57,
+          "speed": 67,
+          "arm": 53,
+          "glove": 60
+        },
+        {
+          "name": "Theo",
+          "kicksAs": "guy",
+          "position": "SS",
+          "contact": 69,
+          "power": 50,
+          "speed": 63,
+          "arm": 60,
+          "glove": 60
+        },
+        {
+          "name": "Blake",
+          "kicksAs": "guy",
+          "position": "LF",
+          "contact": 68,
+          "power": 72,
+          "speed": 57,
+          "arm": 49,
+          "glove": 74
+        },
+        {
+          "name": "Eli",
+          "kicksAs": "guy",
+          "position": "CF",
+          "contact": 60,
+          "power": 73,
+          "speed": 63,
+          "arm": 81,
+          "glove": 66,
+          "star": true
+        },
+        {
+          "name": "Leo",
+          "kicksAs": "guy",
+          "position": "RC",
+          "contact": 59,
+          "power": 56,
+          "speed": 67,
+          "arm": 71,
+          "glove": 63
+        },
+        {
+          "name": "Ben",
+          "kicksAs": "guy",
+          "position": "RF",
+          "contact": 61,
+          "power": 71,
+          "speed": 69,
+          "arm": 46,
+          "glove": 54
+        }
+      ]
+    },
+    {
+      "id": "toe-jammers",
+      "name": "Toe Jammers",
+      "tier": "middle",
+      "players": [
+        {
+          "name": "Lauren",
+          "kicksAs": "girl",
+          "position": "P",
+          "contact": 49,
+          "power": 41,
+          "speed": 54,
+          "arm": 61,
+          "glove": 53
+        },
+        {
+          "name": "Nora",
+          "kicksAs": "girl",
+          "position": "C",
+          "contact": 48,
+          "power": 52,
+          "speed": 60,
+          "arm": 66,
+          "glove": 49
+        },
+        {
+          "name": "Uma",
+          "kicksAs": "girl",
+          "position": "1B",
+          "contact": 57,
+          "power": 50,
+          "speed": 64,
+          "arm": 72,
+          "glove": 53
+        },
+        {
+          "name": "Zoe",
+          "kicksAs": "girl",
+          "position": "2B",
+          "contact": 51,
+          "power": 49,
+          "speed": 43,
+          "arm": 39,
+          "glove": 61
+        },
+        {
+          "name": "Fred",
+          "kicksAs": "guy",
+          "position": "3B",
+          "contact": 67,
+          "power": 52,
+          "speed": 46,
+          "arm": 63,
+          "glove": 44
+        },
+        {
+          "name": "Zane",
+          "kicksAs": "guy",
+          "position": "SS",
+          "contact": 62,
+          "power": 52,
+          "speed": 44,
+          "arm": 73,
+          "glove": 51
+        },
+        {
+          "name": "Hank",
+          "kicksAs": "guy",
+          "position": "LF",
+          "contact": 53,
+          "power": 67,
+          "speed": 53,
+          "arm": 63,
+          "glove": 60
+        },
+        {
+          "name": "Reed",
+          "kicksAs": "guy",
+          "position": "CF",
+          "contact": 47,
+          "power": 64,
+          "speed": 62,
+          "arm": 37,
+          "glove": 54
+        },
+        {
+          "name": "Kurt",
+          "kicksAs": "guy",
+          "position": "RC",
+          "contact": 68,
+          "power": 51,
+          "speed": 64,
+          "arm": 61,
+          "glove": 60
+        },
+        {
+          "name": "Walt",
+          "kicksAs": "guy",
+          "position": "RF",
+          "contact": 47,
+          "power": 62,
+          "speed": 61,
+          "arm": 55,
+          "glove": 62
+        },
+        {
+          "name": "Dev",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 61,
+          "power": 76,
+          "speed": 65,
+          "arm": 67,
+          "glove": 79,
+          "star": true
+        },
+        {
+          "name": "Pablo",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 70,
+          "power": 51,
+          "speed": 55,
+          "arm": 52,
+          "glove": 40
+        }
+      ]
+    },
+    {
+      "id": "grass-kickers",
+      "name": "Grass Kickers",
+      "tier": "middle",
+      "players": [
+        {
+          "name": "Quinn S.",
+          "kicksAs": "girl",
+          "position": "P",
+          "contact": 53,
+          "power": 59,
+          "speed": 59,
+          "arm": 58,
+          "glove": 59
+        },
+        {
+          "name": "Dana",
+          "kicksAs": "girl",
+          "position": "C",
+          "contact": 60,
+          "power": 42,
+          "speed": 53,
+          "arm": 50,
+          "glove": 50
+        },
+        {
+          "name": "Iris",
+          "kicksAs": "girl",
+          "position": "1B",
+          "contact": 49,
+          "power": 60,
+          "speed": 49,
+          "arm": 56,
+          "glove": 57
+        },
+        {
+          "name": "Jess",
+          "kicksAs": "girl",
+          "position": "2B",
+          "contact": 59,
+          "power": 55,
+          "speed": 65,
+          "arm": 61,
+          "glove": 61
+        },
+        {
+          "name": "Brady",
+          "kicksAs": "guy",
+          "position": "3B",
+          "contact": 72,
+          "power": 78,
+          "speed": 74,
+          "arm": 80,
+          "glove": 77,
+          "star": true
+        },
+        {
+          "name": "Ethan",
+          "kicksAs": "guy",
+          "position": "SS",
+          "contact": 33,
+          "power": 52,
+          "speed": 49,
+          "arm": 57,
+          "glove": 72
+        },
+        {
+          "name": "Seth",
+          "kicksAs": "guy",
+          "position": "LF",
+          "contact": 47,
+          "power": 39,
+          "speed": 48,
+          "arm": 44,
+          "glove": 51
+        },
+        {
+          "name": "Finn",
+          "kicksAs": "guy",
+          "position": "CF",
+          "contact": 57,
+          "power": 46,
+          "speed": 48,
+          "arm": 56,
+          "glove": 58
+        },
+        {
+          "name": "Andre",
+          "kicksAs": "guy",
+          "position": "RC",
+          "contact": 69,
+          "power": 37,
+          "speed": 53,
+          "arm": 55,
+          "glove": 66
+        },
+        {
+          "name": "Ryan",
+          "kicksAs": "guy",
+          "position": "RF",
+          "contact": 39,
+          "power": 55,
+          "speed": 59,
+          "arm": 63,
+          "glove": 49
+        },
+        {
+          "name": "Cody",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 53,
+          "power": 52,
+          "speed": 68,
+          "arm": 51,
+          "glove": 43
+        },
+        {
+          "name": "Rory",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 62,
+          "power": 56,
+          "speed": 47,
+          "arm": 35,
+          "glove": 47
+        }
+      ]
+    },
+    {
+      "id": "kicking-and-screaming",
+      "name": "Kicking and Screaming",
+      "tier": "middle",
+      "players": [
+        {
+          "name": "Mia",
+          "kicksAs": "girl",
+          "position": "P",
+          "contact": 51,
+          "power": 54,
+          "speed": 64,
+          "arm": 50,
+          "glove": 44
+        },
+        {
+          "name": "Priya",
+          "kicksAs": "girl",
+          "position": "C",
+          "contact": 50,
+          "power": 40,
+          "speed": 50,
+          "arm": 65,
+          "glove": 55
+        },
+        {
+          "name": "Tara",
+          "kicksAs": "girl",
+          "position": "1B",
+          "contact": 55,
+          "power": 30,
+          "speed": 44,
+          "arm": 58,
+          "glove": 47
+        },
+        {
+          "name": "Faith",
+          "kicksAs": "girl",
+          "position": "2B",
+          "contact": 51,
+          "power": 45,
+          "speed": 40,
+          "arm": 41,
+          "glove": 56
+        },
+        {
+          "name": "June",
+          "kicksAs": "girl",
+          "position": "3B",
+          "contact": 45,
+          "power": 44,
+          "speed": 57,
+          "arm": 30,
+          "glove": 61
+        },
+        {
+          "name": "Victor",
+          "kicksAs": "guy",
+          "position": "SS",
+          "contact": 76,
+          "power": 69,
+          "speed": 73,
+          "arm": 63,
+          "glove": 71,
+          "star": true
+        },
+        {
+          "name": "Frank",
+          "kicksAs": "guy",
+          "position": "LF",
+          "contact": 55,
+          "power": 62,
+          "speed": 48,
+          "arm": 40,
+          "glove": 51
+        },
+        {
+          "name": "Omar",
+          "kicksAs": "guy",
+          "position": "CF",
+          "contact": 43,
+          "power": 45,
+          "speed": 52,
+          "arm": 47,
+          "glove": 53
+        },
+        {
+          "name": "Gus",
+          "kicksAs": "guy",
+          "position": "RC",
+          "contact": 58,
+          "power": 52,
+          "speed": 48,
+          "arm": 46,
+          "glove": 55
+        },
+        {
+          "name": "Kyle",
+          "kicksAs": "guy",
+          "position": "RF",
+          "contact": 59,
+          "power": 42,
+          "speed": 54,
+          "arm": 54,
+          "glove": 54
+        },
+        {
+          "name": "Max",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 42,
+          "power": 51,
+          "speed": 55,
+          "arm": 38,
+          "glove": 41
+        },
+        {
+          "name": "Sean",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 55,
+          "power": 67,
+          "speed": 41,
+          "arm": 44,
+          "glove": 54
+        }
+      ]
+    },
+    {
+      "id": "balls-on-parade",
+      "name": "Balls on Parade",
+      "tier": "bottom",
+      "players": [
+        {
+          "name": "Nadia",
+          "kicksAs": "girl",
+          "position": "P",
+          "contact": 50,
+          "power": 41,
+          "speed": 45,
+          "arm": 33,
+          "glove": 67
+        },
+        {
+          "name": "Fiona",
+          "kicksAs": "girl",
+          "position": "C",
+          "contact": 40,
+          "power": 27,
+          "speed": 47,
+          "arm": 39,
+          "glove": 51
+        },
+        {
+          "name": "Maya",
+          "kicksAs": "girl",
+          "position": "1B",
+          "contact": 44,
+          "power": 35,
+          "speed": 55,
+          "arm": 35,
+          "glove": 39
+        },
+        {
+          "name": "Megan",
+          "kicksAs": "girl",
+          "position": "2B",
+          "contact": 41,
+          "power": 38,
+          "speed": 35,
+          "arm": 27,
+          "glove": 43
+        },
+        {
+          "name": "Evan",
+          "kicksAs": "guy",
+          "position": "3B",
+          "contact": 53,
+          "power": 46,
+          "speed": 37,
+          "arm": 38,
+          "glove": 57
+        },
+        {
+          "name": "Jamal",
+          "kicksAs": "guy",
+          "position": "SS",
+          "contact": 33,
+          "power": 53,
+          "speed": 35,
+          "arm": 32,
+          "glove": 36
+        },
+        {
+          "name": "Noah",
+          "kicksAs": "guy",
+          "position": "LF",
+          "contact": 36,
+          "power": 44,
+          "speed": 32,
+          "arm": 52,
+          "glove": 35
+        },
+        {
+          "name": "Jordan",
+          "kicksAs": "guy",
+          "position": "CF",
+          "contact": 77,
+          "power": 50,
+          "speed": 54,
+          "arm": 61,
+          "glove": 57,
+          "star": true
+        },
+        {
+          "name": "Colin",
+          "kicksAs": "guy",
+          "position": "RC",
+          "contact": 27,
+          "power": 44,
+          "speed": 38,
+          "arm": 29,
+          "glove": 16
+        },
+        {
+          "name": "Clay",
+          "kicksAs": "guy",
+          "position": "RF",
+          "contact": 51,
+          "power": 46,
+          "speed": 32,
+          "arm": 28,
+          "glove": 55
+        },
+        {
+          "name": "Devin",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 43,
+          "power": 32,
+          "speed": 50,
+          "arm": 38,
+          "glove": 31
+        }
+      ]
+    },
+    {
+      "id": "the-bunt-cakes",
+      "name": "The Bunt Cakes",
+      "tier": "bottom",
+      "players": [
+        {
+          "name": "Grace",
+          "kicksAs": "girl",
+          "position": "P",
+          "contact": 34,
+          "power": 30,
+          "speed": 44,
+          "arm": 31,
+          "glove": 33
+        },
+        {
+          "name": "Holly",
+          "kicksAs": "girl",
+          "position": "C",
+          "contact": 41,
+          "power": 24,
+          "speed": 41,
+          "arm": 32,
+          "glove": 46
+        },
+        {
+          "name": "Willa",
+          "kicksAs": "girl",
+          "position": "1B",
+          "contact": 19,
+          "power": 39,
+          "speed": 49,
+          "arm": 26,
+          "glove": 55
+        },
+        {
+          "name": "Kate",
+          "kicksAs": "girl",
+          "position": "2B",
+          "contact": 63,
+          "power": 51,
+          "speed": 45,
+          "arm": 56,
+          "glove": 47,
+          "star": true
+        },
+        {
+          "name": "Stella",
+          "kicksAs": "girl",
+          "position": "3B",
+          "contact": 31,
+          "power": 27,
+          "speed": 36,
+          "arm": 27,
+          "glove": 34
+        },
+        {
+          "name": "Tom",
+          "kicksAs": "guy",
+          "position": "SS",
+          "contact": 31,
+          "power": 33,
+          "speed": 48,
+          "arm": 38,
+          "glove": 37
+        },
+        {
+          "name": "Derek",
+          "kicksAs": "guy",
+          "position": "LF",
+          "contact": 38,
+          "power": 54,
+          "speed": 47,
+          "arm": 44,
+          "glove": 35
+        },
+        {
+          "name": "Brett",
+          "kicksAs": "guy",
+          "position": "CF",
+          "contact": 56,
+          "power": 47,
+          "speed": 30,
+          "arm": 34,
+          "glove": 32
+        },
+        {
+          "name": "Jay",
+          "kicksAs": "guy",
+          "position": "RC",
+          "contact": 50,
+          "power": 51,
+          "speed": 48,
+          "arm": 49,
+          "glove": 20
+        },
+        {
+          "name": "Josh",
+          "kicksAs": "guy",
+          "position": "RF",
+          "contact": 36,
+          "power": 47,
+          "speed": 61,
+          "arm": 33,
+          "glove": 57
+        },
+        {
+          "name": "Nate",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 36,
+          "power": 34,
+          "speed": 37,
+          "arm": 35,
+          "glove": 34
+        },
+        {
+          "name": "Russ",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 39,
+          "power": 43,
+          "speed": 50,
+          "arm": 42,
+          "glove": 43
+        }
+      ]
+    },
+    {
+      "id": "recess-rejects",
+      "name": "Recess Rejects",
+      "tier": "bottom",
+      "players": [
+        {
+          "name": "Ruby",
+          "kicksAs": "girl",
+          "position": "P",
+          "contact": 56,
+          "power": 37,
+          "speed": 53,
+          "arm": 31,
+          "glove": 33
+        },
+        {
+          "name": "Carmen",
+          "kicksAs": "girl",
+          "position": "C",
+          "contact": 43,
+          "power": 47,
+          "speed": 37,
+          "arm": 19,
+          "glove": 43
+        },
+        {
+          "name": "Ivy",
+          "kicksAs": "girl",
+          "position": "1B",
+          "contact": 42,
+          "power": 36,
+          "speed": 36,
+          "arm": 30,
+          "glove": 35
+        },
+        {
+          "name": "Sofia",
+          "kicksAs": "girl",
+          "position": "2B",
+          "contact": 31,
+          "power": 37,
+          "speed": 43,
+          "arm": 27,
+          "glove": 40
+        },
+        {
+          "name": "Hannah",
+          "kicksAs": "girl",
+          "position": "3B",
+          "contact": 33,
+          "power": 26,
+          "speed": 40,
+          "arm": 42,
+          "glove": 53
+        },
+        {
+          "name": "Carl",
+          "kicksAs": "guy",
+          "position": "SS",
+          "contact": 32,
+          "power": 43,
+          "speed": 33,
+          "arm": 35,
+          "glove": 54
+        },
+        {
+          "name": "Raj",
+          "kicksAs": "guy",
+          "position": "LF",
+          "contact": 37,
+          "power": 44,
+          "speed": 37,
+          "arm": 42,
+          "glove": 31
+        },
+        {
+          "name": "Luis",
+          "kicksAs": "guy",
+          "position": "CF",
+          "contact": 39,
+          "power": 50,
+          "speed": 46,
+          "arm": 57,
+          "glove": 44
+        },
+        {
+          "name": "Yusuf",
+          "kicksAs": "guy",
+          "position": "RC",
+          "contact": 24,
+          "power": 47,
+          "speed": 31,
+          "arm": 42,
+          "glove": 39
+        },
+        {
+          "name": "Uri",
+          "kicksAs": "guy",
+          "position": "RF",
+          "contact": 25,
+          "power": 38,
+          "speed": 41,
+          "arm": 39,
+          "glove": 27
+        },
+        {
+          "name": "Pete",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 71,
+          "power": 59,
+          "speed": 49,
+          "arm": 61,
+          "glove": 61,
+          "star": true
+        },
+        {
+          "name": "Caleb",
+          "kicksAs": "guy",
+          "position": "Bench",
+          "contact": 41,
+          "power": 37,
+          "speed": 38,
+          "arm": 38,
+          "glove": 38
+        }
       ]
     }
   ]

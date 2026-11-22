@@ -19,8 +19,9 @@ export class HudScene extends Phaser.Scene {
     this.addVignette();
     const team = (teamsData.teams as Team[]).find((t) => t.isPlayer)!;
     this.hud = new Hud(this, team.name);
-    this.scene.launch('AtBat');
+    this.hud.setVisible(false);
     this.scene.bringToTop();
+    this.game.events.emit('hud-ready');
   }
 
   private addVignette(): void {

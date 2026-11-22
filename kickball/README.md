@@ -11,7 +11,7 @@ npm run dev
 
 `npm run build` makes a static site in `dist/`. `npm test` runs the unit tests.
 
-## Controls (Milestone 2: one half-inning)
+## Controls
 
 | Key | What it does |
 |---|---|
@@ -23,6 +23,21 @@ npm run dev
 | ← (ball in play) | Hold runners, or send them back to the last base |
 | ↑ / ↓ (ball in play) | Pick a single runner, or all runners |
 | Space (after the at-bat) | Next kicker right away |
+
+On defense:
+
+| Key | What it does |
+|---|---|
+| ← / → | Pitch type: fast, slow, bouncy, curving |
+| ↑ / ↓ | Where to aim it: left edge, middle, right edge |
+| Space | Roll the pitch |
+| ← / → (your fielder has the ball) | Choose 1st, 2nd, 3rd, home, peg, or hold |
+| Space (your fielder has the ball) | Throw, peg, or hold |
+
+Before each game the lineup card sets the kicking order (drag rows), positions, who sits, the opponent and the
+number of innings. Auto Lineup builds a legal one. It won't let you play with 3 guys in a row or fewer than 10 kickers.
+
+`node scripts/gen-teams.mjs` regenerates the 11 opponent rosters (it overwrites edits to them).
 
 Timing sets direction: early pulls toward left field, late pushes toward right. Too early or too late is a whiff.
 

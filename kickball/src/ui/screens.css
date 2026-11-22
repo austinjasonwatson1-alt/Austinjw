@@ -1,0 +1,81 @@
+/* Lineup card and box score: HTML screens laid over the field. */
+.ks-screen {
+  --ink: #f8fafc;
+  --muted: #94a3b8;
+  --panel: #0f172a;
+  --panel2: #16213a;
+  --edge: #1e293b;
+  --band: #1d4ed8;
+  --gold: #f2c230;
+  --bad: #ef4444;
+  --good: #22c55e;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  overflow: auto;
+  background: radial-gradient(circle at 50% 30%, #1f5a30 0%, #10261a 75%);
+  color: var(--ink);
+  font: 14px/1.4 "Inter", "Helvetica Neue", Arial, sans-serif;
+  padding: 24px 16px 40px;
+}
+.ks-card {
+  max-width: 940px;
+  margin: 0 auto;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+.ks-band {
+  background: var(--band);
+  padding: 10px 18px;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.ks-band::before { content: ""; width: 6px; height: 12px; background: var(--gold); }
+.ks-body { padding: 18px 20px 22px; display: grid; gap: 16px; }
+.ks-title { margin: 0; font: 26px/1.1 "Archivo Black", "Arial Black", Arial, sans-serif; }
+.ks-title .vs { color: var(--gold); }
+.ks-row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+.ks-row label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; display: grid; gap: 4px; }
+.ks-screen select, .ks-screen button { font: inherit; color: var(--ink); background: var(--panel2); border: 1px solid #334155; border-radius: 8px; padding: 6px 10px; }
+.ks-screen button { cursor: pointer; font-weight: 700; }
+.ks-screen button:focus-visible, .ks-screen select:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.ks-primary { background: var(--gold) !important; color: #0f172a !important; border: 0 !important; padding: 12px 22px !important; font-size: 16px; }
+.ks-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.ks-table-wrap { overflow-x: auto; }
+.ks-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.ks-table th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; padding: 6px 8px; border-bottom: 1px solid var(--edge); white-space: nowrap; }
+.ks-table td { padding: 6px 8px; border-bottom: 1px solid var(--edge); white-space: nowrap; }
+.ks-table td.num, .ks-table th.num { text-align: right; }
+.ks-lineup tr[draggable="true"] { cursor: grab; }
+.ks-lineup tr.dragging { opacity: 0.4; }
+.ks-lineup tr.over td { border-top: 2px solid var(--gold); }
+.ks-lineup tr.sitting td { opacity: 0.45; }
+.ks-lineup tr.problem td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+.ks-grip { color: var(--muted); user-select: none; }
+.ks-pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; }
+.ks-pill.guy { background: #1e3a8a; color: #bfdbfe; }
+.ks-pill.girl { background: #831843; color: #fbcfe8; }
+.ks-star { color: var(--gold); }
+.ks-problems { margin: 0; padding: 10px 14px; border-radius: 8px; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); color: #fecaca; list-style: none; display: grid; gap: 4px; }
+.ks-ok { color: #bbf7d0; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.35); padding: 10px 14px; border-radius: 8px; margin: 0; }
+.ks-move { padding: 2px 6px !important; font-size: 11px; }
+.ks-linescore td, .ks-linescore th { text-align: center; }
+.ks-linescore td:first-child, .ks-linescore th:first-child { text-align: left; }
+.ks-linescore .tot { color: var(--gold); font-weight: 700; }
+.ks-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+.ks-two > div { min-width: 0; }
+.ks-h { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.ks-potg { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 10px; background: var(--panel2); border: 1px solid #334155; }
+.ks-potg b { color: var(--gold); }
+.ks-result { font: 22px/1.2 "Archivo Black", "Arial Black", Arial, sans-serif; margin: 0; }
+.ks-result.win { color: #86efac; }
+.ks-result.loss { color: #fca5a5; }
+.ks-result.tie { color: var(--gold); }
