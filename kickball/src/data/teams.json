@@ -1,0 +1,24 @@
+{
+  "ratingScale": "1-100",
+  "teams": [
+    {
+      "id": "dsb",
+      "name": "Don't Stop Balleving",
+      "isPlayer": true,
+      "players": [
+        { "name": "Trevor",    "kicksAs": "guy",  "position": "CF", "contact": 70, "power": 60, "speed": 90, "arm": 65, "glove": 90 },
+        { "name": "Austin",    "kicksAs": "guy",  "position": "1B", "contact": 95, "power": 75, "speed": 90, "arm": 60, "glove": 95 },
+        { "name": "Abby",      "kicksAs": "girl", "position": "2B", "contact": 58, "power": 45, "speed": 62, "arm": 48, "glove": 55, "generated": true },
+        { "name": "Connor",    "kicksAs": "guy",  "position": "P",  "contact": 80, "power": 90, "speed": 85, "arm": 95, "glove": 90 },
+        { "name": "Christian", "kicksAs": "guy",  "position": "RF", "contact": 55, "power": 68, "speed": 64, "arm": 66, "glove": 55, "generated": true },
+        { "name": "Julie",     "kicksAs": "girl", "position": "C",  "contact": 20, "power": 20, "speed": 20, "arm": 20, "glove": 20 },
+        { "name": "Emre",      "kicksAs": "guy",  "position": "RF", "contact": 57, "power": 66, "speed": 61, "arm": 62, "glove": 52, "generated": true },
+        { "name": "Mitch",     "kicksAs": "guy",  "position": "SS", "contact": 60, "power": 70, "speed": 90, "arm": 70, "glove": 90 },
+        { "name": "Alex",      "kicksAs": "girl", "position": "LF", "contact": 54, "power": 47, "speed": 58, "arm": 46, "glove": 57, "generated": true },
+        { "name": "Zach",      "kicksAs": "guy",  "position": "RC", "contact": 61, "power": 64, "speed": 70, "arm": 68, "glove": 60, "generated": true },
+        { "name": "Kelly",     "kicksAs": "girl", "position": "3B", "contact": 60, "power": 60, "speed": 60, "arm": 60, "glove": 70 },
+        { "name": "Chloe",     "kicksAs": "girl", "position": "3B", "contact": 60, "power": 60, "speed": 60, "arm": 60, "glove": 60 }
+      ]
+    }
+  ]
+}
