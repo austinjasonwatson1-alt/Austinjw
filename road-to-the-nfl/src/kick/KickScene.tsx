@@ -16,6 +16,7 @@ interface Props {
   setup: KickSetup;
   kicker: KickerRatings;
   accent: string;
+  kickerName: string;
   session: SessionLine;
   seed: number;
   onResult: (r: KickResult) => void;
@@ -102,7 +103,7 @@ function detailText(r: KickResult, setup: KickSetup): string {
   }
 }
 
-export function KickScene({ setup, kicker, accent, session, seed, onResult, onAgain, onNewSpot, onExit }: Props) {
+export function KickScene({ setup, kicker, kickerName, accent, session, seed, onResult, onAgain, onNewSpot, onExit }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rt = useRef<Runtime>(fresh());
@@ -390,6 +391,7 @@ export function KickScene({ setup, kicker, accent, session, seed, onResult, onAg
         <div className="lower-third">
           <div className="lt-accent" />
           <div className="lt-body">
+            <div className="lt-name">{kickerName}</div>
             <div className="lt-title">{setup.distanceYd}-yard field goal</div>
             <div className="lt-row">
               <span>{HASH_LABEL[setup.hash]}</span>

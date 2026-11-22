@@ -54,6 +54,7 @@ export function Practice({ onExit }: { onExit: () => void }) {
       <KickScene
         setup={setup}
         kicker={P.kicker}
+        kickerName={P.kickerName}
         accent={P.accent}
         session={session}
         seed={seed}
@@ -86,7 +87,7 @@ export function Practice({ onExit }: { onExit: () => void }) {
         </button>
         <h1>Free Practice</h1>
         <div className="sub">
-          Practice kicker · every rating {P.kicker.power} · range about {Math.round(range)} yds on a calm day
+          {P.kickerName} · every rating {P.kicker.power} · range about {Math.round(range)} yds on a calm day
         </div>
       </header>
 

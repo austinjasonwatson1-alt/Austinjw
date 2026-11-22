@@ -514,6 +514,14 @@ input[type='range'] {
   padding: 10px 18px 12px;
 }
 
+.lt-name {
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 13px;
+  color: var(--accent);
+}
+
 .lt-title {
   font-family: var(--display);
   font-size: 28px;

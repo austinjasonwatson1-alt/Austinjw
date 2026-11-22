@@ -103,6 +103,7 @@ export const CONFIG = {
   },
 
   practice: {
+    kickerName: 'Austin Watson',
     kicker: { power: 70, accuracy: 70, composure: 70, windControl: 70, consistency: 70 },
     minDistanceYd: 18,
     maxDistanceYd: 70,
