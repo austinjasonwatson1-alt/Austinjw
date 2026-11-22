@@ -19,15 +19,19 @@ npm run probe                  # prints carry/drift numbers, handy while tuning
 | Set aim, stop power, stop accuracy | Space | click |
 | Skip ahead during the flight | Space | click |
 | After the kick | Space = again · N = new random spot · Esc = setup | buttons |
+| Sound on/off | M | speaker button |
 
 ## Tuning
 
 Every number lives in `src/config.ts`: meter speeds, the overdrive zone, sweet spot size by rating,
-wind strength, launch angle, drag, block odds, camera. The practice kicker has every rating at 70.
+wind strength, launch angle, drag, block odds, camera, the kicker's approach timing (`kickerAnim`),
+slow motion (`slowMo`), sound levels (`audio`) and team kits. The practice kicker has every rating at 70.
 
 ## Layout
 
 - `src/kick/physics.ts`: kick physics and results, with no UI code (tested in `tests/`)
 - `src/kick/render.ts`, `camera.ts`: canvas drawing
+- `src/kick/figures.ts`: players, holder and the kicker's approach and swing
+- `src/audio/sound.ts`: synthesized stadium sound (no audio files)
 - `src/kick/KickScene.tsx`: the five-step kick and input
 - `src/screens/Practice.tsx`: free practice setup

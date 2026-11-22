@@ -1,4 +1,5 @@
 import { useMemo, useState, type CSSProperties } from 'react';
+import { sound } from '../audio/sound';
 import { CONFIG, type LevelKey } from '../config';
 import { KickScene, type SessionLine } from '../kick/KickScene';
 import { describeWind, maxRangeYd, type Hash, type KickResult, type KickSetup } from '../kick/physics';
@@ -173,7 +174,13 @@ export function Practice({ onExit }: { onExit: () => void }) {
             <button className="ghost" onClick={() => setSetup(randomSetup(setup.level))}>
               Random situation
             </button>
-            <button className="primary" onClick={() => setKicking(true)}>
+            <button
+              className="primary"
+              onClick={() => {
+                sound.start();
+                setKicking(true);
+              }}
+            >
               Kick
             </button>
           </div>

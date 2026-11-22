@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { CONFIG } from '../config';
 import { Rng } from '../sim/rng';
 import type { Camera } from './camera';
-import { describeWind, goalPlaneY, resolveKick, type KickResult, type KickSetup, type KickerRatings, type Vec3 } from './physics';
+import { sound } from '../audio/sound';
+import { describeWind, goalPlaneY, powerSpeedFrac, resolveKick, type KickResult, type KickSetup, type KickerRatings, type Vec3 } from './physics';
 import { buildCamera, drawMeters, drawScene, type Phase, type SceneView } from './render';
 
 export interface SessionLine {
@@ -35,7 +36,15 @@ interface Runtime {
   accStartLeft: boolean;
   accuracyLocked: number | null;
   result: KickResult | null;
-  called: boolean;
+  called: boolean; // banner shown
+  decidedAt: number | null; // result known (sound, stats)
+  lockAt: number | null; // accuracy locked: snap and approach begin
+  fi: number; // flight playback position, in path samples
+  slowBlend: number;
+  slowHit: boolean;
+  stepsPlayed: number;
+  bounces: number[]; // path indices where the ball hits the turf
+  nextBounce: number;
   lookBoost: number;
   shakeUntil: number;
   contactAt: number | null;
@@ -53,11 +62,39 @@ const fresh = (): Runtime => ({
   accuracyLocked: null,
   result: null,
   called: false,
+  decidedAt: null,
+  lockAt: null,
+  fi: 0,
+  slowBlend: 0,
+  slowHit: false,
+  stepsPlayed: 0,
+  bounces: [],
+  nextBounce: 0,
   lookBoost: 0,
   shakeUntil: -1,
   contactAt: null,
   keys: { left: false, right: false },
 });
+
+/** Playback speed through a close call: normal, easing down to slow motion around the posts, then back. */
+function slowScale(fi: number, decideIndex: number): number {
+  const S = CONFIG.slowMo;
+  const x = (decideIndex - fi) / 60; // flight seconds until the posts
+  const lo = S.timeScale;
+  if (x > S.leadS) return 1;
+  if (x > S.leadS - S.rampS) return 1 + (lo - 1) * ((S.leadS - x) / S.rampS);
+  if (x > -S.holdS) return lo;
+  if (x > -S.holdS - S.rampS) return lo + (1 - lo) * ((-S.holdS - x) / S.rampS);
+  return 1;
+}
+
+/** The crowd and the posts react the moment the result is known. */
+function react(r: KickResult) {
+  if (r.outcome === 'GOOD_UPRIGHT' || r.outcome === 'UPRIGHT_NO' || r.outcome === 'GOOD_CROSSBAR' || r.outcome === 'CROSSBAR_NO') sound.clang();
+  if (r.outcome === 'BLOCKED') sound.block();
+  if (r.made) sound.roar(r.slowMo ? 1.3 : 1);
+  else sound.groan();
+}
 
 const HASH_LABEL = { L: 'Left hash', M: 'Middle', R: 'Right hash' } as const;
 
@@ -109,7 +146,8 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
   const rt = useRef<Runtime>(fresh());
   const camRef = useRef<Camera | null>(null);
   const t0 = useRef(performance.now() / 1000);
-  const [ui, setUi] = useState<{ phase: Phase; result: KickResult | null; called: boolean }>({ phase: 'aim', result: null, called: false });
+  const [ui, setUi] = useState<{ phase: Phase; result: KickResult | null; called: boolean; slow: boolean }>({ phase: 'aim', result: null, called: false, slow: false });
+  const [muted, setMuted] = useState(sound.muted);
 
   const cb = useRef({ onResult, onAgain, onNewSpot, onExit, setup, kicker });
   cb.current = { onResult, onAgain, onNewSpot, onExit, setup, kicker };
@@ -120,7 +158,8 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
   useEffect(() => {
     rt.current = fresh();
     rt.current.phaseStart = now();
-    setUi({ phase: 'aim', result: null, called: false });
+    setUi({ phase: 'aim', result: null, called: false, slow: false });
+    sound.crowd(CONFIG.audio.crowdIdle, 1.5);
   }, [setup, seed]);
 
   const setPhase = (p: Phase) => {
@@ -130,6 +169,7 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
   };
 
   const advance = useCallback(() => {
+    sound.start();
     const s = rt.current;
     const t = now();
     switch (s.phase) {
@@ -144,20 +184,33 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
         break;
       case 'accuracy': {
         s.accuracyLocked = s.accuracy;
+        // Dev-only hook so automated checks can force a strike (never in a build).
+        if (import.meta.env.DEV) {
+          const force = (window as unknown as { __rtnForce?: { accuracy?: number; aimX?: number } }).__rtnForce;
+          if (force?.accuracy !== undefined) s.accuracyLocked = force.accuracy;
+          if (force?.aimX !== undefined) s.aimX = force.aimX;
+        }
         const { setup: su, kicker: k } = cb.current;
-        s.result = resolveKick(su, { aimXFt: s.aimX, power: s.powerLocked ?? 0, accuracy: s.accuracyLocked }, k, new Rng(seed * 7919 + 17));
-        s.contactAt = t;
-        s.shakeUntil = t + CONFIG.presentation.shakeOnContactS;
-        setUi((u) => ({ ...u, result: s.result }));
+        const r = resolveKick(su, { aimXFt: s.aimX, power: s.powerLocked ?? 0, accuracy: s.accuracyLocked }, k, new Rng(seed * 7919 + 17));
+        s.result = r;
+        s.lockAt = t;
+        s.bounces = [];
+        for (let i = Math.max(1, r.decideIndex - 5); i < r.path.length - 1; i++) {
+          const a = r.path[i - 1];
+          const b = r.path[i];
+          const c = r.path[i + 1];
+          if (b.z < 0.05 && a.z > 0.05 && c.z >= b.z) s.bounces.push(i);
+        }
+        sound.crowd(CONFIG.audio.crowdHush, 0.4);
+        setUi((u) => ({ ...u, result: r }));
         setPhase('flight');
         break;
       }
       case 'flight': {
         // Skip ahead: first to the call, then to the end.
         if (!s.result || s.contactAt === null) break;
-        const speed = 60 * CONFIG.presentation.flightPlaybackSpeed;
-        const target = s.called ? s.result.path.length - 1 : s.result.decideIndex;
-        s.contactAt = Math.min(s.contactAt, t - target / speed);
+        const callAt = s.result.decideIndex + (s.result.slowMo ? CONFIG.slowMo.holdS * 60 : 0);
+        s.fi = Math.max(s.fi, s.called ? s.result.path.length - 1 : callAt + 0.01);
         break;
       }
       case 'result':
@@ -181,6 +234,9 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
         s.keys.right = true;
       } else if (e.code === 'KeyN' && (s.phase === 'result' || s.phase === 'aim')) {
         cb.current.onNewSpot();
+      } else if (e.code === 'KeyM') {
+        sound.start();
+        setMuted(sound.toggleMute());
       } else if (e.code === 'Escape') {
         cb.current.onExit();
       }
@@ -240,10 +296,39 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
       let tracer: Vec3[] = [];
       let spin = 0;
       let held = true;
+      const A = CONFIG.kickerAnim;
+      const SM = CONFIG.slowMo;
+      if (s.result && s.lockAt !== null) {
+        const r = s.result;
+        const k = t - s.lockAt;
+        const stepTimes = [0.25, 0.5, 0.75, 1].map((f) => f * A.stepsEndS);
+        while (s.stepsPlayed < stepTimes.length && k >= stepTimes[s.stepsPlayed]) {
+          sound.step();
+          s.stepsPlayed++;
+        }
+        if (s.contactAt === null && k >= A.contactS) {
+          s.contactAt = t;
+          s.shakeUntil = t + CONFIG.presentation.shakeOnContactS;
+          sound.thump(powerSpeedFrac(s.powerLocked ?? 1));
+          sound.crowd(CONFIG.audio.crowdFlight, (r.decideIndex / 60) * 0.9);
+        }
+      }
       if (s.result && s.contactAt !== null) {
         held = false;
-        const path = s.result.path;
-        const fi = (t - s.contactAt) * 60 * CONFIG.presentation.flightPlaybackSpeed;
+        const r = s.result;
+        const path = r.path;
+        const scale = r.slowMo ? slowScale(s.fi, r.decideIndex) : 1;
+        s.fi += dt * 60 * CONFIG.presentation.flightPlaybackSpeed * scale;
+        const fi = s.fi;
+        const blendWant = r.slowMo ? (1 - scale) / (1 - SM.timeScale) : 0;
+        s.slowBlend += (blendWant - s.slowBlend) * Math.min(1, dt * 10);
+        if (s.slowBlend < 0.002) s.slowBlend = 0;
+        sound.slowMo(s.slowBlend);
+        if (r.slowMo && !s.slowHit && s.slowBlend > 0.25) {
+          s.slowHit = true;
+          sound.slowMoHit();
+          setUi((u) => ({ ...u, slow: true }));
+        }
         const i = Math.min(path.length - 1, Math.floor(fi));
         const f = Math.min(1, fi - i);
         const a = path[i];
@@ -251,12 +336,26 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
         ball = { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: a.z + (b.z - a.z) * f };
         tracer = path.slice(0, i + 1).concat([ball]);
         spin = fi * 0.42;
-        if (!s.called && i >= s.result.decideIndex) {
-          s.called = true;
-          setUi((u) => ({ ...u, called: true }));
-          cb.current.onResult(s.result);
+        if (s.decidedAt === null && i >= r.decideIndex) {
+          s.decidedAt = t;
+          react(r);
+          cb.current.onResult(r);
         }
-        if (s.phase === 'flight' && fi >= path.length - 1 + CONFIG.presentation.resultDelayS * 60) setPhase('result');
+        const callAt = r.decideIndex + (r.slowMo ? SM.holdS * 60 : 0);
+        if (!s.called && fi >= callAt) {
+          s.called = true;
+          setUi((u) => ({ ...u, called: true, slow: false }));
+        }
+        while (s.nextBounce < s.bounces.length && i >= s.bounces[s.nextBounce]) {
+          const bi = s.bounces[s.nextBounce];
+          const drop = path[Math.max(0, bi - 3)].z - path[bi].z;
+          sound.thud(Math.min(1, drop / 3));
+          s.nextBounce++;
+        }
+        if (s.phase === 'flight' && fi >= path.length - 1 + CONFIG.presentation.resultDelayS * 60 && s.called) {
+          setPhase('result');
+          sound.crowd(CONFIG.audio.crowdIdle, 3);
+        }
         const want = Math.max(0, ball.z - 14) * 0.45;
         s.lookBoost += (want - s.lookBoost) * Math.min(1, dt * 3);
       } else {
@@ -275,7 +374,11 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const shake = t < s.shakeUntil ? (s.shakeUntil - t) / CONFIG.presentation.shakeOnContactS : 0;
-      const cam = buildCamera(w, h, su, s.lookBoost, shake, t);
+      const slow =
+        s.result && s.result.slowMo && s.slowBlend > 0 && s.result.crossXFt !== null
+          ? { blend: s.slowBlend, focus: { x: s.result.crossXFt, y: goalPlaneY(su.distanceYd), z: s.result.crossZFt ?? 12 }, ball }
+          : undefined;
+      const cam = buildCamera(w, h, su, s.lookBoost, shake, t, slow);
       camRef.current = cam;
       const view: SceneView = {
         setup: su,
@@ -289,6 +392,10 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
         ballHeld: held,
         tracer,
         sinceContact: s.contactAt === null ? null : t - s.contactAt,
+        sinceLock: s.lockAt === null ? null : t - s.lockAt,
+        sinceDecide: s.decidedAt === null ? null : t - s.decidedAt,
+        made: s.decidedAt === null || !s.result ? null : s.result.made,
+        slowBlend: s.slowBlend,
         lookBoost: s.lookBoost,
         shake,
         power: s.power,
@@ -297,7 +404,7 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
         accuracyLocked: s.accuracyLocked,
       };
       drawScene(ctx, cam, w, h, view);
-      drawMeters(ctx, w, h, view);
+      if (s.slowBlend < 0.03) drawMeters(ctx, w, h, view);
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
@@ -343,7 +450,7 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
   const level = CONFIG.levels[setup.level];
 
   return (
-    <div className="scene" ref={wrapRef} style={{ '--accent': accent } as CSSProperties}>
+    <div className={`scene ${ui.slow ? 'slowmo' : ''}`} ref={wrapRef} style={{ '--accent': accent } as CSSProperties}>
       <canvas ref={canvasRef} className="scene-canvas" onPointerMove={onPointerMove} onPointerDown={() => advance()} />
 
       <div className="bug">
@@ -403,6 +510,17 @@ export function KickScene({ setup, kicker, kickerName, accent, session, seed, on
       )}
 
       {hint && <div className="hint">{hint}</div>}
+
+      <button
+        className="mute"
+        title="Sound on/off (M)"
+        onClick={() => {
+          sound.start();
+          setMuted(sound.toggleMute());
+        }}
+      >
+        {muted ? '🔇' : '🔊'}
+      </button>
 
       {call && ui.result && (
         <div className={`call ${call.good ? 'good' : 'miss'}`} key={seed}>

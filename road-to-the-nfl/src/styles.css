@@ -500,7 +500,6 @@ input[type='range'] {
   left: 16px;
   bottom: 24px;
   display: flex;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
   animation: slideIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
 }
 
@@ -510,6 +509,7 @@ input[type='range'] {
 }
 
 .lt-body {
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
   background: linear-gradient(90deg, rgba(8, 12, 26, 0.96), rgba(14, 22, 48, 0.92));
   padding: 10px 18px 12px;
 }
@@ -541,6 +541,45 @@ input[type='range'] {
 .lt-row span + span::before {
   content: '·';
   margin-right: 14px;
+}
+
+.scene .bug,
+.scene .steps,
+.scene .wind,
+.scene .hint,
+.scene .lower-third,
+.scene .mute {
+  transition: opacity 0.3s;
+}
+
+.scene.slowmo .bug,
+.scene.slowmo .steps,
+.scene.slowmo .wind,
+.scene.slowmo .hint,
+.scene.slowmo .mute {
+  opacity: 0;
+}
+
+.scene .lower-third > * {
+  transition: opacity 0.3s;
+}
+
+.scene.slowmo .lower-third > * {
+  opacity: 0;
+}
+
+.mute {
+  position: absolute;
+  top: 100px;
+  right: 16px;
+  pointer-events: auto !important;
+  background: rgba(8, 12, 26, 0.8);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  font-size: 16px;
+  line-height: 1;
 }
 
 .hint {
@@ -703,6 +742,10 @@ input[type='range'] {
   }
   .wind-desc {
     display: none;
+  }
+  .mute {
+    top: 62px;
+    right: 8px;
   }
   .hint {
     top: 84px;

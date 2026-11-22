@@ -4,6 +4,7 @@ import { CONFIG } from '../config';
 import { Camera, type ScreenPt } from './camera';
 import { goalPlaneY, kickSpotX, sweetSpotHalf, windVectorFtS, type KickSetup, type KickerRatings, type Vec3 } from './physics';
 import { Rng } from '../sim/rng';
+import { at, drawFigure, figureDepth, frame, holderPose, kickerPose, linemanPose, rusherPose, type Figure } from './figures';
 
 export type Phase = 'aim' | 'power' | 'accuracy' | 'flight' | 'result';
 
@@ -18,7 +19,11 @@ export interface SceneView {
   ballSpin: number; // radians of end-over-end rotation
   ballHeld: boolean; // still on the hold
   tracer: Vec3[];
-  sinceContact: number | null; // seconds since the kick, for the rush and shake
+  sinceContact: number | null; // seconds since the ball left the foot
+  sinceLock: number | null; // seconds since the accuracy meter locked (snap + approach)
+  sinceDecide: number | null; // seconds since the result was decided
+  made: boolean | null;
+  slowBlend: number; // 0..1 slow-motion push-in
   lookBoost: number; // camera tilt-up to follow the ball, ft
   shake: number; // 0..1
   power: number; // current power meter value
@@ -30,7 +35,13 @@ export interface SceneView {
 // ---------------------------------------------------------------------------
 // Camera
 
-export function buildCamera(w: number, h: number, setup: KickSetup, lookBoost: number, shake: number, time: number): Camera {
+export interface SlowCam {
+  blend: number; // 0..1
+  focus: Vec3; // where the ball meets the goal plane
+  ball: Vec3;
+}
+
+export function buildCamera(w: number, h: number, setup: KickSetup, lookBoost: number, shake: number, time: number, slow?: SlowCam): Camera {
   const pr = CONFIG.presentation;
   const planeY = goalPlaneY(setup.distanceYd);
   const x0 = kickSpotX(setup.level, setup.hash);
@@ -45,9 +56,22 @@ export function buildCamera(w: number, h: number, setup: KickSetup, lookBoost: n
   const l = Math.hypot(dx, dy);
   const sx = shake * Math.sin(time * 91) * 0.35;
   const sz = shake * Math.cos(time * 77) * 0.3;
-  const pos = { x: x0 - (dx / l) * back + sx, y: -(dy / l) * back, z: height + sz };
-  const target = { x: 0, y: planeY, z: 12 + lookBoost };
-  return new Camera(pos, target, f, w / 2, h * 0.4);
+  let pos = { x: x0 - (dx / l) * back + sx, y: -(dy / l) * back, z: height + sz };
+  let target = { x: 0, y: planeY, z: 12 + lookBoost };
+  let focal = f;
+  let cy = h * 0.4;
+  if (slow && slow.blend > 0) {
+    // Push in behind the ball as it reaches the posts.
+    const S = CONFIG.slowMo;
+    const b = slow.blend * slow.blend * (3 - 2 * slow.blend);
+    const cpos = { x: slow.ball.x * 0.55 + slow.focus.x * 0.45, y: Math.max(pos.y + 5, planeY - S.closeBackFt), z: Math.max(6, slow.focus.z - 1) };
+    const ctgt = { x: slow.focus.x * 0.85, y: planeY, z: slow.focus.z + 1.5 };
+    pos = { x: pos.x + (cpos.x - pos.x) * b + sx * 2, y: pos.y + (cpos.y - pos.y) * b, z: pos.z + (cpos.z - pos.z) * b + sz * 2 };
+    target = { x: target.x + (ctgt.x - target.x) * b, y: planeY, z: target.z + (ctgt.z - target.z) * b };
+    focal = f + (span * S.closeFocal - f) * b;
+    cy = h * (0.4 + 0.08 * b);
+  }
+  return new Camera(pos, target, focal, w / 2, cy);
 }
 
 // ---------------------------------------------------------------------------
@@ -252,23 +276,52 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
   type Drawable = { depth: number; draw: () => void };
   const items: Drawable[] = [];
 
-  const rushT = v.sinceContact ?? 0;
-  const jump = (seed: number) => (v.sinceContact !== null && rushT < 0.8 ? Math.max(0, Math.sin((rushT / 0.8) * Math.PI)) * (2 + (seed % 3) * 0.6) : 0);
-  const addPlayer = (x: number, y: number, jersey: string, helmet: string, heightFt: number, z = 0) => {
-    const c = cam.toCam({ x, y, z });
-    if (c.y < 1) return;
-    items.push({ depth: c.y, draw: () => drawPlayer(ctx, cam, { x, y, z }, jersey, helmet, heightFt) });
+  const dir = { x: -x0, y: planeY };
+  const P = CONFIG.practice;
+  const addFig = (fig: Figure) => {
+    const d = figureDepth(cam, fig);
+    if (d < 1) return;
+    items.push({ depth: d, draw: () => drawFigure(ctx, cam, fig) });
   };
-  // Offensive line and wings (we see their backs)
-  const teamDark = shade(v.accent, -0.45);
-  for (let k = -4; k <= 4; k++) addPlayer(x0 + k * 3.1, los - 1.2, v.accent, teamDark, k === 0 ? 3.8 : 4.3);
-  for (const sgn of [-1, 1]) addPlayer(x0 + sgn * 15.5, los - 3.2, v.accent, teamDark, 4.7);
-  // Rush (facing us)
+  const lineFrame = (u: number, vOff: number, facing: 1 | -1) => {
+    const base = frame({ x: x0, y: 0, z: 0 }, dir);
+    return frame(at(base, u, los + vOff, 0), { x: dir.x * facing, y: dir.y * facing });
+  };
+  const rushK = v.sinceLock === null ? null : v.sinceLock - 0.25 < 0 ? null : v.sinceLock - 0.25;
+  // Protection: wing, five interior linemen and the snapper, wing (we see their backs)
+  const nums = ['72', '65', '58', '61', '76', '68', '79', '88', '85'];
   for (let k = -4; k <= 4; k++) {
-    const x = x0 + k * 3.3 + 1.6;
-    addPlayer(x, los + 3 + Math.abs(k) * 0.2, '#e9e9ee', '#7a1520', 5.2, jump(k + 4));
+    const bulk = Math.abs(k) <= 3 ? 1.18 : 1.0;
+    const fr = lineFrame(k * 3.05, -1.3 - (Math.abs(k) === 4 ? 0.6 : 0), 1);
+    addFig({ pose: linemanPose(fr, bulk, v.time, k), kit: P.team, facing: 'away', number: nums[k + 4], bulk });
   }
-  for (const sgn of [-1, 1]) addPlayer(x0 + sgn * 18, los + 2.5, '#e9e9ee', '#7a1520', 5.5, jump(sgn + 2));
+  for (const sgn of [-1, 1]) {
+    const fr = lineFrame(sgn * 15.5, -3.3, 1);
+    addFig({ pose: linemanPose(fr, 1, v.time, sgn * 7), kit: P.team, facing: 'away', number: sgn < 0 ? '84' : '47', bulk: 1 });
+  }
+  // The rush (facing us)
+  const dnums = ['91', '97', '55', '93', '99', '94', '95', '52', '90', '44', '98'];
+  for (let k = -4; k <= 4; k++) {
+    const bulk = Math.abs(k) <= 2 ? 1.15 : 1.02;
+    const fr = lineFrame(k * 3.3 + 1.6, 3 + Math.abs(k) * 0.25, -1);
+    addFig({ pose: rusherPose(fr, bulk, v.time, k + 4, rushK), kit: P.opponent, facing: 'toward', number: dnums[k + 4], bulk });
+  }
+  for (const sgn of [-1, 1]) {
+    const fr = lineFrame(sgn * 18.5, 2.4, -1);
+    addFig({ pose: rusherPose(fr, 1, v.time, sgn + 5, rushK), kit: P.opponent, facing: 'toward', number: sgn < 0 ? '44' : '98', bulk: 1 });
+  }
+  // Holder and kicker, framed on the ball spot facing the posts
+  const spot = frame({ x: x0, y: 0, z: 0 }, dir);
+  const made = v.made;
+  addFig({ pose: holderPose(spot, v.time, v.sinceContact, made), kit: P.team, facing: 'away', number: '11', bulk: 0.95 });
+  addFig({
+    pose: kickerPose(spot, v.time, v.sinceLock, made === null ? null : { made }, v.sinceDecide),
+    kit: P.team,
+    facing: 'away',
+    number: P.kickerNumber,
+    name: P.kickerName.split(' ').slice(-1)[0],
+    bulk: 0.92,
+  });
 
   // Goalposts
   const postDepth = cam.toCam({ x: 0, y: planeY, z: 10 }).y;
@@ -319,42 +372,26 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
   vg.addColorStop(1, 'rgba(0,0,0,0.55)');
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, w, h);
+
+  // Slow-motion: darken the edges and bring in cinematic bars.
+  if (v.slowBlend > 0) {
+    const b = v.slowBlend;
+    const sv = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.25, w / 2, h / 2, Math.max(w, h) * 0.75);
+    sv.addColorStop(0, 'rgba(0,0,0,0)');
+    sv.addColorStop(1, `rgba(0,0,0,${0.55 * b})`);
+    ctx.fillStyle = sv;
+    ctx.fillRect(0, 0, w, h);
+    const bar = h * CONFIG.slowMo.letterbox * b;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, w, bar);
+    ctx.fillRect(0, h - bar, w, bar);
+  }
 }
 
 function shade(hex: string, amt: number): string {
   const [r, g, b] = hexToRgb(hex);
   const f = (c: number) => Math.round(amt < 0 ? c * (1 + amt) : c + (255 - c) * amt);
   return `rgb(${f(r)},${f(g)},${f(b)})`;
-}
-
-function drawPlayer(ctx: CanvasRenderingContext2D, cam: Camera, foot: Vec3, jersey: string, helmet: string, heightFt: number) {
-  const pf = cam.project(foot);
-  if (!pf) return;
-  const s = cam.scale(pf.depth);
-  const hgt = heightFt * s;
-  const wid = 2.1 * s;
-  const x = pf.sx;
-  const y = pf.sy;
-  // shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  ctx.beginPath();
-  ctx.ellipse(cam.project({ ...foot, z: 0 })?.sx ?? x, (cam.project({ ...foot, z: 0 })?.sy ?? y), wid * 0.7, wid * 0.18, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // legs
-  ctx.fillStyle = '#d8d8d2';
-  ctx.fillRect(x - wid * 0.38, y - hgt * 0.42, wid * 0.3, hgt * 0.42);
-  ctx.fillRect(x + wid * 0.08, y - hgt * 0.42, wid * 0.3, hgt * 0.42);
-  // body
-  ctx.fillStyle = jersey;
-  const bodyTop = y - hgt * 0.86;
-  ctx.beginPath();
-  ctx.roundRect(x - wid / 2, bodyTop, wid, hgt * 0.48, Math.max(1, wid * 0.22));
-  ctx.fill();
-  // helmet
-  ctx.fillStyle = helmet;
-  ctx.beginPath();
-  ctx.arc(x, bodyTop - wid * 0.12, wid * 0.27, 0, Math.PI * 2);
-  ctx.fill();
 }
 
 function drawGoalposts(ctx: CanvasRenderingContext2D, cam: Camera, v: SceneView, planeY: number, half: number, uprightH: number) {

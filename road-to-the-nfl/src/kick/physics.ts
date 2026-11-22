@@ -69,6 +69,8 @@ export interface KickResult {
   /** For short kicks, yards short. */
   shortByYd: number;
   inSweetSpot: boolean;
+  /** Close call at the posts: worth slow motion. */
+  slowMo: boolean;
   /** Signed meter units beyond the sweet spot (negative = left). 0 when inside. */
   strikeMiss: number;
   windActualMph: number;
@@ -289,7 +291,7 @@ export function resolveKick(setup: KickSetup, input: KickInputs, kicker: KickerR
   const blockChance = CONFIG.block.baseChance + Math.max(0, setup.distanceYd - 40) * CONFIG.block.perYardOver40;
   const blocked = rng.next() < blockChance;
 
-  const common = { windActualMph, inSweetSpot, strikeMiss: beyond };
+  const common = { windActualMph, inSweetSpot, strikeMiss: beyond, slowMo: false };
 
   if (blocked) {
     const blockY = CONFIG.field.snapDepthYd * 3 - 6;
@@ -396,9 +398,15 @@ export function resolveKick(setup: KickSetup, input: KickInputs, kicker: KickerR
     samples = smp.slice(0, crossI).concat(after.samples);
   }
 
+  let margin = Infinity;
+  if (at.z > crossbar - cr) margin = Math.abs(ax - half);
+  if (ax < half + cr) margin = Math.min(margin, Math.abs(at.z - crossbar));
+  const slowMo = contact !== null || margin < CONFIG.slowMo.marginFt;
+
   const made = outcome === 'GOOD' || outcome === 'GOOD_UPRIGHT' || outcome === 'GOOD_CROSSBAR';
   return {
     ...base,
+    slowMo,
     outcome,
     made,
     path: toPath(samples),
