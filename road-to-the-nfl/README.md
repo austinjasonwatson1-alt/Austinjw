@@ -9,6 +9,7 @@ npm install
 npm run dev        # opens the game in your browser
 npm test           # physics tests
 npm run probe                  # prints carry/drift numbers, handy while tuning
+npm run build:page -- out.html  # the whole game as one HTML page, for hosting
 ```
 
 ## Controls
