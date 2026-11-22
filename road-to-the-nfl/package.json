@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "probe": "vite-node scripts/probe.ts"
+    "probe": "vite-node scripts/probe.ts",
+    "build:page": "node scripts/build-page.mjs"
   },
   "dependencies": {
     "react": "18.3.1",
