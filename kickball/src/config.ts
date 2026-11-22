@@ -27,6 +27,7 @@ export const CONFIG = {
 
   // ---------------------------------------------------------------- screen
   screen: {
+    renderScale: 2, // draw at 2x for sharp Retina screens; layout below is in 1x units
     width: 1000,
     height: 720,
     homeX: 500,
@@ -131,6 +132,9 @@ export const CONFIG = {
     showTimingDebug: true, // shows "18 ms late" after each kick, for tuning
     resultHold: 1100, // how long a ball/strike/foul call stays up before the next pitch
     flightPlaybackSpeed: 1.3, // 1 = real time; higher plays ball flight faster
+    shakePowerKick: 0.004, // camera shake on a well-struck power kick
+    shakeHomeRun: 0.008,
+    perfectTimingMs: 12, // within this of dead center shows PERFECT!
   },
 };
 

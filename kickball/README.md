@@ -29,4 +29,5 @@ Timing sets direction: early pulls toward left field, late pushes toward right. 
 - `src/data/teams.json`: rosters and ratings (1 to 100). Players marked `"generated": true` have made-up ratings
 - `src/input.ts`: all keyboard input, in one place so touch controls can be added later
 - `src/core/`: game logic with no drawing (pitches, kick timing, ball flight, the count)
-- `src/scenes/`: the Phaser screens
+- `src/art/`: the ballpark, player figures, ball and colors, all drawn in code
+- `src/scenes/`: the Phaser screens and the scoreboard

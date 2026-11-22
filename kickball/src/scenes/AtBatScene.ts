@@ -6,41 +6,34 @@ import { InputController, type Action, type Phase } from '../input';
 import { applyPitch, freshCount, type Count, type PitchEvent } from '../core/count';
 import { describeKick, describeWhiff, timingLabel } from '../core/describe';
 import { flightPositionAt, simulateFlight, type Flight } from '../core/flight';
-import { resolveKick, whiffWindow, kickTypeFor, type KickOutcome } from '../core/kick';
+import { kickTypeFor, resolveKick, whiffWindow, type KickOutcome } from '../core/kick';
 import { generatePitch, pitchPosition, type Pitch, type Vec3 } from '../core/pitch';
 import { defaultRng } from '../core/rng';
+import { benchSpots, createField, toScreen } from '../art/field';
+import { HUD } from '../art/palette';
+import { addFigure, lookFor, makeStaticTextures, setFigureLook } from '../art/textures';
+import { Hud, type Tone } from './Hud';
 
 type State = 'waiting' | 'windup' | 'pitch' | 'flight' | 'call' | 'atBatOver';
+type Contact = Extract<KickOutcome, { kind: 'contact' }>;
 
 const S = CONFIG.screen;
 const F = CONFIG.field;
+const R = S.renderScale;
+const FIGURE_SCALE = 1.05 / R;
+const FT_PER_S_TO_MPH = 0.6818;
 
-const COLORS = {
-  grassDark: 0x1e5a2c,
-  grass: 0x2f8a3e,
-  grassStripe: 0x35964a,
-  dirt: 0xc8925a,
-  dirtLight: 0xd9a66d,
-  chalk: 0xffffff,
-  fence: 0xf2c230,
-  ball: 0xe63946,
-  ballHighlight: 0xff8a8a,
-  shadow: 0x000000,
-  defense: 0xd62828,
-  offense: 0x1d70d6,
-  aim: 0xffffff,
-  liner: 0x4cc9f0,
-  power: 0xff8c1a,
-  bunt: 0xb388ff,
-  panel: 0x0b1f12,
-};
+const DEPTH = { aim: 5, ground: 8, players: 10, ball: 20, fx: 25 };
 
-const TEXT_FONT = 'Arial, Helvetica, sans-serif';
+interface Fielder {
+  sprite: Phaser.GameObjects.Image;
+  pos: string;
+}
 
 export class AtBatScene extends Phaser.Scene {
   private controls!: InputController;
+  private hud!: Hud;
   private roster: Player[] = [];
-  private teamName = '';
   private kickerIdx = 0;
 
   private state: State = 'waiting';
@@ -51,24 +44,28 @@ export class AtBatScene extends Phaser.Scene {
 
   private pitch: Pitch | null = null;
   private releaseTime = 0;
-  private pitchLive = false; // the pitched ball is still rolling toward the catcher
+  private pitchLive = false;
   private holdStart: number | null = null;
 
   private flight: Flight | null = null;
   private flightStart = 0;
-  private kickFlash = 0;
+  private lastKick: Contact | null = null;
+  private kickTime = -1e9;
+  private bouncesShown = 0;
+  private lastFrame = 0;
+  private fxRing: { x: number; y: number; t: number; color: number } | null = null;
 
-  private gfx!: Phaser.GameObjects.Graphics;
-  private pitcherDot!: Phaser.GameObjects.Arc;
-  private teamText!: Phaser.GameObjects.Text;
-  private kickerText!: Phaser.GameObjects.Text;
-  private countText!: Phaser.GameObjects.Text;
-  private aimText!: Phaser.GameObjects.Text;
-  private pitchText!: Phaser.GameObjects.Text;
-  private resultText!: Phaser.GameObjects.Text;
-  private timingText!: Phaser.GameObjects.Text;
-  private promptText!: Phaser.GameObjects.Text;
-  private chargeLabel!: Phaser.GameObjects.Text;
+  private aimGfx!: Phaser.GameObjects.Graphics;
+  private groundGfx!: Phaser.GameObjects.Graphics;
+  private fxGfx!: Phaser.GameObjects.Graphics;
+  private ball!: Phaser.GameObjects.Image;
+  private fielders: Fielder[] = [];
+  private kickerSprite!: Phaser.GameObjects.Image;
+  private onDeckSprite!: Phaser.GameObjects.Image;
+  private benchSprites: Phaser.GameObjects.Image[] = [];
+  private sparks!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private dust!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private confetti!: Phaser.GameObjects.Particles.ParticleEmitter;
 
   constructor() {
     super('AtBat');
@@ -77,12 +74,18 @@ export class AtBatScene extends Phaser.Scene {
   create(): void {
     const team = (teamsData.teams as Team[]).find((t) => t.isPlayer)!;
     this.roster = team.players;
-    this.teamName = team.name;
 
-    this.drawField();
-    this.drawFielders();
-    this.gfx = this.add.graphics();
-    this.createHud();
+    this.cameras.main.setZoom(R).centerOn(S.width / 2, S.height / 2);
+    makeStaticTextures(this);
+    createField(this);
+
+    this.aimGfx = this.add.graphics().setDepth(DEPTH.aim);
+    this.groundGfx = this.add.graphics().setDepth(DEPTH.ground);
+    this.fxGfx = this.add.graphics().setDepth(DEPTH.fx);
+    this.createPlayers();
+    this.ball = this.add.image(0, 0, 'ball').setScale(1 / R).setDepth(DEPTH.ball).setVisible(false);
+    this.createParticles();
+    this.hud = new Hud(this, team.name);
 
     this.controls = new InputController();
     this.controls.on((a, p, t) => this.handleInput(a, p, t));
@@ -92,11 +95,59 @@ export class AtBatScene extends Phaser.Scene {
     if (import.meta.env.DEV) (window as unknown as { __atBat: AtBatScene }).__atBat = this;
   }
 
-  // ------------------------------------------------------------------ helpers
+  // ------------------------------------------------------------------ setup
 
-  private toScreen(x: number, y: number): { sx: number; sy: number } {
-    return { sx: S.homeX + x * S.pxPerFoot, sy: S.homeY - y * S.pxPerFoot };
+  private createPlayers(): void {
+    let i = 0;
+    for (const [pos, spot] of Object.entries(F.positions)) {
+      const look = lookFor(`defense-${pos}`, i++ % 3 === 1);
+      const p = toScreen(spot.x, spot.y);
+      const sprite = addFigure(this, p.sx, p.sy, 'defense', look).setScale(FIGURE_SCALE).setDepth(DEPTH.players);
+      this.fielders.push({ sprite, pos });
+    }
+    const look = lookFor('placeholder', false);
+    this.kickerSprite = addFigure(this, 0, 0, 'offense', look).setScale(FIGURE_SCALE).setDepth(DEPTH.players + 1);
+    this.onDeckSprite = addFigure(this, 0, 0, 'offense', look).setScale(FIGURE_SCALE).setDepth(DEPTH.players);
+    for (let k = 0; k < this.roster.length - 2; k++) {
+      this.benchSprites.push(addFigure(this, 0, 0, 'offense', look).setScale(FIGURE_SCALE * 0.8).setDepth(DEPTH.players));
+    }
   }
+
+  private createParticles(): void {
+    this.sparks = this.add
+      .particles(0, 0, 'spark', {
+        speed: { min: 60, max: 220 },
+        lifespan: { min: 250, max: 500 },
+        scale: { start: 0.9, end: 0 },
+        alpha: { start: 1, end: 0 },
+        tint: [0xffffff, 0xffe066, 0xffb703],
+        emitting: false,
+      })
+      .setDepth(DEPTH.fx);
+    this.dust = this.add
+      .particles(0, 0, 'puff', {
+        speed: { min: 8, max: 40 },
+        lifespan: { min: 350, max: 700 },
+        scale: { start: 0.6, end: 1.4 },
+        alpha: { start: 0.7, end: 0 },
+        emitting: false,
+      })
+      .setDepth(DEPTH.ground);
+    this.confetti = this.add
+      .particles(0, 0, 'confetti', {
+        speed: { min: 80, max: 260 },
+        angle: { min: 200, max: 340 },
+        gravityY: 260,
+        lifespan: { min: 900, max: 1600 },
+        rotate: { min: 0, max: 360 },
+        scale: { start: 1.2, end: 0.8 },
+        tint: [0xef4444, 0x3b82f6, 0xfacc15, 0x22c55e, 0xa855f7, 0xffffff],
+        emitting: false,
+      })
+      .setDepth(DEPTH.fx);
+  }
+
+  // ------------------------------------------------------------------ helpers
 
   private get kicker(): Player {
     return this.roster[this.kickerIdx];
@@ -111,6 +162,11 @@ export class AtBatScene extends Phaser.Scene {
     return this.releaseTime + (this.pitch ? this.pitch.timeToPlate * 1000 : 0);
   }
 
+  private ballScreen(pos: Vec3): { sx: number; sy: number; by: number } {
+    const p = toScreen(pos.x, pos.y);
+    return { ...p, by: p.sy - pos.z * S.ballHeightLiftPx };
+  }
+
   // ------------------------------------------------------------------ flow
 
   private startAtBat(): void {
@@ -120,17 +176,31 @@ export class AtBatScene extends Phaser.Scene {
     this.flight = null;
     this.pitch = null;
     this.pitchLive = false;
-    this.resultText.setText('');
-    this.timingText.setText('');
-    this.promptText.setText('');
-    this.pitchText.setText('');
+    this.hud.clearResult();
+    this.hud.setTiming('');
+    this.hud.setPrompt('');
+    this.hud.setPitch(null);
+    this.placeOffense();
     this.updateHud();
     this.setState('waiting');
   }
 
-  private nextPitch(): void {
-    this.flight = null;
-    this.setState('waiting');
+  private placeOffense(): void {
+    const n = this.roster.length;
+    const dress = (img: Phaser.GameObjects.Image, p: Player) => setFigureLook(img, 'offense', lookFor(p.name, p.kicksAs === 'girl'));
+    const kp = toScreen(-2.2, -2.5);
+    dress(this.kickerSprite, this.kicker);
+    this.kickerSprite.setPosition(kp.sx, kp.sy).setRotation(0.25);
+    const onDeck = this.roster[(this.kickerIdx + 1) % n];
+    const od = toScreen(34, -6);
+    dress(this.onDeckSprite, onDeck);
+    this.onDeckSprite.setPosition(od.sx, od.sy).setRotation(-0.6);
+    const spots = benchSpots(this.benchSprites.length);
+    this.benchSprites.forEach((s, i) => {
+      const p = this.roster[(this.kickerIdx + 2 + i) % n];
+      dress(s, p);
+      s.setPosition(spots[i].sx, spots[i].sy).setRotation(spots[i].rot);
+    });
   }
 
   private handleInput(action: Action, phase: Phase, time: number): void {
@@ -153,7 +223,6 @@ export class AtBatScene extends Phaser.Scene {
       const holdStart = this.holdStart;
       this.holdStart = null;
       if (this.state === 'pitch') this.attemptKick(time, time - holdStart);
-      // Releasing before the ball is rolled just cancels the wind-up.
     }
   }
 
@@ -164,7 +233,7 @@ export class AtBatScene extends Phaser.Scene {
       { pitch: this.pitch, deltaMs, holdMs, aimIndex: this.aimIndex, bunt: this.bunt, kicker: this.kicker },
       defaultRng,
     );
-    this.kickFlash = performance.now();
+    this.kickTime = performance.now();
     if (outcome.kind === 'whiff') {
       this.showTiming(deltaMs, false);
       this.applyEvent('whiff', describeWhiff(outcome.reason));
@@ -174,16 +243,32 @@ export class AtBatScene extends Phaser.Scene {
     this.flight = simulateFlight(outcome.sprayDeg, outcome.launchDeg, outcome.exitSpeed);
     this.flightStart = performance.now();
     this.lastKick = outcome;
+    this.bouncesShown = 0;
     this.showTiming(deltaMs, outcome.clean);
-    this.resultText.setText('');
+    this.hud.clearResult();
+
+    // Impact effects
+    const home = toScreen(0, 0.5);
+    const strength = outcome.exitSpeed / CONFIG.kick.power.speedMax;
+    this.sparks.explode(Math.round(8 + 18 * strength * outcome.quality), home.sx, home.sy);
+    this.fxRing = { x: home.sx, y: home.sy, t: this.flightStart, color: outcome.type === 'power' ? HUD.power : HUD.liner };
+    if (outcome.type === 'power' && outcome.quality > 0.9) {
+      this.cameras.main.shake(140, CONFIG.ui.shakePowerKick * outcome.quality);
+    }
+    if (Math.abs(deltaMs) <= CONFIG.ui.perfectTimingMs) this.hud.pop('PERFECT!', home.sx, home.sy - 44, '#ffe066');
     this.setState('flight');
   }
-
-  private lastKick: Extract<KickOutcome, { kind: 'contact' }> | null = null;
 
   private finishFlight(): void {
     if (!this.flight || !this.lastKick) return;
     const text = describeKick(this.lastKick, this.flight);
+    if (this.flight.overFence) {
+      const p = toScreen(this.flight.landing.x, this.flight.landing.y);
+      this.confetti.explode(80, p.sx, p.sy);
+      this.confetti.explode(60, S.width / 2, 120);
+      this.cameras.main.shake(300, CONFIG.ui.shakeHomeRun);
+      this.hud.pop('HOME RUN!', S.width / 2, S.height / 2 - 40, '#ffe066', 48);
+    }
     this.applyEvent(this.flight.fair ? 'fair' : 'foul', text);
   }
 
@@ -191,29 +276,45 @@ export class AtBatScene extends Phaser.Scene {
     const { count, result } = applyPitch(this.count, event);
     this.count = count;
     let line = text;
+    let tone: Tone = event === 'fair' || event === 'ball' ? 'good' : event === 'foul' ? 'neutral' : 'bad';
     if (result === 'walk') line = 'Ball four. Take your base.';
     if (result === 'strikeout') line = `${text.replace(/ Strike\.$/, '')} Strike three, you're out!`;
-    if (result === 'foulout') line = `${text} That's four fouls. You're out!`;
-    this.resultText.setText(line);
+    if (result === 'foulout') {
+      line = `${text} That's four fouls. You're out!`;
+      tone = 'bad';
+    }
+    this.hud.showResult(line, tone);
+    if (event === 'whiff') {
+      const kp = toScreen(0, 0);
+      this.hud.pop('WHIFF', kp.sx, kp.sy - 40, '#ff6b6b', 20);
+    }
     this.updateHud();
     if (result === 'continue') {
       this.setState('call');
     } else {
       this.setState('atBatOver');
       const next = this.roster[(this.kickerIdx + 1) % this.roster.length];
-      this.promptText.setText(`Press SPACE for the next kicker: ${next.name}`);
+      this.hud.setPrompt(`PRESS SPACE FOR THE NEXT KICKER: ${next.name.toUpperCase()}`);
     }
   }
 
   private showTiming(deltaMs: number, clean: boolean): void {
     if (!CONFIG.ui.showTimingDebug) return;
-    this.timingText.setText(`Timing: ${timingLabel(deltaMs)}${clean ? ' · clean' : ''}`);
+    this.hud.setTiming(`TIMING: ${timingLabel(deltaMs).toUpperCase()}${clean ? '  ·  CLEAN' : ''}`);
+  }
+
+  private updateHud(): void {
+    this.hud.setKicker(this.kickerIdx + 1, this.kicker);
+    this.hud.setCount(this.count);
+    this.hud.setAim(CONFIG.kick.aimZones[this.aimIndex].name, this.bunt);
   }
 
   // ------------------------------------------------------------------ update
 
   update(): void {
     const now = performance.now();
+    const dt = Math.min(0.05, (now - (this.lastFrame || now)) / 1000);
+    this.lastFrame = now;
     const elapsed = now - this.stateStart;
 
     switch (this.state) {
@@ -225,8 +326,9 @@ export class AtBatScene extends Phaser.Scene {
           this.pitch = generatePitch(defaultRng);
           this.releaseTime = now;
           this.pitchLive = true;
-          this.pitchText.setText(`Pitch: ${this.pitch.type[0].toUpperCase()}${this.pitch.type.slice(1)}`);
-          this.timingText.setText('');
+          this.hud.setPitch(this.pitch.type, this.pitch.speed * FT_PER_S_TO_MPH);
+          this.hud.setTiming('');
+          this.hud.clearResult();
           this.setState('pitch', now);
         }
         break;
@@ -235,8 +337,8 @@ export class AtBatScene extends Phaser.Scene {
         const sincePlate = now - this.plateTime();
         if (this.holdStart !== null && sincePlate > whiffWindow(this.kicker.contact, this.pitch, this.bunt)) {
           this.holdStart = null;
-          this.kickFlash = now;
-          this.timingText.setText(CONFIG.ui.showTimingDebug ? 'Timing: held it too long' : '');
+          this.kickTime = now;
+          if (CONFIG.ui.showTimingDebug) this.hud.setTiming('TIMING: HELD IT TOO LONG');
           this.applyEvent('whiff', 'Held the wind-up too long. Swing and a miss.');
           break;
         }
@@ -252,295 +354,234 @@ export class AtBatScene extends Phaser.Scene {
       }
       case 'flight': {
         const t = ((now - this.flightStart) / 1000) * CONFIG.ui.flightPlaybackSpeed;
+        if (this.flight) this.emitBounces(t);
         if (this.flight && t >= this.flight.duration) this.finishFlight();
         break;
       }
       case 'call':
-        if (elapsed >= CONFIG.ui.resultHold) this.nextPitch();
+        if (elapsed >= CONFIG.ui.resultHold) {
+          this.flight = null;
+          this.setState('waiting');
+        }
         break;
       case 'atBatOver':
         break;
     }
 
-    this.drawDynamic(now);
+    this.drawFrame(now, dt);
+  }
+
+  /** Dust or grass puffs each time the kicked ball hits the ground. */
+  private emitBounces(t: number): void {
+    const f = this.flight!;
+    let touches = 0;
+    let wasUp = false;
+    for (let i = 1; i < f.points.length && f.points[i].t <= t; i++) {
+      const up = f.points[i].z > 0.05;
+      if (wasUp && !up) {
+        touches++;
+        if (touches > this.bouncesShown) {
+          const p = toScreen(f.points[i].x, f.points[i].y);
+          const dist = Math.hypot(f.points[i].x, f.points[i].y);
+          const onDirt = dist < 95 && f.fair;
+          this.dust.setParticleTint(onDirt ? 0xd9a66d : 0x9be28f);
+          this.dust.explode(touches === 1 ? 10 : 5, p.sx, p.sy);
+          this.bouncesShown = touches;
+        }
+      }
+      wasUp = up;
+    }
   }
 
   // ------------------------------------------------------------------ drawing
 
-  private drawField(): void {
-    const g = this.add.graphics();
-    const { homeX, homeY, pxPerFoot: px } = S;
-    const fenceR = F.fenceDistance * px;
-    const toRad = Phaser.Math.DegToRad;
-    const start = toRad(-90 - F.foulLineDeg);
-    const end = toRad(-90 + F.foulLineDeg);
-
-    // Foul territory backdrop
-    g.fillStyle(COLORS.grassDark, 1);
-    g.fillRect(0, 0, S.width, S.height);
-
-    // Fair-territory grass with mowing stripes
-    for (let r = F.fenceDistance, i = 0; r > 0; r -= 20, i++) {
-      g.fillStyle(i % 2 === 0 ? COLORS.grass : COLORS.grassStripe, 1);
-      g.slice(homeX, homeY, r * px, start, end, false);
-      g.fillPath();
-    }
-    // Warning track
-    g.lineStyle(10, 0xa4774a, 1);
-    g.beginPath();
-    g.arc(homeX, homeY, fenceR - 5, start, end, false);
-    g.strokePath();
-
-    // Infield dirt: an arc behind the bases plus the base paths
-    g.fillStyle(COLORS.dirt, 1);
-    g.slice(homeX, homeY, 95 * px, start, end, false);
-    g.fillPath();
-    // Infield grass inside the diamond
-    const b = F.baseDistance / Math.SQRT2;
-    const inset = 9;
-    const grassPts = [
-      this.toScreen(0, inset * 1.4),
-      this.toScreen(b - inset, b),
-      this.toScreen(0, 2 * b - inset * 1.4),
-      this.toScreen(-(b - inset), b),
-    ].map((p) => new Phaser.Math.Vector2(p.sx, p.sy));
-    g.fillStyle(COLORS.grass, 1);
-    g.fillPoints(grassPts, true);
-
-    // Home plate circle and mound
-    const home = this.toScreen(0, 0);
-    g.fillStyle(COLORS.dirt, 1);
-    g.fillCircle(home.sx, home.sy, 13 * px);
-    const mound = this.toScreen(0, F.pitchingDistance);
-    g.fillStyle(COLORS.dirtLight, 1);
-    g.fillCircle(mound.sx, mound.sy, 6 * px);
-
-    // Foul lines, extended past the fence
-    g.lineStyle(2, COLORS.chalk, 0.95);
-    for (const sgn of [-1, 1]) {
-      const a = toRad(F.foulLineDeg) * sgn;
-      const far = (F.fenceDistance + 25) * px;
-      g.lineBetween(homeX, homeY, homeX + Math.sin(a) * far, homeY - Math.cos(a) * far);
-    }
-
-    // Fence
-    g.lineStyle(4, COLORS.fence, 1);
-    g.beginPath();
-    g.arc(homeX, homeY, fenceR, start, end, false);
-    g.strokePath();
-
-    // Bases
-    const bases = [this.toScreen(b, b), this.toScreen(0, 2 * b), this.toScreen(-b, b)];
-    g.fillStyle(COLORS.chalk, 1);
-    for (const p of bases) {
-      g.fillRect(p.sx - 5, p.sy - 5, 10, 10);
-    }
-    // Home plate (pentagon pointing at the catcher)
-    const hp = [
-      [-1.2, 0.6],
-      [1.2, 0.6],
-      [1.2, -0.3],
-      [0, -1.2],
-      [-1.2, -0.3],
-    ].map(([x, y]) => {
-      const p = this.toScreen(x, y);
-      return new Phaser.Math.Vector2(p.sx, p.sy);
-    });
-    g.fillPoints(hp, true);
-
-    // Strike zone guide: how wide a pitch can be and still be a strike
-    const zl = this.toScreen(-CONFIG.pitch.plateHalfWidth, 0);
-    const zr = this.toScreen(CONFIG.pitch.plateHalfWidth, 0);
-    g.lineStyle(2, COLORS.chalk, 0.6);
-    g.strokeRect(zl.sx, zl.sy - 6, zr.sx - zl.sx, 12);
-
-    // Fence distance marker
-    const cf = this.toScreen(0, F.fenceDistance + 8);
-    this.add
-      .text(cf.sx, cf.sy, `${F.fenceDistance}`, { fontFamily: TEXT_FONT, fontSize: '14px', color: '#f2c230' })
-      .setOrigin(0.5);
-  }
-
-  private drawFielders(): void {
-    for (const [pos, spot] of Object.entries(F.positions)) {
-      const p = this.toScreen(spot.x, spot.y);
-      const dot = this.add.circle(p.sx, p.sy, 8, COLORS.defense).setStrokeStyle(2, 0xffffff);
-      if (pos === 'P') this.pitcherDot = dot;
-      this.add
-        .text(p.sx, p.sy + 12, pos, { fontFamily: TEXT_FONT, fontSize: '11px', color: '#ffffff' })
-        .setOrigin(0.5, 0)
-        .setAlpha(0.8);
-    }
-  }
-
-  private createHud(): void {
-    const panel = this.add.graphics();
-    panel.fillStyle(COLORS.panel, 0.82);
-    panel.fillRoundedRect(12, 12, 300, 132, 10);
-    panel.fillRoundedRect(S.width - 212, 12, 200, 40, 10);
-
-    const base = { fontFamily: TEXT_FONT, color: '#ffffff' };
-    this.teamText = this.add.text(24, 20, '', { ...base, fontSize: '13px', color: '#9fd3a8' });
-    this.kickerText = this.add.text(24, 38, '', { ...base, fontSize: '18px', fontStyle: 'bold' });
-    this.countText = this.add.text(24, 66, '', { ...base, fontSize: '16px' });
-    this.aimText = this.add.text(24, 92, '', { ...base, fontSize: '14px', lineSpacing: 4 });
-    this.pitchText = this.add.text(S.width - 200, 22, '', { ...base, fontSize: '16px' });
-
-    this.resultText = this.add
-      .text(S.width / 2, S.height - 66, '', {
-        ...base,
-        fontSize: '24px',
-        fontStyle: 'bold',
-        stroke: '#000000',
-        strokeThickness: 5,
-        align: 'center',
-        wordWrap: { width: S.width - 80 },
-      })
-      .setOrigin(0.5);
-    this.timingText = this.add
-      .text(S.width / 2, S.height - 96, '', { ...base, fontSize: '14px', color: '#ffe066', stroke: '#000', strokeThickness: 3 })
-      .setOrigin(0.5);
-    this.promptText = this.add
-      .text(S.width / 2, S.height - 36, '', { ...base, fontSize: '16px', color: '#ffe066', stroke: '#000', strokeThickness: 3 })
-      .setOrigin(0.5);
-    this.add
-      .text(
-        S.width / 2,
-        S.height - 10,
-        '←/→ aim     ↓ bunt stance     ↑ normal stance     Hold SPACE = power kick     Tap SPACE = liner     Release = kick',
-        { ...base, fontSize: '12px', color: '#d8f3dc', align: 'center' },
-      )
-      .setOrigin(0.5, 1)
-      .setAlpha(0.85);
-    this.chargeLabel = this.add
-      .text(0, 0, '', { ...base, fontSize: '13px', fontStyle: 'bold', stroke: '#000', strokeThickness: 3 })
-      .setOrigin(0.5, 1);
-  }
-
-  private updateHud(): void {
-    const k = this.kicker;
-    const R = CONFIG.rules;
-    const pips = (n: number, max: number) => '●'.repeat(n) + '○'.repeat(Math.max(0, max - n));
-    this.teamText.setText(this.teamName.toUpperCase());
-    this.kickerText.setText(
-      `#${this.kickerIdx + 1} ${k.name} (${k.kicksAs === 'girl' ? 'Girl' : 'Guy'})  CON ${k.contact} · POW ${k.power}`,
-    );
-    this.countText.setText(
-      `B ${pips(this.count.balls, R.ballsForWalk - 1)}   S ${pips(this.count.strikes, R.strikesForOut - 1)}   F ${pips(this.count.fouls, R.foulsForOut - 1)}`,
-    );
-    const zone = CONFIG.kick.aimZones[this.aimIndex];
-    this.aimText.setText(`Aim: ◀ ${zone.name} ▶\nStance: ${this.bunt ? 'BUNT' : 'Kick'}`);
-  }
-
-  private drawBall(pos: Vec3): void {
-    const g = this.gfx;
-    const p = this.toScreen(pos.x, pos.y);
-    const r = S.ballRadiusPx * (1 + pos.z * S.ballHeightScale);
-    g.fillStyle(COLORS.shadow, Math.max(0.12, 0.35 - pos.z * 0.004));
-    g.fillEllipse(p.sx + pos.z * 0.25, p.sy + 2, r * 2.1, r * 1.3);
-    const by = p.sy - pos.z * S.ballHeightLiftPx;
-    g.fillStyle(COLORS.ball, 1);
-    g.fillCircle(p.sx, by, r);
-    g.fillStyle(COLORS.ballHighlight, 1);
-    g.fillCircle(p.sx - r * 0.35, by - r * 0.35, r * 0.35);
-  }
-
-  private drawDynamic(now: number): void {
-    const g = this.gfx;
+  private drawFrame(now: number, dt: number): void {
+    this.drawAim();
+    const g = this.groundGfx;
+    const fx = this.fxGfx;
     g.clear();
-    const home = this.toScreen(0, 0);
+    fx.clear();
 
-    // Aim arrow
-    const aimLocked = this.state === 'pitch' || this.state === 'flight';
-    const zone = CONFIG.kick.aimZones[this.aimIndex];
-    const aimDeg = this.bunt ? (zone.deg / 30) * CONFIG.kick.bunt.maxSprayDeg : zone.deg;
-    const len = (this.bunt ? 32 : 85) * S.pxPerFoot;
-    const a = Phaser.Math.DegToRad(aimDeg);
-    const tip = { x: home.sx + Math.sin(a) * len, y: home.sy - Math.cos(a) * len };
-    const aimColor = this.bunt ? COLORS.bunt : COLORS.aim;
-    g.lineStyle(3, aimColor, aimLocked ? 0.25 : 0.6);
-    g.lineBetween(home.sx, home.sy, tip.x, tip.y);
-    const back = 12;
-    const side = 7;
-    g.fillStyle(aimColor, aimLocked ? 0.25 : 0.7);
-    g.fillTriangle(
-      tip.x + Math.sin(a) * 4,
-      tip.y - Math.cos(a) * 4,
-      tip.x - Math.sin(a) * back + Math.cos(a) * side,
-      tip.y + Math.cos(a) * back + Math.sin(a) * side,
-      tip.x - Math.sin(a) * back - Math.cos(a) * side,
-      tip.y + Math.cos(a) * back - Math.sin(a) * side,
-    );
-
-    // Pitcher wind-up pulse
-    const wind = this.state === 'windup' ? Math.sin(((now - this.stateStart) / CONFIG.pitch.windupTime) * Math.PI) : 0;
-    this.pitcherDot.setScale(1 + wind * 0.35);
-
-    // Kicker
-    const kp = this.toScreen(-1.5, -3.5);
-    const flashing = now - this.kickFlash < 160;
-    g.fillStyle(COLORS.offense, 1);
-    g.fillCircle(kp.sx, kp.sy, flashing ? 11 : 9);
-    g.lineStyle(2, 0xffffff, 1);
-    g.strokeCircle(kp.sx, kp.sy, flashing ? 11 : 9);
-
-    // Charge meter
-    this.chargeLabel.setText('');
-    if (this.holdStart !== null) {
-      const hold = now - this.holdStart;
-      const K = CONFIG.kick;
-      const frac = Math.min(1, hold / K.powerFullCharge);
-      const bx = kp.sx - 34;
-      const by = kp.sy + 14;
-      const h = 56;
-      const type = kickTypeFor(hold, this.bunt);
-      const color = type === 'power' ? COLORS.power : type === 'bunt' ? COLORS.bunt : COLORS.liner;
-      g.fillStyle(0x000000, 0.6);
-      g.fillRect(bx - 1, by - h - 1, 12, h + 2);
-      g.fillStyle(color, 1);
-      g.fillRect(bx, by - h * frac, 10, h * frac);
-      if (!this.bunt) {
-        const ty = by - h * (K.powerHoldThreshold / K.powerFullCharge);
-        g.lineStyle(2, 0xffffff, 1);
-        g.lineBetween(bx - 3, ty, bx + 13, ty);
-      }
-      this.chargeLabel.setPosition(bx + 5, by - h - 4).setColor(
-        '#' + color.toString(16).padStart(6, '0'),
-      );
-      this.chargeLabel.setText(type.toUpperCase());
-    }
-
-    // Pitched ball
+    // Where is the ball right now?
+    let ballPos: Vec3 | null = null;
     if (this.pitch && this.pitchLive) {
-      this.drawBall(pitchPosition(this.pitch, (now - this.releaseTime) / 1000));
-    }
-    if (this.pitch && !this.pitchLive && this.state === 'call' && !this.flight) {
-      // Ball sitting with the catcher after a call
-      const c = this.toScreen(0, -F.catcherDepth + 1);
-      g.fillStyle(COLORS.ball, 1);
-      g.fillCircle(c.sx, c.sy, S.ballRadiusPx);
+      ballPos = pitchPosition(this.pitch, (now - this.releaseTime) / 1000);
+    } else if (this.flight) {
+      const t = this.state === 'flight' ? ((now - this.flightStart) / 1000) * CONFIG.ui.flightPlaybackSpeed : this.flight.duration;
+      ballPos = flightPositionAt(this.flight, t);
+      this.drawFlightTrack(g, t);
+    } else if (this.state === 'windup' || this.state === 'waiting') {
+      ballPos = { x: 1.2, y: F.pitchingDistance + 1, z: 1.5 }; // in the pitcher's hands
+    } else if (this.state === 'call' || this.state === 'atBatOver') {
+      ballPos = { x: 0.8, y: -F.catcherDepth + 1.5, z: 1 }; // with the catcher
     }
 
-    // Kicked ball, its ground track, and where it landed
-    if (this.flight) {
-      const f = this.flight;
-      const t =
-        this.state === 'flight'
-          ? ((now - this.flightStart) / 1000) * CONFIG.ui.flightPlaybackSpeed
-          : f.duration;
-      g.fillStyle(0xffffff, 0.35);
-      for (let s = 0; s < Math.min(t, f.duration); s += 0.08) {
+    if (ballPos) {
+      const b = this.ballScreen(ballPos);
+      const r = S.ballRadiusPx * (1 + ballPos.z * S.ballHeightScale);
+      g.fillStyle(0x000000, Math.max(0.12, 0.32 - ballPos.z * 0.004));
+      g.fillEllipse(b.sx + ballPos.z * 0.25, b.sy + 2, r * 2.1, r * 1.2);
+      const moving = this.pitchLive || this.state === 'flight';
+      if (moving) this.ball.rotation += dt * (this.state === 'flight' ? 14 : 9);
+      this.ball.setVisible(true).setPosition(b.sx, b.by).setScale(((r / S.ballRadiusPx) * 0.8) / R);
+    } else {
+      this.ball.setVisible(false);
+    }
+
+    this.animatePlayers(now, ballPos);
+    this.drawKickerExtras(now, fx);
+
+    // Impact ring
+    if (this.fxRing) {
+      const age = (now - this.fxRing.t) / 350;
+      if (age >= 1) this.fxRing = null;
+      else {
+        fx.lineStyle(3 * (1 - age), this.fxRing.color, 1 - age);
+        fx.strokeCircle(this.fxRing.x, this.fxRing.y, 6 + age * 34);
+      }
+    }
+  }
+
+  private drawAim(): void {
+    const g = this.aimGfx;
+    g.clear();
+    if (this.state === 'flight') return;
+    const locked = this.state === 'pitch';
+    const home = toScreen(0, 0);
+    const zone = CONFIG.kick.aimZones[this.aimIndex];
+    const deg = this.bunt ? (zone.deg / 30) * CONFIG.kick.bunt.maxSprayDeg : zone.deg;
+    const lenFt = this.bunt ? 34 : 95;
+    const color = this.bunt ? HUD.bunt : 0xffffff;
+    const half = 7.5;
+    const ang = (d: number) => Phaser.Math.DegToRad(d - 90);
+    // translucent cone for the zone
+    g.fillStyle(color, locked ? 0.08 : 0.16);
+    g.slice(home.sx, home.sy, lenFt * S.pxPerFoot, ang(deg - half), ang(deg + half), false);
+    g.fillPath();
+    // dashed center line + arrowhead
+    const a = ang(deg);
+    const len = lenFt * S.pxPerFoot;
+    g.lineStyle(2.5, color, locked ? 0.3 : 0.75);
+    for (let d = 14; d < len - 12; d += 12) {
+      const e = Math.min(d + 7, len - 12);
+      g.lineBetween(home.sx + Math.cos(a) * d, home.sy + Math.sin(a) * d, home.sx + Math.cos(a) * e, home.sy + Math.sin(a) * e);
+    }
+    const tx = home.sx + Math.cos(a) * len;
+    const ty = home.sy + Math.sin(a) * len;
+    const px = -Math.sin(a);
+    const py = Math.cos(a);
+    g.fillStyle(color, locked ? 0.3 : 0.85);
+    g.fillTriangle(
+      tx,
+      ty,
+      tx - Math.cos(a) * 13 + px * 7,
+      ty - Math.sin(a) * 13 + py * 7,
+      tx - Math.cos(a) * 13 - px * 7,
+      ty - Math.sin(a) * 13 - py * 7,
+    );
+  }
+
+  private drawFlightTrack(g: Phaser.GameObjects.Graphics, t: number): void {
+    const f = this.flight!;
+    // ground track
+    g.fillStyle(0xffffff, 0.3);
+    for (let s = 0; s < Math.min(t, f.duration); s += 0.07) {
+      const p = flightPositionAt(f, s);
+      const sp = toScreen(p.x, p.y);
+      g.fillCircle(sp.sx, sp.sy, 1.3);
+    }
+    // motion trail behind the ball
+    if (t < f.duration) {
+      for (let k = 1; k <= 7; k++) {
+        const s = t - k * 0.03;
+        if (s < 0) break;
         const p = flightPositionAt(f, s);
-        const sp = this.toScreen(p.x, p.y);
-        g.fillCircle(sp.sx, sp.sy, 1.5);
+        const b = this.ballScreen(p);
+        g.fillStyle(0xff8a8a, 0.28 * (1 - k / 8));
+        g.fillCircle(b.sx, b.by, S.ballRadiusPx * (1 + p.z * S.ballHeightScale) * (1 - k * 0.07));
       }
-      if (t >= f.landing.t) {
-        const lp = this.toScreen(f.landing.x, f.landing.y);
-        g.lineStyle(2, f.fair ? 0xffe066 : 0xff6b6b, 1);
-        g.lineBetween(lp.sx - 6, lp.sy - 6, lp.sx + 6, lp.sy + 6);
-        g.lineBetween(lp.sx - 6, lp.sy + 6, lp.sx + 6, lp.sy - 6);
-      }
-      this.drawBall(flightPositionAt(f, t));
+    }
+    // landing marker
+    if (t >= f.landing.t) {
+      const lp = toScreen(f.landing.x, f.landing.y);
+      const col = f.fair ? 0xffe066 : 0xff6b6b;
+      g.lineStyle(3, 0x000000, 0.35);
+      g.strokeCircle(lp.sx + 1, lp.sy + 1, 7);
+      g.lineStyle(2.5, col, 1);
+      g.strokeCircle(lp.sx, lp.sy, 7);
+      g.lineBetween(lp.sx - 4, lp.sy - 4, lp.sx + 4, lp.sy + 4);
+      g.lineBetween(lp.sx - 4, lp.sy + 4, lp.sx + 4, lp.sy - 4);
+    }
+  }
+
+  private animatePlayers(now: number, ballPos: Vec3 | null): void {
+    const home = toScreen(0, 0);
+    const watching = this.state === 'flight' && ballPos !== null;
+    const ready = this.pitchLive || this.state === 'windup';
+    const ballScreen = ballPos ? toScreen(ballPos.x, ballPos.y) : home;
+    for (const f of this.fielders) {
+      const tx = watching ? ballScreen.sx : home.sx;
+      const ty = watching ? ballScreen.sy : home.sy;
+      const target = Math.atan2(ty - f.sprite.y, tx - f.sprite.x) + Math.PI / 2;
+      f.sprite.rotation = Phaser.Math.Angle.RotateTo(f.sprite.rotation, target, 0.12);
+      const breathe = 1 + Math.sin(now / 420 + f.sprite.x) * 0.015;
+      const crouch = ready && f.pos !== 'P' ? 1.05 : 1;
+      f.sprite.setScale(FIGURE_SCALE * breathe * crouch);
+    }
+    // Pitcher wind-up: rear back, then roll it
+    if (this.state === 'windup') {
+      const pitcher = this.fielders.find((f) => f.pos === 'P')!;
+      const k = (now - this.stateStart) / CONFIG.pitch.windupTime;
+      pitcher.sprite.setScale(FIGURE_SCALE * (1 + Math.sin(k * Math.PI) * 0.2));
+      pitcher.sprite.rotation += Math.sin(k * Math.PI * 2) * 0.05;
+    }
+    // Kicker turns to watch a kicked ball
+    const k = this.kickerSprite;
+    const kickerTarget = watching ? Math.atan2(ballScreen.sy - k.y, ballScreen.sx - k.x) + Math.PI / 2 : 0.25;
+    k.rotation = Phaser.Math.Angle.RotateTo(k.rotation, kickerTarget, 0.1);
+  }
+
+  private drawKickerExtras(now: number, g: Phaser.GameObjects.Graphics): void {
+    const k = this.kickerSprite;
+    // Kicking leg swing
+    const since = now - this.kickTime;
+    if (since < 220) {
+      const p = since / 220;
+      const swing = Phaser.Math.Easing.Cubic.Out(Math.min(1, p * 1.6));
+      const ang = Math.PI / 2 + 0.6 - swing * 2.4; // from behind the kicker, through the ball
+      const hipX = k.x + 3;
+      const hipY = k.y + 1;
+      const fx = hipX + Math.cos(ang) * 15;
+      const fy = hipY + Math.sin(ang) * 15;
+      g.lineStyle(5, 0x1e3a8a, 1 - p * 0.6);
+      g.lineBetween(hipX, hipY, fx, fy);
+      g.fillStyle(0xffffff, 1 - p * 0.6);
+      g.fillCircle(fx, fy, 3.5);
+    }
+
+    // Charge meter beside the kicker
+    if (this.holdStart === null) return;
+    const hold = now - this.holdStart;
+    const K = CONFIG.kick;
+    const frac = Math.min(1, hold / K.powerFullCharge);
+    const type = kickTypeFor(hold, this.bunt);
+    const color = type === 'power' ? HUD.power : type === 'bunt' ? HUD.bunt : HUD.liner;
+    const bx = k.x - 34;
+    const by = k.y + 20;
+    const h = 60;
+    g.fillStyle(0x000000, 0.55);
+    g.fillRoundedRect(bx - 3, by - h - 3, 16, h + 6, 5);
+    g.fillStyle(color, 1);
+    const fillH = Math.max(2, h * frac);
+    g.fillRoundedRect(bx, by - fillH, 10, fillH, 3);
+    if (frac >= 1) {
+      g.lineStyle(2, color, 0.5 + 0.5 * Math.sin(now / 60));
+      g.strokeRoundedRect(bx - 4, by - h - 4, 18, h + 8, 6);
+    }
+    if (!this.bunt) {
+      const ty = by - h * (K.powerHoldThreshold / K.powerFullCharge);
+      g.lineStyle(2, 0xffffff, 1);
+      g.lineBetween(bx - 5, ty, bx + 15, ty);
     }
   }
 }
