@@ -31,3 +31,8 @@ Timing sets direction: early pulls toward left field, late pushes toward right. 
 - `src/core/`: game logic with no drawing (pitches, kick timing, ball flight, the count)
 - `src/art/`: the ballpark, player figures, ball and colors, all drawn in code
 - `src/scenes/`: the Phaser screens and the scoreboard
+
+## Web version
+
+`web/play.html` is a start page that loads the built game from `assets/game.js`. After `npm run build`,
+it's published together with `dist/assets/game.js` as a claude.ai page, so the game can be played from a link.

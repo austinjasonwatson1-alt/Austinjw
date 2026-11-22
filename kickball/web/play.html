@@ -1,0 +1,144 @@
+<title>Kickball Season</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;600&display=swap">
+<style>
+  /* Layout: the game canvas fills the frame; a scoreboard-style card sits over it until you press Play. */
+  :root {
+    --field: #10261a;
+    --panel: #0f172a;
+    --panel-edge: #1e293b;
+    --band: #1d4ed8;
+    --gold: #f2c230;
+    --ink: #f8fafc;
+    --muted: #94a3b8;
+    --display: "Archivo Black", "Arial Black", Arial, sans-serif;
+    --body: "Inter", "Helvetica Neue", Arial, sans-serif;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    background: var(--field);
+    color: var(--ink);
+    font-family: var(--body);
+    overflow: hidden;
+  }
+  #game { width: 100%; height: 100%; }
+  .overlay {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px))
+      max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+    background: radial-gradient(circle at 50% 40%, #1f5a30 0%, var(--field) 70%);
+    z-index: 10;
+  }
+  .card {
+    width: min(460px, 100%);
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  }
+  .band {
+    background: var(--band);
+    padding: 10px 18px;
+    font: 12px/1 var(--body);
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .band::before { content: ""; width: 6px; height: 12px; background: var(--gold); }
+  .inner { padding: 22px 22px 24px; display: grid; gap: 18px; }
+  h1 {
+    margin: 0;
+    font: 34px/1.05 var(--display);
+    text-wrap: balance;
+  }
+  h1 span { color: var(--gold); }
+  .sub { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+  button {
+    font: 18px/1 var(--display);
+    color: var(--panel);
+    background: var(--gold);
+    border: 0;
+    border-radius: 10px;
+    padding: 16px 20px;
+    cursor: pointer;
+    letter-spacing: 0.03em;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px; margin: 0; }
+  .keys dt { font-weight: 600; color: var(--gold); white-space: nowrap; }
+  .keys dd { margin: 0; color: var(--ink); }
+  .note { margin: 0; font-size: 12px; color: var(--muted); }
+  .resume {
+    position: fixed;
+    left: 50%;
+    top: calc(14px + env(safe-area-inset-top, 0px));
+    transform: translateX(-50%);
+    background: var(--panel);
+    border: 1px solid var(--gold);
+    color: var(--ink);
+    border-radius: 999px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    z-index: 9;
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .card { animation: rise 0.35s ease-out both; }
+    @keyframes rise { from { transform: translateY(12px); opacity: 0.6; } to { transform: none; opacity: 1; } }
+  }
+</style>
+
+<div id="game"></div>
+
+<div class="overlay" id="start">
+  <div class="card">
+    <div class="band">Don't Stop Balleving · Milestone 1</div>
+    <div class="inner">
+      <h1>Kickball <span>Season</span></h1>
+      <p class="sub">One at-bat at a time. Time your kick as the pitch crosses the plate. Early pulls it left, late pushes it right.</p>
+      <dl class="keys">
+        <dt>← / →</dt><dd>Aim before the pitch</dd>
+        <dt>Hold Space</dt><dd>Wind up for a power kick. Let go to kick</dd>
+        <dt>Tap Space</dt><dd>Liner</dd>
+        <dt>↓ / ↑</dt><dd>Bunt stance / normal stance</dd>
+      </dl>
+      <button id="play" type="button">Play ball</button>
+      <p class="note">Needs a keyboard. Click the field if the keys stop responding.</p>
+    </div>
+  </div>
+</div>
+
+<div class="resume" id="resume" hidden>Click the field to keep playing</div>
+
+<script>
+  (function () {
+    var start = document.getElementById('start');
+    var resume = document.getElementById('resume');
+    var started = false;
+    document.getElementById('play').addEventListener('click', function () {
+      if (started) return;
+      started = true;
+      start.hidden = true;
+      var s = document.createElement('script');
+      s.type = 'module';
+      s.src = 'assets/game.js';
+      document.body.appendChild(s);
+      window.focus();
+    });
+    window.addEventListener('blur', function () { if (started) resume.hidden = false; });
+    window.addEventListener('focus', function () { resume.hidden = true; });
+    document.getElementById('game').addEventListener('pointerdown', function () { window.focus(); });
+  })();
+</script>
