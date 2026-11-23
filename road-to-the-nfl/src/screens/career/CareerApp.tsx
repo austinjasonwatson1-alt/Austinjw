@@ -24,6 +24,8 @@ import {
   tryoutKicks,
 } from '../../career/career';
 import { accentFor } from '../../career/look';
+import { playoffRace, sorted } from '../../career/standings';
+import { SCOPE_NAME } from '../../career/records';
 import { coachRangeYd, levelCost, nextLevelEffect, overall, SKILLS } from '../../career/progression';
 import { saveCareer } from '../../career/save';
 import type { Career, Offer, SkillKey } from '../../career/types';
@@ -31,7 +33,7 @@ import { maxRangeYd, type Hash, type KickSetup } from '../../kick/physics';
 import { GameDay, TrustMeter } from './GameDay';
 import { KickSeries, type SeriesKick } from './KickSeries';
 
-type Tab = 'home' | 'skills' | 'practice' | 'depth' | 'stats';
+type Tab = 'home' | 'schedule' | 'skills' | 'practice' | 'depth' | 'stats';
 type Overlay =
   | { kind: 'game' }
   | { kind: 'series'; title: string; intro: string; kicks: SeriesKick[]; rival?: { name: string; results: boolean[] }; verdict?: (m: boolean[]) => string; done: (m: boolean[]) => void }
@@ -97,6 +99,7 @@ export function CareerApp({ initial, onMenu }: { initial: Career; onMenu: () => 
           {(
             [
               ['home', 'Home'],
+              ['schedule', 'Schedule'],
               ['skills', `Skills${Math.floor(c.points) >= 1 ? ` · ${Math.floor(c.points)}` : ''}`],
               ['practice', 'Practice'],
               ['depth', 'Depth chart'],
@@ -113,6 +116,7 @@ export function CareerApp({ initial, onMenu }: { initial: Career; onMenu: () => 
       <main className="c-main">
         {!saved && <p className="note warn">Saving is blocked in this browser window, so this career will not be kept after you close it.</p>}
         {tab === 'home' && <Home c={c} setC={setC} setOverlay={setOverlay} goSkills={() => setTab('skills')} />}
+        {tab === 'schedule' && <Schedule c={c} />}
         {tab === 'skills' && <Skills c={c} setC={setC} />}
         {tab === 'practice' && <Practice c={c} setC={setC} setOverlay={setOverlay} />}
         {tab === 'depth' && <Depth c={c} />}
@@ -147,6 +151,7 @@ function Home({ c, setC, setOverlay, goSkills }: { c: Career; setC: (c: Career) 
         ) : (
           <p className="note">The season hasn't started.</p>
         )}
+        <RaceLine c={c} />
         <h2>Coach trust</h2>
         <TrustMeter value={c.trust} />
         <p className="note">
@@ -665,8 +670,9 @@ function Stats({ c, hideTotals = false }: { c: Career; hideTotals?: boolean }) {
           </tbody>
         </table>
       </div>
+      <RecordBookView c={c} />
       <h2>Trophy case</h2>
-      {c.titles.length + c.honors.length === 0 ? (
+      {c.titles.length + c.honors.length + (c.recordsBroken?.length ?? 0) === 0 ? (
         <p className="note">Empty for now. All-state, All-American, Pro Bowls and titles land here.</p>
       ) : (
         <div className="trophies">
@@ -678,6 +684,11 @@ function Stats({ c, hideTotals = false }: { c: Career; hideTotals?: boolean }) {
           {c.honors.map((h, i) => (
             <div key={h + i} className="trophy">
               {h}
+            </div>
+          ))}
+          {(c.recordsBroken ?? []).map((h, i) => (
+            <div key={h + i} className="trophy record">
+              ★ {h}
             </div>
           ))}
         </div>
@@ -731,5 +742,156 @@ function Summary({ c, onMenu }: { c: Career; onMenu: () => void }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Schedule, standings, playoff race
+
+function RaceLine({ c }: { c: Career }) {
+  const r = playoffRace(c);
+  if (!r) return null;
+  return <div className={`race race-${r.state}`}>{r.text}</div>;
+}
+
+function Schedule({ c }: { c: Career }) {
+  const st = c.standings;
+  const rows = st ? sorted(st) : [];
+  const lvl = c.level;
+  const S = CONFIG.career.seasons;
+  const cutRank = lvl === 'nfl' ? S.nfl.playoffSeeds : null;
+  const lineWins = lvl === 'hs' ? S.hs.playoffWins : lvl === 'college' ? S.college.playoffWins : null;
+  const post = c.schedule.filter((g) => g.playoff);
+  if (!c.inSeason && !c.season) return <p className="note">No season in progress.</p>;
+  return (
+    <div className="schedule">
+      <RaceLine c={c} />
+      <div className="sched-grid">
+        <section>
+          <h2>{c.season?.year ?? c.year} schedule</h2>
+          <div className="sched-list">
+            {c.schedule.map((g, i) => {
+              const r = g.result;
+              const next = i === c.week && c.inSeason;
+              const res = r ? (r.us > r.them ? 'W' : r.us < r.them ? 'L' : 'T') : null;
+              return (
+                <div key={i} className={`sched-row ${next ? 'next' : ''} ${g.playoff ? 'post' : ''}`}>
+                  <span className="sr-wk">{g.label ? g.label : `Wk ${g.week}`}</span>
+                  <span className="sr-opp">
+                    <i style={{ background: g.opp.primary }} />
+                    {g.home ? 'vs' : 'at'} {g.opp.name}
+                  </span>
+                  {r && g.opp.short !== '—' ? (
+                    <span className={`sr-res ${res === 'W' ? 'good' : res === 'L' ? 'miss' : ''}`}>
+                      {res} {r.us}-{r.them}
+                      {r.ot ? ' OT' : ''}
+                    </span>
+                  ) : (
+                    <span className="sr-res dim">{next ? 'Next' : `${CONFIG.weather[g.weather].label}`}</span>
+                  )}
+                  {r && r.kicks.length > 0 && (
+                    <span className="sr-kicks">
+                      {r.kicks.filter((k) => !k.xp && k.made).length}/{r.kicks.filter((k) => !k.xp).length} FG
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {post.length > 0 && (
+            <>
+              <h2>Postseason</h2>
+              <div className="bracket">
+                {post.map((g, i) => {
+                  const r = g.result;
+                  return (
+                    <div key={i} className={`br-round ${r ? (r.us > r.them ? 'won' : 'lost') : 'live'}`}>
+                      <div className="br-label">{g.label}</div>
+                      <div className="br-opp">vs {g.opp.name}</div>
+                      <div className="br-res">{r ? `${r.us > r.them ? 'Won' : 'Lost'} ${r.us}-${r.them}` : 'Up next'}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </section>
+        <section>
+          <h2>{st?.title ?? 'Standings'}</h2>
+          {rows.length === 0 ? (
+            <p className="note">No standings while unsigned.</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="tbl standings">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Team</th>
+                    <th>W</th>
+                    <th>L</th>
+                    <th>Pct</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => {
+                    const showLine = (cutRank !== null && i === cutRank) || (lineWins !== null && i > 0 && rows[i - 1].w >= lineWins && r.w < lineWins);
+                    return (
+                      <tr key={r.name} className={`${r.me ? 'me' : ''} ${showLine ? 'cut' : ''}`}>
+                        <td>{i + 1}</td>
+                        <td>
+                          <i className="dot" style={{ background: r.primary }} />
+                          {r.name}
+                        </td>
+                        <td>{r.w}</td>
+                        <td>{r.l}</td>
+                        <td>{r.w + r.l ? (r.w / (r.w + r.l)).toFixed(3).replace(/^0/, '') : '.000'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="note">
+            {lvl === 'nfl'
+              ? `Top ${S.nfl.playoffSeeds} in the conference make the playoffs; the 1 seed gets a bye. The line marks the cut.`
+              : lvl === 'hs'
+                ? `${S.hs.playoffWins} wins makes the state playoffs (up to 4 rounds).`
+                : `${S.college.playoffWins} wins makes the playoff; ${S.college.bowlWins} wins gets a bowl game.`}
+          </p>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function RecordBookView({ c }: { c: Career }) {
+  const b = c.records;
+  if (!b) return null;
+  return (
+    <>
+      <h2>{b.title}</h2>
+      <div className="records">
+        {b.entries.map((e) => {
+          const pct = Math.min(100, (e.mine / Math.max(1, e.value)) * 100);
+          return (
+            <div key={e.kind} className={`rec ${e.brokenYear ? 'broken' : ''}`}>
+              <div className="rec-top">
+                <span className="rec-label">{e.label}</span>
+                <span className="rec-val">
+                  {e.brokenYear ? `${e.mine} · record since ${e.brokenYear}` : `${e.mine} / ${e.value}`}
+                </span>
+              </div>
+              <div className="rec-bar">
+                <div style={{ width: `${pct}%` }} />
+              </div>
+              <div className="note rec-holder">
+                {e.brokenYear ? `You broke the ${SCOPE_NAME[b.scope]} record of ${e.value}${b.scope === 'nfl' ? '' : ` (${e.holder})`}.` : `${SCOPE_NAME[b.scope] === 'NFL' ? 'NFL record' : `Held by ${e.holder}`}: ${e.value}`}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }

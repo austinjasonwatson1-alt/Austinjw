@@ -1,6 +1,7 @@
 // Three career slots in browser storage. Every read and write is guarded: storage can be
 // blocked (private windows, embedded previews) and the game must still run.
 
+import { migrateCareer } from './career';
 import type { Career } from './types';
 
 const KEY = (slot: number) => `rtn.career.${slot}`;
@@ -11,7 +12,7 @@ export function loadCareer(slot: number): Career | null {
     const raw = localStorage.getItem(KEY(slot));
     if (!raw) return null;
     const c = JSON.parse(raw) as Career;
-    return c && c.v === 1 ? c : null;
+    return c && c.v === 1 ? migrateCareer(c) : null;
   } catch {
     return null;
   }

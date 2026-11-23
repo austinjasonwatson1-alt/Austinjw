@@ -7,6 +7,7 @@ import { accentFor, kitFor, oppKitFor } from '../../career/look';
 import type { Career, SchedGame } from '../../career/types';
 import { KickScene } from '../../kick/KickScene';
 import { describeWind, type KickSetup } from '../../kick/physics';
+import { longestToBeat, SCOPE_NAME } from '../../career/records';
 import { ScoreBug } from './ScoreBug';
 
 interface Props {
@@ -91,6 +92,13 @@ export function GameDay({ career, game, onFinish }: Props) {
         oppKit={oppKitFor(game.opp)}
         pressure={moment.pressure}
         iced={moment.iced ? `${game.opp.name} call timeout to ice ${career.kicker.name.split(' ')[0]}.` : null}
+        clutch={moment.tag === 'GAME-WINNER' ? 'winner' : moment.tag === 'TO TIE' ? 'tie' : moment.tag === 'GO-AHEAD' ? 'lead' : null}
+        recordLong={!moment.xp && career.records ? { value: longestToBeat(career.records) ?? 99, scope: SCOPE_NAME[career.records.scope] } : null}
+        endzone={team.name.split(' ').slice(-1)[0].toUpperCase()}
+        board={[
+          game.home ? `${game.opp.short} ${moment.them}   ${team.short} ${moment.us}` : `${team.short} ${moment.us}   ${game.opp.short} ${moment.them}`,
+          moment.q >= 5 ? 'OVERTIME' : `${['', '1ST', '2ND', '3RD', '4TH'][moment.q]} ${moment.clock}`,
+        ]}
         cardTitle={moment.title}
         cardTag={moment.tag ?? undefined}
         weatherLabel={`${CONFIG.weather[game.weather].label} · ${game.tempF}°`}
@@ -249,7 +257,9 @@ function PostGame({ career, summary, after, onContinue }: { career: Career; summ
             {summary.notes.length > 0 && (
               <ul className="notes">
                 {summary.notes.map((n, i) => (
-                  <li key={i}>{n}</li>
+                  <li key={i} className={n.startsWith('NEW ') ? 'rec-note' : n.startsWith('Game-winning') ? 'gw-note' : ''}>
+                    {n}
+                  </li>
                 ))}
               </ul>
             )}

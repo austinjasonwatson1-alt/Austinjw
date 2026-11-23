@@ -89,6 +89,8 @@ export const COLLEGES: CollegeInfo[] = [
   { name: 'Holy Cross', short: 'HC', primary: '#602d89', secondary: '#e8e8e8', tier: 'small', conference: 'Patriot' },
 ];
 
+export const AFC = new Set(['BAL', 'BUF', 'CIN', 'CLE', 'DEN', 'HOU', 'IND', 'JAX', 'KC', 'LV', 'LAC', 'MIA', 'NE', 'NYJ', 'PIT', 'TEN']);
+
 // Generated names for high schools, rivals and everyone else.
 export const TOWNS = [
   'Cedar Ridge', 'Lakeview', 'Pine Hollow', 'Riverside', 'Oak Grove', 'Westbrook', 'Maple Falls', 'Granite City', 'Harbor Point',

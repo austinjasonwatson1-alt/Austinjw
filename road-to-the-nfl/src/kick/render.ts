@@ -4,7 +4,7 @@ import { CONFIG } from '../config';
 import { Camera, type ScreenPt } from './camera';
 import { goalPlaneY, kickSpotX, sweetSpotHalf, windVectorFtS, type KickSetup, type KickerRatings, type Vec3 } from './physics';
 import { Rng } from '../sim/rng';
-import { at, drawFigure, figureDepth, frame, holderPose, kickerPose, linemanPose, rusherPose, type Figure, type Kit } from './figures';
+import { at, celebratePose, drawFigure, figureDepth, frame, holderPose, kickerPose, linemanPose, rusherPose, type Figure, type Kit } from './figures';
 
 export type Phase = 'aim' | 'power' | 'accuracy' | 'flight' | 'result';
 
@@ -29,6 +29,10 @@ export interface SceneView {
   kickerNumber: string;
   kickerName: string;
   pressure: number; // 0..1 effective (after Composure), shakes the meters
+  celebrateT: number | null; // seconds into a big-moment celebration
+  board: [string, string]; // video board lines
+  boardFlash: string | null; // big message on the board during a celebration
+  endzone: string; // painted in the end zone
   lookBoost: number; // camera tilt-up to follow the ball, ft
   shake: number; // 0..1
   power: number; // current power meter value
@@ -204,6 +208,8 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
       '#121827',
     );
   }
+  const flashRate = 0.0015 + v.pressure * 0.006 + (v.celebrateT !== null ? 0.05 : 0) + (v.phase === 'flight' ? 0.004 : 0);
+  if (v.celebrateT !== null) drawFireworks(ctx, w, h, v);
   // Crowd
   const crowd = ['#9aa0b0', '#2f3954', rgba(v.accent, 0.75), '#6b7389', '#454f6a', '#c9ccd6'];
   const every = Math.max(1, Math.round(1 / st.crowd));
@@ -215,6 +221,12 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
     const bob = Math.sin(v.time * 3 + f.phase) * s * 0.15;
     ctx.fillStyle = crowd[f.c];
     ctx.fillRect(p.sx - s / 2, p.sy - s + bob, s, s);
+    // Camera flashes: more of them in big moments
+    const seedN = Math.sin(i * 12.9898 + Math.floor(v.time * 9) * 78.233) * 43758.5453;
+    if (seedN - Math.floor(seedN) < flashRate) {
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.fillRect(p.sx - s, p.sy - s * 1.5, s * 2, s * 2);
+    }
   }
   // Rim and lights. High school gets light poles on their own; bigger venues hang them off the rim.
   line3(ctx, cam, { x: -280, y: planeY + 50 + D, z: H }, { x: 280, y: planeY + 50 + D, z: H }, 3, '#0a0e18', 2);
@@ -240,7 +252,24 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
     ctx.fillRect(p.sx - r * 4, p.sy - r * 4, r * 8, r * 8);
     ctx.fillStyle = '#fffdf3';
     ctx.fillRect(p.sx - r * 0.6, p.sy - r * 0.25, r * 1.2, r * 0.5);
+    // Haze beam down onto the field
+    const a = cam.project({ x: L.x * 0.25 - 30, y: planeY * 0.55, z: 0 });
+    const b = cam.project({ x: L.x * 0.25 + 30, y: planeY * 0.55, z: 0 });
+    if (a && b) {
+      const beam = ctx.createLinearGradient(p.sx, p.sy, (a.sx + b.sx) / 2, (a.sy + b.sy) / 2);
+      beam.addColorStop(0, 'rgba(255,248,225,0.10)');
+      beam.addColorStop(1, 'rgba(255,248,225,0)');
+      ctx.fillStyle = beam;
+      ctx.beginPath();
+      ctx.moveTo(p.sx - r * 0.5, p.sy);
+      ctx.lineTo(p.sx + r * 0.5, p.sy);
+      ctx.lineTo(b.sx, b.sy);
+      ctx.lineTo(a.sx, a.sy);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
+  drawBoard(ctx, cam, v, planeY, st);
 
   // Ground
   fillPoly(ctx, quad(cam, -400, 400, camY - 50, planeY + 49), '#1c3a1f');
@@ -269,6 +298,29 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
       fillPoly(ctx, quad(cam, sgn * (half - 1), sgn * (half - 3), y - 0.17, y + 0.17), white);
     }
   }
+  // End zone lettering and yard numbers
+  if (v.endzone) {
+    const m = 5;
+    groundText(ctx, cam, v.endzone, { x: -half + 12, y: planeY - m }, { x: half - 12, y: planeY - m }, { x: -half + 12, y: goalLine + m }, rgba(v.accent, 0.9), 'rgba(255,255,255,0.85)');
+  }
+  for (let k = 10; k <= 50; k += 10) {
+    const y = goalLine - k * 3;
+    if (y < camY + 18) continue;
+    const label = String(k);
+    for (const sgn of [-1, 1]) {
+      const cx = sgn * (half - 36);
+      const W = 9;
+      const Hn = 6;
+      // Numbers face the sideline they sit next to.
+      const dirY = sgn < 0 ? -1 : 1;
+      const upX = sgn < 0 ? 1 : -1;
+      const tl = { x: cx + (upX * Hn) / 2, y: y - (dirY * W) / 2 };
+      const tr = { x: tl.x, y: tl.y + dirY * W };
+      const bl = { x: tl.x - upX * Hn, y: tl.y };
+      groundText(ctx, cam, label, tl, tr, bl, 'rgba(245,248,245,0.85)', null);
+    }
+  }
+
   // Broadcast line-of-scrimmage graphic
   const los = CONFIG.field.snapDepthYd * 3;
   fillPoly(ctx, quad(cam, -half, half, los - 0.35, los + 0.35, 0.02), 'rgba(60,140,255,0.85)');
@@ -320,17 +372,30 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
     return frame(at(base, u, los + vOff, 0), { x: dir.x * facing, y: dir.y * facing });
   };
   const rushK = v.sinceLock === null ? null : v.sinceLock - 0.25 < 0 ? null : v.sinceLock - 0.25;
-  // Protection: wing, five interior linemen and the snapper, wing (we see their backs)
-  const nums = ['72', '65', '58', '61', '76', '68', '79', '88', '85'];
-  for (let k = -4; k <= 4; k++) {
-    const bulk = Math.abs(k) <= 3 ? 1.18 : 1.0;
-    const fr = lineFrame(k * 3.05, -1.3 - (Math.abs(k) === 4 ? 0.6 : 0), 1);
-    addFig({ pose: linemanPose(fr, bulk, v.time, k), kit: P.team, facing: 'away', number: nums[k + 4], bulk });
-  }
-  for (const sgn of [-1, 1]) {
-    const fr = lineFrame(sgn * 15.5, -3.3, 1);
-    addFig({ pose: linemanPose(fr, 1, v.time, sgn * 7), kit: P.team, facing: 'away', number: sgn < 0 ? '84' : '47', bulk: 1 });
-  }
+  // Protection: wing, five interior linemen and the snapper, wing (we see their backs).
+  // In a big moment they sprint back and mob the kicker.
+  const nums = ['72', '65', '58', '61', '76', '68', '79', '88', '85', '84', '47'];
+  const spot0 = frame({ x: x0, y: 0, z: 0 }, dir);
+  const mobCenter = at(spot0, -0.35, 1.4, 0);
+  const protect: { u: number; v: number; bulk: number }[] = [];
+  for (let k = -4; k <= 4; k++) protect.push({ u: k * 3.05, v: -1.3 - (Math.abs(k) === 4 ? 0.6 : 0), bulk: Math.abs(k) <= 3 ? 1.18 : 1.0 });
+  protect.push({ u: -15.5, v: -3.3, bulk: 1 }, { u: 15.5, v: -3.3, bulk: 1 });
+  protect.forEach((pl, i) => {
+    const fr = lineFrame(pl.u, pl.v, 1);
+    if (v.celebrateT !== null) {
+      const ct = v.celebrateT;
+      const prog = Math.max(0, Math.min(1, (ct - 0.15 - (i % 5) * 0.08) / 1.3));
+      const e = prog * prog * (3 - 2 * prog);
+      const ang = -1.75 + (i / (protect.length - 1)) * 3.5; // an arc on the far side of the kicker
+      const rad = 2.6 + (i % 3) * 1.1;
+      const target = at(frame(mobCenter, dir), Math.sin(ang) * rad, Math.cos(ang) * rad, 0);
+      const pos = { x: fr.origin.x + (target.x - fr.origin.x) * e, y: fr.origin.y + (target.y - fr.origin.y) * e, z: 0 };
+      const face = { x: mobCenter.x - pos.x || 0.01, y: mobCenter.y - pos.y || 0.01 };
+      addFig({ pose: celebratePose(frame(pos, face), pl.bulk, v.time, i, e), kit: P.team, facing: e > 0.4 ? 'toward' : 'away', number: nums[i], bulk: pl.bulk });
+      return;
+    }
+    addFig({ pose: linemanPose(fr, pl.bulk, v.time, i), kit: P.team, facing: 'away', number: nums[i], bulk: pl.bulk });
+  });
   // The rush (facing us)
   const dnums = ['91', '97', '55', '93', '99', '94', '95', '52', '90', '44', '98'];
   for (let k = -4; k <= 4; k++) {
@@ -345,7 +410,13 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
   // Holder and kicker, framed on the ball spot facing the posts
   const spot = frame({ x: x0, y: 0, z: 0 }, dir);
   const made = v.made;
-  addFig({ pose: holderPose(spot, v.time, v.sinceContact, made), kit: P.team, facing: 'away', number: '11', bulk: 0.95 });
+  addFig({
+    pose: v.celebrateT !== null && v.celebrateT > 0.4 ? celebratePose(frame(at(spot, 1.2, 0.6, 0), dir), 0.95, v.time, 3, 1) : holderPose(spot, v.time, v.sinceContact, made),
+    kit: P.team,
+    facing: 'away',
+    number: '11',
+    bulk: 0.95,
+  });
   addFig({
     pose: kickerPose(spot, v.time, v.sinceLock, made === null ? null : { made }, v.sinceDecide),
     kit: P.team,
@@ -399,6 +470,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
   }
 
   drawWeather(ctx, w, h, v);
+  if (v.celebrateT !== null) drawConfetti(ctx, w, h, v);
 
   // Vignette
   const vg = ctx.createRadialGradient(w / 2, h * 0.45, Math.min(w, h) * 0.35, w / 2, h * 0.5, Math.max(w, h) * 0.8);
@@ -462,6 +534,138 @@ function drawWeather(ctx: CanvasRenderingContext2D, w: number, h: number, v: Sce
     ctx.fillRect(0, 0, w, h);
   }
   ctx.restore();
+}
+
+/** Draw text into a ground (or wall) parallelogram given its projected top-left, top-right and bottom-left corners. */
+function groundText(ctx: CanvasRenderingContext2D, cam: Camera, text: string, tl: { x: number; y: number }, tr: { x: number; y: number }, bl: { x: number; y: number }, fill: string, stroke: string | null) {
+  const z = 0.03;
+  const a = cam.project({ ...tl, z });
+  const b = cam.project({ ...tr, z });
+  const c = cam.project({ ...bl, z });
+  if (!a || !b || !c) return;
+  if (Math.hypot(b.sx - a.sx, b.sy - a.sy) < 6) return;
+  wallText(ctx, a, b, c, text, fill, stroke);
+}
+
+function wallText(ctx: CanvasRenderingContext2D, a: ScreenPt, b: ScreenPt, c: ScreenPt, text: string, fill: string, stroke: string | null, boxH = 300) {
+  ctx.save();
+  ctx.transform(b.sx - a.sx, b.sy - a.sy, c.sx - a.sx, c.sy - a.sy, a.sx, a.sy);
+  ctx.scale(1 / 1000, 1 / boxH);
+  ctx.font = `700 ${boxH * 0.9}px Oswald, Impact, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(text).width;
+  const sx = Math.min(1, 960 / Math.max(1, tw));
+  ctx.translate(500, boxH / 2 + boxH * 0.04);
+  ctx.scale(sx, 1);
+  if (stroke) {
+    ctx.lineWidth = boxH * 0.06;
+    ctx.strokeStyle = stroke;
+    ctx.strokeText(text, 0, 0);
+  }
+  ctx.fillStyle = fill;
+  ctx.fillText(text, 0, 0);
+  ctx.restore();
+}
+
+/** Video board above the far stands (on poles at a high school). */
+function drawBoard(ctx: CanvasRenderingContext2D, cam: Camera, v: SceneView, planeY: number, st: { height: number; depth: number; lights: number }) {
+  const hs = st.lights <= 2;
+  const W = hs ? 44 : st.height > 100 ? 130 : 96;
+  const H = hs ? 16 : st.height > 100 ? 38 : 28;
+  // Big venues: a ribbon-style board set into the end zone stands, low enough to stay in frame.
+  const y = hs ? planeY + 40 : planeY + 50 + st.depth * 0.3;
+  const zb = hs ? 18 : st.height * 0.3 + 2;
+  if (hs) {
+    line3(ctx, cam, { x: -W * 0.35, y, z: 0 }, { x: -W * 0.35, y, z: zb }, 1, '#2a2f3a', 1.5);
+    line3(ctx, cam, { x: W * 0.35, y, z: 0 }, { x: W * 0.35, y, z: zb }, 1, '#2a2f3a', 1.5);
+  }
+  const tl = cam.project({ x: -W / 2, y, z: zb + H });
+  const tr = cam.project({ x: W / 2, y, z: zb + H });
+  const bl = cam.project({ x: -W / 2, y, z: zb });
+  const br = cam.project({ x: W / 2, y, z: zb });
+  if (!tl || !tr || !bl || !br) return;
+  ctx.fillStyle = '#05070d';
+  ctx.beginPath();
+  ctx.moveTo(tl.sx, tl.sy);
+  ctx.lineTo(tr.sx, tr.sy);
+  ctx.lineTo(br.sx, br.sy);
+  ctx.lineTo(bl.sx, bl.sy);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = rgba(v.accent, 0.9);
+  ctx.lineWidth = Math.max(1, (tr.sx - tl.sx) / 80);
+  ctx.stroke();
+  if (tr.sx - tl.sx < 30) return;
+  const midL = { sx: (tl.sx + bl.sx) / 2, sy: (tl.sy + bl.sy) / 2, depth: tl.depth };
+  const midR = { sx: (tr.sx + br.sx) / 2, sy: (tr.sy + br.sy) / 2, depth: tr.depth };
+  if (v.boardFlash) {
+    const on = Math.floor(v.time * 4) % 2 === 0;
+    wallText(ctx, tl, tr, bl, v.boardFlash, on ? v.accent : '#ffffff', null);
+    return;
+  }
+  wallText(ctx, tl, tr, midL, v.board[0], '#ffffff', null);
+  wallText(ctx, midL, midR, bl, v.board[1], rgba(v.accent, 0.95), null);
+}
+
+const CONFETTI = (() => {
+  const r = new Rng(9);
+  return Array.from({ length: CONFIG.career.celebration.confetti }, () => ({ x: r.next(), delay: r.next() * 1.5, speed: 0.12 + r.next() * 0.18, c: r.int(0, 3), s: 4 + r.next() * 6, p: r.next() * 6.28 }));
+})();
+
+function drawConfetti(ctx: CanvasRenderingContext2D, w: number, h: number, v: SceneView) {
+  const ct = v.celebrateT ?? 0;
+  const colors = [v.accent, v.teamKit.jersey, '#ffffff', v.teamKit.trim];
+  for (const c of CONFETTI) {
+    const t = ct - c.delay;
+    if (t < 0) continue;
+    const y = -20 + t * c.speed * h;
+    if (y > h + 20) continue;
+    const x = c.x * w + Math.sin(t * 2.4 + c.p) * 26;
+    const flip = Math.abs(Math.cos(t * 7 + c.p));
+    ctx.fillStyle = colors[c.c];
+    ctx.globalAlpha = Math.min(1, 1.5 - t / 6);
+    ctx.fillRect(x - (c.s * flip) / 2, y, Math.max(1, c.s * flip), c.s * 0.6);
+  }
+  ctx.globalAlpha = 1;
+}
+
+const BURSTS = (() => {
+  const r = new Rng(31);
+  return Array.from({ length: CONFIG.career.celebration.fireworks }, (_, i) => ({ t: 0.25 + i * 0.55 + r.next() * 0.2, x: 0.12 + r.next() * 0.76, y: 0.06 + r.next() * 0.22, R: 55 + r.next() * 60, c: r.int(0, 2) }));
+})();
+
+/** Fireworks over the stadium. Exposed burst times keep sound and picture in sync. */
+export const FIREWORK_TIMES = BURSTS.map((b) => b.t);
+
+function drawFireworks(ctx: CanvasRenderingContext2D, w: number, h: number, v: SceneView) {
+  const ct = v.celebrateT ?? 0;
+  const colors = [v.accent, '#ffffff', v.teamKit.trim];
+  for (const b of BURSTS) {
+    const a = ct - b.t;
+    if (a < -0.45 || a > 1.8) continue;
+    const cx = b.x * w;
+    const cy = b.y * h;
+    if (a < 0) {
+      // Rising trail
+      const k = 1 + a / 0.45;
+      ctx.fillStyle = 'rgba(255,240,200,0.9)';
+      ctx.fillRect(cx - 1, cy + (1 - k) * h * 0.35, 2, 10);
+      continue;
+    }
+    const r = b.R * (1 - Math.pow(1 - Math.min(1, a / 1.1), 3));
+    ctx.globalAlpha = Math.max(0, 1 - a / 1.8);
+    ctx.fillStyle = colors[b.c];
+    for (let i = 0; i < 40; i++) {
+      const ang = (i / 40) * Math.PI * 2;
+      const px = cx + Math.cos(ang) * r;
+      const py = cy + Math.sin(ang) * r + a * a * 22;
+      ctx.beginPath();
+      ctx.arc(px, py, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
 }
 
 function shade(hex: string, amt: number): string {

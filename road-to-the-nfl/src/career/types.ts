@@ -1,5 +1,7 @@
 import type { LevelKey, Weather } from '../config';
 import type { KickerRatings } from '../kick/physics';
+import type { RecordBook } from './records';
+import type { Standings } from './standings';
 
 export type Stage = 'hs' | 'college' | 'draft' | 'nfl' | 'retired';
 export type SkillKey = keyof KickerRatings;
@@ -150,6 +152,9 @@ export interface Career {
   draftNote: string | null;
   settings: { autoXp: boolean };
   summary: CareerSummary | null;
+  records?: RecordBook | null;
+  recordsBroken?: string[];
+  standings?: Standings | null;
 }
 
 export interface CareerSummary {

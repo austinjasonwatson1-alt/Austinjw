@@ -109,6 +109,8 @@ export function KickSeries({ title, intro, kicks, career, rival, verdict, onDone
       teamKit={kitFor(career.team, P.team)}
       pressure={k.pressure ?? 0}
       cardTag={k.label}
+      endzone={career.team ? career.team.name.split(' ').slice(-1)[0].toUpperCase() : ''}
+      board={[title.toUpperCase(), `KICK ${i + 1} OF ${kicks.length} · ${m} MADE`]}
       seed={career.seed + i * 13 + makes.length}
       continueLabel={i < kicks.length - 1 ? 'Next kick' : 'See results'}
       bug={

@@ -41,7 +41,11 @@ slow motion (`slowMo`), sound levels (`audio`) and team kits. The practice kicke
 - **Career:** camp battles at every new team (lose and you're the backup, or cut in the NFL), recruiting stars and
   offers, the draft or undrafted free agency, contracts, hot seats, cuts and tryouts, aging from your mid-thirties,
   honors, titles and a Hall of Fame verdict.
-- **Saving:** three slots in browser storage, saved after every game and decision.
+- **Big moments:** game-winning, game-tying and go-ahead kicks get a celebration: the team mobs you, confetti,
+  fireworks and your name on the video board.
+- **Records:** school, program and NFL record books (real NFL marks, no names) with callouts when you pass one.
+- **Schedule tab:** results, league or conference standings, the playoff race and the bracket.
+- **Saving:** three slots in browser storage, saved after every game and decision. Older saves pick up new features.
 
 ## Layout
 

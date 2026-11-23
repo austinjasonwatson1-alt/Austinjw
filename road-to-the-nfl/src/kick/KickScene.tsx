@@ -5,7 +5,7 @@ import type { Camera } from './camera';
 import { sound } from '../audio/sound';
 import type { Kit } from './figures';
 import { describeWind, goalPlaneY, powerSpeedFrac, rate, resolveKick, type KickResult, type KickSetup, type KickerRatings, type Vec3 } from './physics';
-import { buildCamera, drawMeters, drawScene, type Phase, type SceneView } from './render';
+import { buildCamera, drawMeters, drawScene, FIREWORK_TIMES, type Phase, type SceneView } from './render';
 
 export interface SessionLine {
   label: string;
@@ -37,6 +37,14 @@ interface Props {
   /** 'practice' shows Kick again / New spot / Setup; 'game' shows one Continue button. */
   mode?: 'practice' | 'game';
   continueLabel?: string;
+  /** A made kick here ties or wins the game: celebrate. */
+  clutch?: 'winner' | 'tie' | 'lead' | null;
+  /** The longest field goal to beat in the current record book. */
+  recordLong?: { value: number; scope: string } | null;
+  /** Video board lines. */
+  board?: [string, string];
+  /** Painted in the end zone. */
+  endzone?: string;
   seed: number;
   onResult: (r: KickResult) => void;
   onAgain: () => void;
@@ -67,6 +75,7 @@ interface Runtime {
   shakeUntil: number;
   contactAt: number | null;
   icedUntil: number;
+  celebrateAt: number | null;
   keys: { left: boolean; right: boolean };
 }
 
@@ -94,6 +103,7 @@ const fresh = (): Runtime => ({
   contactAt: null,
   keys: { left: false, right: false },
   icedUntil: 0,
+  celebrateAt: null,
 });
 
 /** Playback speed through a close call: normal, easing down to slow motion around the posts, then back. */
@@ -181,8 +191,18 @@ export function KickScene(props: Props) {
   const [ui, setUi] = useState<{ phase: Phase; result: KickResult | null; called: boolean; slow: boolean }>({ phase: 'aim', result: null, called: false, slow: false });
   const [muted, setMuted] = useState(sound.muted);
 
-  const cb = useRef({ onResult, onAgain, onNewSpot, onExit, setup, kicker, mode, eff, speedMult, teamKit, oppKit, kickerNumber });
-  cb.current = { onResult, onAgain, onNewSpot, onExit, setup, kicker, mode, eff, speedMult, teamKit, oppKit, kickerNumber };
+  const lastName = kickerName.split(' ').slice(-1)[0].toUpperCase();
+  const isRecord = (r: KickResult) => !!props.recordLong && r.made && !props.cardTitle?.startsWith('Extra') && setup.distanceYd > props.recordLong.value;
+  let clutch = props.clutch ?? null;
+  if (import.meta.env.DEV) {
+    const force = (window as unknown as { __rtnForce?: { clutch?: 'winner' | 'tie' | 'lead' } }).__rtnForce;
+    if (force?.clutch) clutch = force.clutch;
+  }
+  const boardLines: [string, string] = props.board ?? (session ? ['FREE PRACTICE', `FG ${session.made}/${session.att} · LONG ${session.long || '-'}`] : ['ROAD TO THE NFL', `${setup.distanceYd}-YARD TRY`]);
+  const cb = useRef({ onResult, onAgain, onNewSpot, onExit, setup, kicker, mode, eff, speedMult, teamKit, oppKit, kickerNumber, clutch, isRecord, boardLines });
+  cb.current = { onResult, onAgain, onNewSpot, onExit, setup, kicker, mode, eff, speedMult, teamKit, oppKit, kickerNumber, clutch, isRecord, boardLines };
+  const timers = useRef<number[]>([]);
+  useEffect(() => () => timers.current.forEach((id) => window.clearTimeout(id)), []);
 
   const now = () => performance.now() / 1000 - t0.current;
 
@@ -392,6 +412,13 @@ export function KickScene(props: Props) {
           s.decidedAt = t;
           react(r);
           cb.current.onResult(r);
+          if (r.made && (cb.current.clutch || cb.current.isRecord(r))) {
+            s.celebrateAt = t;
+            s.shakeUntil = t + 0.5;
+            sound.roar(1.5);
+            for (const ft of FIREWORK_TIMES) timers.current.push(window.setTimeout(() => sound.firework(), ft * 1000));
+            setUi((u) => ({ ...u }));
+          }
         }
         const callAt = r.decideIndex + (r.slowMo ? SM.holdS * 60 : 0);
         if (!s.called && fi >= callAt) {
@@ -459,6 +486,19 @@ export function KickScene(props: Props) {
         kickerNumber: cb.current.kickerNumber,
         kickerName: kickerName,
         pressure: cb.current.eff,
+        celebrateT: s.celebrateAt === null ? null : t - s.celebrateAt,
+        board: cb.current.boardLines,
+        boardFlash:
+          s.celebrateAt === null
+            ? null
+            : cb.current.clutch === 'winner'
+              ? `${lastName} WINS IT!`
+              : cb.current.clutch === 'tie'
+                ? `${lastName} TIES IT!`
+                : cb.current.clutch === 'lead'
+                  ? 'GO-AHEAD KICK!'
+                  : 'NEW RECORD!',
+        endzone: props.endzone ?? '',
       };
       drawScene(ctx, cam, w, h, view);
       if (s.slowBlend < 0.03) drawMeters(ctx, w, h, view);
@@ -504,7 +544,14 @@ export function KickScene(props: Props) {
         : ui.phase === 'accuracy'
           ? 'SPACE in the green'
           : '';
-  const call = ui.called && ui.result ? callText(ui.result) : null;
+  const baseCall = ui.called && ui.result ? callText(ui.result) : null;
+  const call =
+    baseCall && ui.result?.made && clutch
+      ? { big: clutch === 'winner' ? `${lastName} WINS IT!` : clutch === 'tie' ? `${lastName} TIES IT!` : `${lastName} PUTS THEM AHEAD!`, good: true, clutch: true }
+      : baseCall
+        ? { ...baseCall, clutch: false }
+        : null;
+  const recordCall = ui.called && ui.result && isRecord(ui.result) ? `New ${props.recordLong!.scope} record · ${setup.distanceYd} yards` : null;
   const level = CONFIG.levels[setup.level];
 
   return (
@@ -594,8 +641,9 @@ export function KickScene(props: Props) {
       </button>
 
       {call && ui.result && (
-        <div className={`call ${call.good ? 'good' : 'miss'}`} key={seed}>
+        <div className={`call ${call.good ? 'good' : 'miss'} ${call.clutch ? 'clutch' : ''}`} key={seed}>
           <div className="call-big">{call.big}</div>
+          {recordCall && <div className="call-record">{recordCall}</div>}
           <div className="call-sub">{detailText(ui.result, setup)}</div>
           {ui.phase === 'result' && mode === 'game' && (
             <div className="actions">

@@ -289,6 +289,15 @@ class SoundEngine {
     trem.stop(t + 0.75);
   }
 
+  /** One firework: a thump, a bang and a crackle. */
+  firework() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.tone(t, 'sine', 90, 40, 0.3, 0.45, 0.005, 0.5);
+    this.noiseBurst(t, 'lowpass', 1200, 0.7, 0.55, 0.003, 0.35, this.brown!);
+    for (let i = 0; i < 6; i++) this.noiseBurst(t + 0.15 + Math.random() * 0.6, 'highpass', 3500, 0.8, 0.12, 0.001, 0.03);
+  }
+
   /** Crowd explodes. size 0..1.5 */
   roar(size = 1) {
     if (!this.ctx) return;

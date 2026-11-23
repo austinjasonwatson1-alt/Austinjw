@@ -186,17 +186,17 @@ export const CONFIG = {
 
     points: {
       // Points can be fractional; the game shows whole points.
-      levelMult: { hs: 1, college: 1, nfl: 0.45 }, // NFL seasons are long: each kick is worth less
-      fgMade: 0.5,
-      fg40: 0.25, // extra for 40-49
+      levelMult: { hs: 1, college: 1, nfl: 0.65 }, // NFL seasons are long: each kick is worth less
+      fgMade: 0.75,
+      fg40: 0.5, // extra for 40-49
       fg50: 1, // extra for 50+
       pressureBonus: 1, // made kick with pressure >= 0.6
       perfectGame: 2, // at least 2 kicks, all made
       gameWinner: 3,
       careerLong: 1,
-      drillPerMake: 0.5, // weekly drill, goes into the skill you pick
-      campBase: 5, // offseason camp: the biggest single chunk of the year
-      campPerMake: 1.5,
+      drillPerMake: 0.75, // weekly drill, goes into the skill you pick
+      campBase: 7, // offseason camp: the biggest single chunk of the year
+      campPerMake: 2,
       awards: { allState: 4, allConference: 4, allAmerican: 6, nationalAward: 8, proBowl: 5, allPro: 7, champion: 5 },
     },
 
@@ -238,9 +238,11 @@ export const CONFIG = {
     },
 
     seasons: {
-      hs: { games: 10, playoffWins: 7, playoffRounds: 4 },
-      college: { games: 12, bowlWins: 6, playoffWins: 11, playoffRounds: 4 },
-      nfl: { games: 17, playoffWins: 10, byeWins: 13, playoffRounds: 4 },
+      hs: { games: 10, playoffWins: 6, playoffRounds: 4 },
+      college: { games: 12, bowlWins: 6, playoffWins: 10, playoffRounds: 4 },
+      nfl: { games: 17, playoffSeeds: 7, byeSeeds: 1, playoffRounds: 4 }, // top 7 in the conference; the 1 seed gets a bye
+      // Your team's average strength vs an average opponent of 50 (college: vs same-tier opponents)
+      teamEdge: { hs: 7, college: 10, nfl: 2 },
     },
 
     honors: {
@@ -283,6 +285,19 @@ export const CONFIG = {
     },
 
     hallOfFame: { points: 2300, honors: 8, longFg: 60 },
+
+    records: {
+      bonus: { school: 2, program: 3, nfl: 6 }, // skill points for breaking a record
+      // Real NFL record numbers (no names): longest FG, FGs in a game, in a season, in a career,
+      // career points, consecutive FGs made.
+      nfl: { longest: 66, gameFg: 8, seasonFg: 44, careerFg: 599, careerPts: 2673, streak: 44 },
+    },
+
+    celebration: {
+      confetti: 220,
+      fireworks: 7,
+      durationS: 6,
+    },
   },
 
   audio: {

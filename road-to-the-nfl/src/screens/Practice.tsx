@@ -56,6 +56,7 @@ export function Practice({ onExit }: { onExit: () => void }) {
         setup={setup}
         kicker={P.kicker}
         kickerName={P.kickerName}
+        endzone="PRACTICE"
         accent={P.accent}
         session={session}
         seed={seed}

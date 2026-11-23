@@ -1691,3 +1691,222 @@ button:focus-visible {
 [hidden] {
   display: none !important;
 }
+
+/* Big-moment calls */
+.call.clutch .call-big {
+  font-size: clamp(44px, 10vw, 120px);
+  background: linear-gradient(100deg, var(--accent) 0%, #fff6d6 45%, var(--accent) 60%);
+  background-size: 250% 100%;
+  animation:
+    slam 0.6s cubic-bezier(0.2, 1.4, 0.4, 1) both,
+    shine 2.2s 0.6s linear infinite;
+  box-shadow:
+    0 0 90px color-mix(in srgb, var(--accent) 70%, transparent),
+    0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.call-record {
+  display: inline-block;
+  margin-top: 10px;
+  margin-right: 8px;
+  padding: 5px 14px;
+  background: #fff;
+  color: #111;
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 15px;
+  border-radius: 3px;
+  animation: slam 0.5s 0.3s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+@keyframes shine {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+
+/* Schedule, standings, records */
+.race {
+  margin: 14px 0 4px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-family: var(--display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 15px;
+  background: var(--panel);
+  border-left: 4px solid var(--muted);
+}
+.race-clinched {
+  border-left-color: var(--good);
+  color: #b9f5cf;
+}
+.race-out {
+  border-left-color: var(--miss);
+  color: #ffb3ab;
+}
+.race-alive {
+  border-left-color: var(--accent);
+}
+.sched-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 24px;
+}
+.sched-list {
+  display: grid;
+  gap: 4px;
+}
+.sched-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-radius: 4px;
+  font-size: 14px;
+}
+.sched-row.next {
+  outline: 2px solid var(--accent);
+}
+.sched-row.post {
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-solid));
+}
+.sr-wk {
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sr-opp {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sr-opp i,
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 8px;
+  vertical-align: -1px;
+}
+.sr-res {
+  font-family: var(--display);
+  font-variant-numeric: tabular-nums;
+}
+.sr-kicks {
+  font-size: 12px;
+  color: var(--muted);
+}
+.standings tr.me td {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  font-weight: 600;
+}
+.standings tr.cut td {
+  border-top: 2px dashed var(--accent);
+}
+.bracket {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.br-round {
+  flex: 1 1 150px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 10px;
+}
+.br-round.lost {
+  border-top-color: var(--miss);
+  opacity: 0.8;
+}
+.br-round.won {
+  border-top-color: var(--good);
+}
+.br-label {
+  font-family: var(--display);
+  text-transform: uppercase;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+.br-opp,
+.br-res {
+  font-size: 13px;
+  color: var(--muted);
+}
+.records {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+.rec {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+.rec.broken {
+  border-color: var(--accent);
+}
+.rec-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+}
+.rec-label {
+  font-weight: 600;
+}
+.rec-val {
+  font-family: var(--display);
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.rec-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 8px 0 6px;
+}
+.rec-bar div {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.rec-holder {
+  margin: 0;
+  font-size: 12px;
+}
+.trophy.record {
+  border-color: #fff;
+}
+.rec-note,
+.gw-note {
+  color: var(--accent);
+  font-weight: 700;
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  list-style: '★ ';
+}
+@media (max-width: 760px) {
+  .sched-grid {
+    grid-template-columns: 1fr;
+  }
+  .sched-row {
+    grid-template-columns: 70px minmax(0, 1fr) auto;
+  }
+  .sr-kicks {
+    display: none;
+  }
+}

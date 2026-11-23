@@ -513,3 +513,23 @@ export function drawFigure(ctx: CanvasRenderingContext2D, cam: Camera, fig: Figu
   }
   ctx.restore();
 }
+
+/** Teammates mobbing the kicker after a big kick: bouncing, arms up. */
+export function celebratePose(fr: Frame, bulk: number, t: number, seed: number, arrived: number): Pose {
+  const hop = Math.max(0, Math.sin(t * 7.5 + seed * 1.7)) * 1.1 * arrived;
+  const pump = Math.sin(t * 9 + seed) * 0.5;
+  return build(fr, {
+    pelvisU: 0,
+    pelvisV: 0,
+    pelvisZ: 2.9 + hop,
+    leanV: 0.15,
+    torso: 1.85,
+    lFoot: [-0.6 * bulk, Math.sin(t * 12 + seed) * 0.6 * (1 - arrived), hop * 0.8],
+    rFoot: [0.6 * bulk, -Math.sin(t * 12 + seed) * 0.6 * (1 - arrived), hop * 0.8],
+    lHand: [-1.0 * bulk, 0.3, 6.2 + hop + pump * arrived],
+    rHand: [1.0 * bulk, 0.3, 6.2 + hop - pump * arrived],
+    kneeBendL: 0.35,
+    kneeBendR: 0.35,
+    width: bulk,
+  });
+}

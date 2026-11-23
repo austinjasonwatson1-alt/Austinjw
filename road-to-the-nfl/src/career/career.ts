@@ -4,6 +4,8 @@ import { CONFIG, type Weather } from '../config';
 import { Rng } from '../sim/rng';
 import { COLLEGES, FIRST, HS_COLORS, LAST, MASCOTS, NFL_TEAMS, TOWNS } from './data';
 import { GameSim, type GameSetup } from './gamesim';
+import { makeRecordBook, updateRecords, type RecordScope } from './records';
+import { advanceStandings, buildStandings, mySeed, sorted } from './standings';
 import { clampSkill, costToRaise, evenSkills, kickPoints, levelCost, overall, stageLevel } from './progression';
 import type { Career, CareerSummary, Contract, KickerProfile, Offer, Rival, SchedGame, SeasonLine, SkillKey, Team } from './types';
 
@@ -147,6 +149,7 @@ export function newCareer(slot: number, kicker: KickerProfile, seed: number): Ca
   const rng = rngFor(c, 'new');
   c.team = hsTeam(rng, kicker.school);
   c.rival = genRival(rng, C().camp.rival.hsSenior);
+  c.records = makeRecordBook('school', c.team.name, undefined, rng, () => genName(rng));
   c.pending = { kind: 'camp', title: `${c.team.name} kicking camp`, rival: c.rival, why: `${c.rival.name}, a senior, kicked last year. Beat him for the job.` };
   news(c, `${kicker.name} joins the ${c.team.name} as a junior from ${kicker.hometown || 'town'}.`);
   return c;
@@ -164,7 +167,7 @@ function makeSchedule(c: Career, rng: Rng): SchedGame[] {
     let opp: Team;
     if (lvl === 'hs') opp = { ...genHsOpp(rng, c.team!.name), strength: teamStrength(rng, 50, 12) };
     else if (lvl === 'college') {
-      const pool = COLLEGES.filter((t) => t.name !== c.team!.name && (t.tier === c.team!.tier || rng.next() < 0.25) && !used.has(t.name));
+      const pool = COLLEGES.filter((t) => t.name !== c.team!.name && (t.tier === c.team!.tier || rng.next() < 0.12) && !used.has(t.name));
       const t = rng.pick(pool.length ? pool : COLLEGES.filter((x) => x.name !== c.team!.name));
       used.add(t.name);
       const mean = t.tier === 'major' ? 68 : t.tier === 'mid' ? 54 : 42;
@@ -185,10 +188,11 @@ function startSeason(c: Career) {
   const lvl = stageLevel(c.stage);
   c.level = lvl;
   if (c.team) {
-    const mean = lvl === 'hs' ? 52 : lvl === 'college' ? (c.team.tier === 'major' ? 70 : c.team.tier === 'mid' ? 56 : 46) : 50;
-    c.team.strength = teamStrength(rng, mean, lvl === 'nfl' ? 10 : 9);
+    const base = lvl === 'hs' ? 50 : lvl === 'college' ? (c.team.tier === 'major' ? 68 : c.team.tier === 'mid' ? 54 : 42) : 50;
+    c.team.strength = teamStrength(rng, base + C().seasons.teamEdge[lvl], lvl === 'nfl' ? 10 : 8);
   }
   c.schedule = c.role === 'unsigned' ? [] : makeSchedule(c, rng);
+  c.standings = c.role === 'unsigned' ? null : buildStandings(c, rng);
   c.week = 0;
   c.inSeason = true;
   c.drillDone = false;
@@ -301,6 +305,21 @@ export function recordGame(c0: Career, sim: GameSim): { career: Career; summary:
   news(c, `${g.label ? g.label + ': ' : `Week ${g.week}: `}${resTxt}${fgTxt}.`);
   for (const n of notes) news(c, n);
 
+  // Standings: everyone else plays this week too.
+  if (c.standings && !g.playoff) advanceStandings(c.standings, rng, g.opp.name, us > them ? true : us < them ? false : null);
+
+  // Records
+  const calls = updateRecords(c, kicks, s.fgm);
+  if (calls.length) {
+    const bonus = C().records.bonus[c.records!.scope];
+    c.points += bonus * calls.length;
+    for (const call of calls) {
+      notes.push(call);
+      news(c, call);
+      c.recordsBroken = [...(c.recordsBroken ?? []), `${c.year} ${call.replace(/\.$/, '')}`];
+    }
+  }
+
   jobChecks(c, rng, notes);
   c.week += 1;
   c.drillDone = false;
@@ -373,7 +392,13 @@ function advanceSchedule(c: Career, rng: Rng) {
       if (s.w >= S.college.playoffWins) nextLabel = s.w >= 12 ? labels[1] : labels[0];
       else if (s.w >= S.college.bowlWins) nextLabel = 'Bowl Game';
     }
-    if (lvl === 'nfl' && s.w >= S.nfl.playoffWins) nextLabel = s.w >= S.nfl.byeWins ? labels[1] : labels[0];
+    if (lvl === 'nfl' && c.standings) {
+      const seed = mySeed(c.standings);
+      if (seed <= S.nfl.playoffSeeds) {
+        nextLabel = seed <= S.nfl.byeSeeds ? labels[1] : labels[0];
+        news(c, `${c.team!.name} clinch the ${seed} seed.`);
+      }
+    }
     if (nextLabel && nextLabel !== labels[0] && nextLabel !== 'Bowl Game') s.postseason = 'First-round bye';
   } else if (last.playoff && last.result && last.result.us > last.result.them) {
     const i = labels.indexOf(last.label ?? '');
@@ -728,6 +753,8 @@ export function chooseOffer(c0: Career, offer: Offer): Career {
     news(c, `${c.kicker.name} signs with the ${offer.team.name}.`);
   } else news(c, `${c.kicker.name} signs with the ${offer.team.name}.`);
   const resign = offer.id === 'resign';
+  const scope: RecordScope = c.stage === 'college' ? 'program' : 'nfl';
+  if (fromHs || (scope === 'nfl' && c.records?.scope !== 'nfl')) c.records = makeRecordBook(scope, offer.team.name, offer.team.tier, rng, () => genName(rng));
   c.team = { ...offer.team };
   c.level = stageLevel(c.stage);
   c.contract = offer.contract ?? null;
@@ -807,6 +834,8 @@ export function resolveTryout(c0: Career, makes: boolean[]): Career {
     }));
     c.schedule = [...before, ...sched.map((g, i) => ({ ...g, week: c.week + i + 1 }))];
     c.season = { ...c.season!, team: c.team.name, teamShort: c.team.short, role: 'starter' };
+    c.standings = buildStandings(c, rng);
+    if (c.standings) for (let w = 0; w < c.week; w++) advanceStandings(c.standings, rng, null, rng.next() < 0.5);
     news(c, `${c.kicker.name} hits ${m}/${makes.length} and signs with the ${c.team.name}.`);
   } else {
     c.pending = null;
@@ -925,3 +954,39 @@ export function retire(c0: Career, why = 'Hangs up the cleats.'): Career {
 export function campCost(from: number, to: number) {
   return costToRaise(from, to);
 }
+
+/** Fill in fields added after a save was made (records, standings). */
+export function migrateCareer(c0: Career): Career {
+  if (c0.records !== undefined && c0.standings !== undefined) return c0;
+  const c = clone(c0);
+  const rng = rngFor(c, 'migrate');
+  if (c.records === undefined) {
+    const scope: RecordScope = c.stage === 'hs' ? 'school' : c.stage === 'college' ? 'program' : 'nfl';
+    c.records = c.team || scope === 'nfl' ? makeRecordBook(scope, c.team?.name ?? '', c.team?.tier, rng, () => genName(rng)) : null;
+    if (c.records) {
+      const lvl = scope === 'school' ? 'hs' : scope === 'program' ? 'college' : 'nfl';
+      const lines = [...c.history, ...(c.inSeason && c.season ? [c.season] : [])].filter((h) => h.stage === lvl && (lvl === 'nfl' || h.team === c.team?.name));
+      for (const e of c.records.entries) {
+        if (e.kind === 'longest') e.mine = c.log.filter((k) => k.stage === lvl && k.made && !k.xp).reduce((m, k) => Math.max(m, k.d), 0);
+        if (e.kind === 'seasonFg') e.mine = lines.reduce((m, h) => Math.max(m, h.fgm), 0);
+        if (e.kind === 'careerFg') e.mine = lines.reduce((a, h) => a + h.fgm, 0);
+        if (e.kind === 'careerPts') e.mine = lines.reduce((a, h) => a + h.points, 0);
+        if (e.mine > e.value) e.brokenYear = c.year;
+      }
+    }
+    c.recordsBroken = c.recordsBroken ?? [];
+  }
+  if (c.standings === undefined) {
+    c.standings = c.inSeason && c.role !== 'unsigned' ? buildStandings(c, rng) : null;
+    if (c.standings) {
+      // Replay the weeks already played.
+      for (const g of c.schedule.slice(0, c.week)) {
+        if (g.playoff || !g.result) continue;
+        advanceStandings(c.standings, rng, g.opp.name, g.result.us > g.result.them ? true : g.result.us < g.result.them ? false : null);
+      }
+    }
+  }
+  return c;
+}
+
+export { sorted as sortedStandings };
