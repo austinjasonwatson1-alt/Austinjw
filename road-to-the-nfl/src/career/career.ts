@@ -704,6 +704,91 @@ export function afterDraftResult(c0: Career): Career {
   return c;
 }
 
+// ---------------------------------------------------------------------------
+// Transfer portal (college offseasons before the senior year)
+
+export function canEnterPortal(c: Career): boolean {
+  return c.stage === 'college' && c.seasonNo < 4 && c.pending?.kind === 'offseason';
+}
+
+function portalOffers(c: Career, rng: Rng): Offer[] {
+  const P = C().portal;
+  const R = C().camp.rival;
+  const ovr = overall(c.skills);
+  const last = c.history[c.history.length - 1];
+  const pct = last && last.fga ? last.fgm / last.fga : 0.6;
+  const honors = last?.honors.length ?? 0;
+  const tiers: ('major' | 'mid' | 'small')[] = [];
+  if ((ovr >= P.majorOvr && pct >= P.majorPct) || honors > 0) tiers.push('major', 'major');
+  if (ovr >= P.midOvr || pct >= 0.75) tiers.push('mid', 'mid');
+  tiers.push('small');
+  const used = new Set([c.team?.name]);
+  const out: Offer[] = [];
+  for (const tier of tiers.slice(0, P.offersMax)) {
+    const pool = COLLEGES.filter((t) => t.tier === tier && !used.has(t.name));
+    if (!pool.length) continue;
+    const t = rng.pick(pool);
+    used.add(t.name);
+    // How strong is the kicker already there? Big programs usually have one.
+    const base = tier === 'major' ? R.majorProgram : tier === 'mid' ? R.midSchool : R.smallSchool;
+    const open = rng.next() < (tier === 'small' ? 0.75 : tier === 'mid' ? 0.4 : 0.2);
+    const rivalOvr = open ? null : Math.round(base - 6 + rng.next() * 8);
+    out.push({
+      id: `portal-${t.short}`,
+      kind: 'transfer',
+      team: { ...t, strength: 50 },
+      title: t.name,
+      note: `${t.conference}. ${open ? 'Their kicker just left. The job is yours.' : 'They want you to push their returning kicker.'}`,
+      rivalOvr,
+    });
+  }
+  return out;
+}
+
+export function enterPortal(c0: Career): Career {
+  if (!canEnterPortal(c0)) return c0;
+  const c = clone(c0);
+  const campDone = c.pending?.kind === 'offseason' ? c.pending.campDone : false;
+  const offers = portalOffers(c, rngFor(c, 'portal'));
+  c.pending = { kind: 'portal', offers, campDone };
+  news(c, `${c.kicker.name} enters the transfer portal. ${offers.length} school${offers.length === 1 ? '' : 's'} reach out.`);
+  return c;
+}
+
+/** Transfer to a portal school, or withdraw (offer null) and go back with a fight on your hands. */
+export function choosePortal(c0: Career, offer: Offer | null): Career {
+  const c = clone(c0);
+  if (c.pending?.kind !== 'portal') return c0;
+  const rng = rngFor(c, 'portal-pick');
+  c.year += 1;
+  c.seasonNo += 1;
+  if (!offer) {
+    const P = C().portal;
+    c.trust = Math.max(5, c.trust - P.withdrawTrustLoss);
+    c.rival = genRival(rng, overall(c.skills) + P.withdrawRivalEdge);
+    c.role = 'backup';
+    news(c, `${c.kicker.name} withdraws from the portal and returns to ${c.team!.name}. The coach has signed ${c.rival.name}.`);
+    c.pending = { kind: 'camp', title: `${c.team!.name} camp`, rival: c.rival, why: `While you were in the portal, the coach brought in ${c.rival.name}. Win your job back.` };
+    return c;
+  }
+  const from = c.team!.name;
+  c.team = { ...offer.team };
+  c.transfers = (c.transfers ?? 0) + 1;
+  c.trust = C().trust.start.college;
+  c.records = makeRecordBook('program', offer.team.name, offer.team.tier, rng, () => genName(rng));
+  news(c, `${c.kicker.name} transfers from ${from} to ${offer.team.name}.`);
+  if (offer.rivalOvr === null) {
+    c.role = 'starter';
+    c.rival = null;
+    startSeason(c);
+  } else {
+    c.rival = genRival(rng, offer.rivalOvr);
+    c.role = 'backup';
+    c.pending = { kind: 'camp', title: `${offer.team.name} camp`, rival: c.rival, why: `${c.rival.name} kicked here last year. Beat him for the job.` };
+  }
+  return c;
+}
+
 function collegeOffers(c: Career, rng: Rng): Offer[] {
   const stars = c.stars ?? 2;
   const R = C().camp.rival;

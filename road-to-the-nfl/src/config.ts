@@ -284,6 +284,16 @@ export const CONFIG = {
       seasonsUnsignedToRetire: 1,
     },
 
+    portal: {
+      // Offer tiers open up with your overall and last season's FG%.
+      majorOvr: 66,
+      majorPct: 0.8,
+      midOvr: 56,
+      offersMax: 4,
+      withdrawTrustLoss: 15, // your coach moved on while you shopped around
+      withdrawRivalEdge: 3, // the kicker he brought in is about this much better than you
+    },
+
     hallOfFame: { points: 2300, honors: 8, longFg: 60 },
 
     records: {

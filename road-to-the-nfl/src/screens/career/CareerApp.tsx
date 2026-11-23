@@ -9,7 +9,10 @@ import {
   applyShowcase,
   campKicks,
   careerTotals,
+  canEnterPortal,
   chooseOffer,
+  choosePortal,
+  enterPortal,
   currentGame,
   declareForDraft,
   finishOffseason,
@@ -254,6 +257,26 @@ function NextUp({ c, setC, setOverlay, goSkills }: { c: Career; setC: (c: Career
 
   if (p?.kind === 'offers') return <Offers title={p.title} offers={p.offers} c={c} onPick={(o) => done(chooseOffer(c, o))} />;
 
+  if (p?.kind === 'portal') {
+    return (
+      <Offers
+        title="Transfer portal"
+        eyebrow={`Transfer portal · ${c.team?.name ?? ''} · ${4 - c.seasonNo} season${4 - c.seasonNo === 1 ? '' : 's'} of eligibility left`}
+        offers={p.offers}
+        c={c}
+        onPick={(o) => done(choosePortal(c, o))}
+        footer={
+          <div className="btn-row">
+            <button className="ghost" onClick={() => done(choosePortal(c, null))}>
+              Withdraw and return to {c.team?.short}
+            </button>
+            <span className="note">The coach won't wait: withdraw and you face a camp battle with a new kicker, and his trust drops.</span>
+          </div>
+        }
+      />
+    );
+  }
+
   if (p?.kind === 'declare') {
     return (
       <Next eyebrow="Decision" title={p.forced ? 'Your college career is over' : 'Declare for the NFL draft?'} body={p.forced ? 'Four seasons done. Time to go pro.' : `You've played three seasons. Leave now, or come back for one more year to build your stock.`}>
@@ -320,7 +343,7 @@ function NextUp({ c, setC, setOverlay, goSkills }: { c: Career; setC: (c: Career
     const nextStep =
       c.stage === 'hs' ? (c.seasonNo === 1 ? 'Summer showcase' : 'College offers') : c.stage === 'college' ? (c.seasonNo >= 3 ? 'The draft decision' : 'Next season') : 'Next season';
     return (
-      <Next eyebrow="Offseason" title="Get better" body={`Offseason camp pays the biggest chunk of skill points all year. Spend them, then move on. Age ${c.age}.`}>
+      <Next eyebrow="Offseason" title="Get better" body={`Offseason camp pays the biggest chunk of skill points all year. Spend them, then move on. Age ${c.age}.${canEnterPortal(c) ? ' Thinking about transferring? Do camp first: entering the portal ends your offseason.' : ''}`}>
         {!p.campDone && (
           <>
             <button className="ghost" onClick={() => done(applyOffseasonCamp(c, [0, 1, 2, 3, 4].map(() => Math.random() < 0.55)))}>
@@ -345,6 +368,11 @@ function NextUp({ c, setC, setOverlay, goSkills }: { c: Career; setC: (c: Career
         <button className="ghost" onClick={goSkills}>
           Spend points ({Math.floor(c.points)})
         </button>
+        {canEnterPortal(c) && (
+          <button className="ghost" onClick={() => done(enterPortal(c))}>
+            Enter transfer portal
+          </button>
+        )}
         {c.stage === 'nfl' && (
           <button className="ghost danger" onClick={() => done(retire(c))}>
             Retire
@@ -407,17 +435,17 @@ function Next({ eyebrow, title, body, children }: { eyebrow: string; title: stri
   );
 }
 
-function Offers({ title, offers, c, onPick }: { title: string; offers: Offer[]; c: Career; onPick: (o: Offer) => void }) {
+function Offers({ title, offers, c, onPick, eyebrow, footer }: { title: string; offers: Offer[]; c: Career; onPick: (o: Offer) => void; eyebrow?: string; footer?: React.ReactNode }) {
   return (
     <div className="next-up">
-      <div className="eyebrow">{c.stars ? `${'★'.repeat(c.stars)}${'☆'.repeat(5 - c.stars)} recruit` : 'Offers'}</div>
+      <div className="eyebrow">{eyebrow ?? (c.stars && c.stage === 'hs' ? `${'★'.repeat(c.stars)}${'☆'.repeat(5 - c.stars)} recruit` : 'Offers')}</div>
       <h2 className="next-title">{title}</h2>
       <div className="offers">
         {offers.map((o) => (
           <div key={o.id} className="offer" style={{ '--team': o.team.primary, '--team2': o.team.secondary } as CSSProperties}>
             <div className="offer-band" />
             <div className="offer-body">
-              <div className="offer-kind">{{ walkon: 'Walk-on', scholarship: 'Scholarship', starter: 'Starting job', drafted: 'Drafted', udfa: 'Undrafted free agent', freeAgent: 'Contract' }[o.kind]}</div>
+              <div className="offer-kind">{{ walkon: 'Walk-on', scholarship: 'Scholarship', starter: 'Starting job', drafted: 'Drafted', udfa: 'Undrafted free agent', freeAgent: 'Contract', transfer: o.rivalOvr === null ? 'Transfer · starting job' : 'Transfer · compete' }[o.kind]}</div>
               <div className="offer-title">{o.title}</div>
               <p className="note">{o.note}</p>
               <p className="note">{o.rivalOvr === null ? 'The job is yours.' : `Camp battle vs a kicker rated about ${o.rivalOvr}.`}</p>
@@ -429,6 +457,8 @@ function Offers({ title, offers, c, onPick }: { title: string; offers: Offer[]; 
           </div>
         ))}
       </div>
+      {offers.length === 0 && <p className="note">No schools reached out.</p>}
+      {footer}
     </div>
   );
 }

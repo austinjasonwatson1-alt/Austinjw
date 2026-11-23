@@ -85,7 +85,7 @@ export interface Contract {
 
 export interface Offer {
   id: string;
-  kind: 'walkon' | 'scholarship' | 'starter' | 'drafted' | 'udfa' | 'freeAgent';
+  kind: 'walkon' | 'scholarship' | 'starter' | 'drafted' | 'udfa' | 'freeAgent' | 'transfer';
   team: Team;
   title: string;
   note: string;
@@ -102,6 +102,7 @@ export type Pending =
   | { kind: 'tryout'; team: Team; contract: Contract }
   | { kind: 'review'; line: SeasonLine; notes: string[] }
   | { kind: 'offseason'; campDone: boolean }
+  | { kind: 'portal'; offers: Offer[]; campDone: boolean }
   | { kind: 'retired' };
 
 export interface KickerProfile {
@@ -155,6 +156,7 @@ export interface Career {
   records?: RecordBook | null;
   recordsBroken?: string[];
   standings?: Standings | null;
+  transfers?: number;
 }
 
 export interface CareerSummary {

@@ -44,6 +44,8 @@ slow motion (`slowMo`), sound levels (`audio`) and team kits. The practice kicke
 - **Big moments:** game-winning, game-tying and go-ahead kicks get a celebration: the team mobs you, confetti,
   fireworks and your name on the video board.
 - **Records:** school, program and NFL record books (real NFL marks, no names) with callouts when you pass one.
+- **Transfer portal:** in any college offseason before your senior year, enter the portal for offers based on your
+  overall and last season. Withdraw and your coach will have signed a new kicker to battle in camp.
 - **Schedule tab:** results, league or conference standings, the playoff race and the bracket.
 - **Saving:** three slots in browser storage, saved after every game and decision. Older saves pick up new features.
 
