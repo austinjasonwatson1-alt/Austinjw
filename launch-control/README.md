@@ -18,6 +18,7 @@ Launch Control reads the tracker, scores every launch against its readiness gate
 | **Readiness gates** | Tier 1 launches have 10 gates, Tier 2 have 7, Tier 3 have 3. A gate is **at risk** if it has no ticket, or any open ticket is blocked, overdue, or due after go/no-go (launch − 2 days). **Ready** when every ticket is done. |
 | **Readiness agent** | Claude (`claude-sonnet-5-5`) with three read-only tools (`list_launches`, `get_gates`, `list_issues`), streamed live with a tool trace. Fixed format: Recommendation · Blocking risks · Before go/no-go · Exec update. ~6 s per brief. |
 | **Brief checks** | Every AI brief is checked against the data it was written from: each cited issue ID must exist, and the go/no-go call must match the rules engine. Shown under the brief with the run time and tool calls. |
+| **Risk alerts** | For each at-risk gate, one message per blocked, overdue or due-after-go/no-go ticket, to its owner (or the team lead / PM if unowned). Review and tick, then send: posted as a comment on the ticket in Linear (the owner is notified), logged only on demo data. The same ticket isn't alerted twice in 24 h. |
 | **Rules-engine brief** | Same format with no AI: the default view and the automatic fallback, so the review never stalls. |
 | **Tracker hygiene** | Flags open tickets with no owner, no due date, no update in 14+ days, or no launch. Demo: auto-fix. Linear: review the proposed fixes, then apply the ticked ones. |
 | **Manual work removed** | A log of what was automated and an estimate of minutes saved (45 min per readiness sweep, 3 min per ticket fix). |
@@ -57,7 +58,7 @@ calendar · gates · brief · hygiene  ──GET──▶ /api/tracker   → Tra
 - **Untrusted text is rendered as text.** Claude output and Linear titles go through a small Markdown parser into React text nodes; there's no `innerHTML` anywhere.
 - **Every external call has a timeout and a visible fallback.** Linear (5 s) falls back to demo data with a banner. Claude (45 s), or a missing key, rate limit or refusal, falls back to the rules brief, and the trace says why.
 - **Cost and write guards.** A passcode (`DEMO_PASSCODE`) gates Claude runs and Linear writes, plus a per-IP rate limit (10 agent runs per hour).
-- **The agent never writes.** Tracker changes only happen after a person reviews and clicks Apply; the server recomputes the fixes itself and applies only the confirmed ones that are still valid.
+- **The agent never writes, and nothing is sent on its own.** Tracker changes and risk alerts only happen after a person reviews and confirms; the server recomputes the fixes or alerts itself and acts only on confirmed ones that are still valid.
 
 ## Run it locally
 
@@ -94,6 +95,7 @@ npm run eval -- --runs 3                   # agent eval, 30 briefs, writes docs/
 npm run seed:linear                        # dry run: what would be created in the team
 npm run seed:linear -- --yes               # states, labels, 5 launch projects, 41 issues (skips what exists)
 npm run seed:linear -- --restore --yes     # morning of a demo: re-date launches to today, undo fixes and status changes
+npm run seed:linear -- --restore --clear-comments   # list (add --yes to delete) comments the app posted: alerts, nudges
 npm run seed:build                         # dry run of the build's own "Launch Control v1" project
 npm run seed:build -- --dogfood --yes      # put the build itself on the calendar (Tier 3, launches on the interview day)
 ```

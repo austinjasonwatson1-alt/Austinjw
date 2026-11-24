@@ -2,6 +2,7 @@ import { LinearClient } from '@linear/sdk';
 import { fmtDate } from '../dates';
 import type { FixWriter } from '../hygiene/apply';
 import type { ProposedFix } from '../readiness/hygiene';
+import { ALERT_MARKER, type RiskAlert } from '../readiness/alerts';
 import { withTimeout } from './linear';
 import { nudgeComment, setOwnerLine } from './linear-schema';
 
@@ -52,6 +53,38 @@ export function linearFixWriter(apiKey: string): FixWriter {
         );
         ok(r.commentCreate);
       }
+    },
+  };
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Posts a confirmed risk alert as a comment on the ticket (Linear notifies its assignee and
+ * subscribers). Skips a ticket that already got a Launch Control alert in the last 24 hours.
+ */
+export function linearAlertWriter(apiKey: string): { apply(a: RiskAlert): Promise<void> } {
+  const client = new LinearClient({ apiKey });
+  const gql = async <T>(query: string, vars: Record<string, unknown>): Promise<T> => {
+    const res: { data?: T } = await withTimeout(client.client.rawRequest<T, Record<string, unknown>>(query, vars), WRITE_TIMEOUT_MS);
+    if (!res.data) throw new Error('linear_empty_response');
+    return res.data;
+  };
+  return {
+    async apply(a: RiskAlert) {
+      const { issue } = await gql<{ issue: { id: string; comments: { nodes: { body: string; createdAt: string }[] } } }>(
+        `query($id: String!) { issue(id: $id) { id comments(first: 25) { nodes { body createdAt } } } }`,
+        { id: a.issueId },
+      );
+      const recent = issue.comments.nodes.some(
+        (c) => c.body.startsWith(ALERT_MARKER) && Date.now() - new Date(c.createdAt).getTime() < DAY_MS,
+      );
+      if (recent) throw new Error('already alerted in the last 24 h');
+      const r = await gql<{ commentCreate: { success: boolean } }>(
+        `mutation($issueId: String!, $body: String!) { commentCreate(input: { issueId: $issueId, body: $body }) { success } }`,
+        { issueId: issue.id, body: a.message },
+      );
+      if (!r.commentCreate.success) throw new Error('linear_rejected');
     },
   };
 }

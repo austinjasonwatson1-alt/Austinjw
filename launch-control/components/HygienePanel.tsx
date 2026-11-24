@@ -1,98 +1,34 @@
 'use client';
 
-import { useState } from 'react';
 import type { HygieneCheck, ProposedFix } from '@/lib/readiness';
 import { cx } from './cx';
+import ReviewList, { type Outcome } from './ReviewList';
 
 export interface LiveFixes {
   fixes: ProposedFix[];
   /** Writes the confirmed fixes to Linear; resolves to a one-line outcome to show. */
-  apply: (ids: string[]) => Promise<{ ok: boolean; message: string }>;
+  apply: (ids: string[]) => Promise<Outcome>;
 }
 
 const KIND_NOTE: Record<ProposedFix['kind'], string> = {
-  owner: 'Sets the owner',
-  due: 'Sets the due date',
-  nudge: 'Posts a comment asking for an update',
+  owner: 'Sets the owner in Linear',
+  due: 'Sets the due date in Linear',
+  nudge: 'Posts a comment in Linear asking for an update',
 };
 
 /** Linear mode: review proposed fixes, then apply the ticked ones. Nothing is written before Apply. */
 function LiveFixPanel({ live }: { live: LiveFixes }) {
-  const [reviewing, setReviewing] = useState(false);
-  const [off, setOff] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; message: string } | null>(null);
-  const chosen = live.fixes.filter((f) => !off.has(f.id));
-
-  if (!reviewing) {
-    return (
-      <>
-        <div className={cx('btns')}>
-          <button
-            type="button"
-            className={cx('go')}
-            disabled={!live.fixes.length}
-            onClick={() => {
-              setOff(new Set());
-              setMsg(null);
-              setReviewing(true);
-            }}
-          >
-            {live.fixes.length ? `Review ${live.fixes.length} fix${live.fixes.length > 1 ? 'es' : ''}` : 'Nothing safe to fix'}
-          </button>
-        </div>
-        {msg ? (
-          <p className={cx('msg', !msg.ok && 'bad')} role="status">
-            {msg.message}
-          </p>
-        ) : (
-          <p className={cx('how')}>Live data: fixes are written to Linear only after you review and confirm them.</p>
-        )}
-      </>
-    );
-  }
-  const toggle = (id: string) =>
-    setOff((s) => {
-      const n = new Set(s);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
   return (
-    <>
-      <ul className={cx('fixlist')} aria-label="Proposed fixes">
-        {live.fixes.map((f) => (
-          <li key={f.id}>
-            <label>
-              <input type="checkbox" checked={!off.has(f.id)} disabled={busy} onChange={() => toggle(f.id)} />
-              <span>
-                {f.text}
-                <small>{KIND_NOTE[f.kind]} in Linear</small>
-              </span>
-            </label>
-          </li>
-        ))}
-      </ul>
-      <div className={cx('btns')}>
-        <button
-          type="button"
-          className={cx('go')}
-          disabled={busy || !chosen.length}
-          onClick={async () => {
-            setBusy(true);
-            const r = await live.apply(chosen.map((f) => f.id));
-            setBusy(false);
-            setMsg(r);
-            setReviewing(false);
-          }}
-        >
-          {busy ? 'Writing to Linear…' : `Apply ${chosen.length} to Linear`}
-        </button>
-        <button type="button" className={cx('ghost')} disabled={busy} onClick={() => setReviewing(false)}>
-          Cancel
-        </button>
-      </div>
-    </>
+    <ReviewList
+      items={live.fixes.map((f) => ({ id: f.id, title: f.text, detail: KIND_NOTE[f.kind] }))}
+      label="Proposed fixes"
+      openLabel={(n) => `Review ${n} fix${n > 1 ? 'es' : ''}`}
+      emptyLabel="Nothing safe to fix"
+      confirmLabel={(n) => `Apply ${n} to Linear`}
+      busyLabel="Writing to Linear…"
+      note="Live data: fixes are written to Linear only after you review and confirm them."
+      onConfirm={live.apply}
+    />
   );
 }
 
@@ -160,7 +96,7 @@ export default function HygienePanel({
       </div>
       <div className={cx('panel')}>
         <h2>Manual work removed</h2>
-        <small>Estimate: 45 min per readiness sweep done by hand, 3 min per ticket fixed by hand</small>
+        <small>Estimate: 45 min per readiness sweep done by hand, 3 min per ticket fixed or owner chased by hand</small>
         <div className={cx('big')}>{minutes(saved)}</div>
         <ul className={cx('log')}>
           {log.length ? (

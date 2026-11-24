@@ -11,6 +11,7 @@ import {
   MINUTES_PER_SWEEP,
   MINUTES_PER_FIX,
   NEXT_STATUS,
+  proposeAlerts,
   proposeFixes,
   rulesBrief,
   type FixAction,
@@ -86,6 +87,8 @@ export default function LaunchControl() {
   const askResolve = useRef<((v: string | null) => void) | null>(null);
   const agentCtl = useRef<AbortController | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
+  /** Alerts sent this session ("source:alert:ISSUE"), hidden from the review list so nobody is chased twice. */
+  const [alerted, setAlerted] = useState<Set<string>>(new Set());
   const [saved, setSaved] = useState(0);
   const loadCtl = useRef<AbortController | null>(null);
 
@@ -393,8 +396,51 @@ export default function LaunchControl() {
     }
   };
 
+  const sendAlerts = async (ids: string[]): Promise<{ ok: boolean; message: string }> => {
+    if (!L) return { ok: false, message: 'No launch selected.' };
+    const all = proposeAlerts(snap, L).alerts;
+    const mark = (sent: string[]) => setAlerted((s) => new Set([...s, ...sent.map((id) => `${snap.source}:${id}`)]));
+    if (!live) {
+      const sent = all.filter((a) => ids.includes(a.id));
+      addLog(sent.map((a) => ({ text: `Alerted ${a.logText}`, minutes: MINUTES_PER_FIX })));
+      mark(sent.map((a) => a.id));
+      return { ok: true, message: `Logged ${sent.length} alert${sent.length === 1 ? '' : 's'} (demo data: nothing was sent).` };
+    }
+    try {
+      const res = await postGuarded('/api/alerts/send', { launchId: L.id, asOf: snap.asOf, alertIds: ids }, AbortSignal.timeout(60_000));
+      if (!res) return { ok: false, message: 'Nothing was sent: the passcode was not entered.' };
+      const j = (await res.json().catch(() => ({}))) as {
+        results?: { ok: boolean; text: string; id: string; error?: string }[];
+        skipped?: string[];
+        error?: string;
+        retryAfter?: number;
+      };
+      if (!res.ok || !j.results) {
+        const why = j.error === 'rate_limited' ? `too many sends from this network; try again in ${minutes(j.retryAfter ?? 3600)}` : j.error === 'linear_unavailable' ? 'Linear didn’t answer' : (j.error ?? `HTTP ${res.status}`);
+        addLog([{ text: `Risk alerts not sent: ${why}`, minutes: 0 }]);
+        return { ok: false, message: `Nothing was sent: ${why}.` };
+      }
+      const good = j.results.filter((r) => r.ok);
+      const bad = j.results.filter((r) => !r.ok);
+      addLog([
+        ...good.map((r) => ({ text: `Alerted ${r.text} in Linear`, minutes: MINUTES_PER_FIX })),
+        ...bad.map((r) => ({ text: `Didn’t alert ${r.text}: ${r.error ?? 'error'}`, minutes: 0 })),
+      ]);
+      mark([...good, ...bad.filter((r) => /already alerted/.test(r.error ?? ''))].map((r) => r.id));
+      const dup = bad.filter((r) => /already alerted/.test(r.error ?? '')).length;
+      return {
+        ok: bad.length === dup,
+        message: `Sent ${good.length} alert${good.length === 1 ? '' : 's'} to Linear${dup ? `; ${dup} already alerted in the last 24 h` : ''}${bad.length - dup ? `; ${bad.length - dup} failed (see log)` : ''}${j.skipped?.length ? `; ${j.skipped.length} no longer at risk` : ''}.`,
+      };
+    } catch {
+      addLog([{ text: 'Risk alerts not sent: the request failed', minutes: 0 }]);
+      return { ok: false, message: 'Nothing was confirmed as sent: the request failed.' };
+    }
+  };
+
   const reset = () => {
     stopAgent();
+    setAlerted(new Set());
     try {
       snap.launches.forEach((l) => localStorage.removeItem(CACHE_KEY(l.id)));
     } catch {
@@ -453,7 +499,24 @@ export default function LaunchControl() {
       {info && shown && (
         <section className={cx('band', 'bandTight')}>
           <div className={cx('wrap', 'work')}>
-            <GatesPanel info={info} asOf={snap.asOf} onCycle={live ? undefined : cycleStatus} />
+            <GatesPanel
+              info={info}
+              asOf={snap.asOf}
+              onCycle={live ? undefined : cycleStatus}
+              alerts={
+                info.risk
+                  ? (() => {
+                      const p = proposeAlerts(snap, info.launch);
+                      return {
+                        alerts: p.alerts.filter((a) => !alerted.has(`${snap.source}:${a.id}`)),
+                        noTicketGates: p.noTicketGates,
+                        live,
+                        send: sendAlerts,
+                      };
+                    })()
+                  : undefined
+              }
+            />
             <BriefPanel brief={shown} running={running} agentAvailable={agentAvailable} onRun={runAgent} />
           </div>
         </section>

@@ -8,6 +8,9 @@
  *       # before a rehearsal: re-dates the 5 launch projects relative to today and puts each
  *       # seeded issue's owner line, due date and status back to the seed values (undoes hygiene
  *       # fixes and status changes). Run it on the morning of a demo. Nothing else is touched.
+ *   npm run seed:linear -- --restore --clear-comments [--yes]
+ *       # also deletes comments Launch Control posted (risk alerts, nudges) in the team, so a
+ *       # live send isn't blocked by the 24 h repeat check. Deletes data: dry run first.
  *
  * Idempotent: anything with the same name/title already in the team is skipped, never edited.
  * Dates are placed relative to the day you run it, like the demo.
@@ -29,6 +32,7 @@ import {
   TIER_LABEL,
 } from '../lib/tracker/linear-schema';
 import type { Tier } from '../lib/tracker/types';
+import { ALERT_MARKER } from '../lib/readiness/alerts';
 
 try {
   process.loadEnvFile('.env.local');
@@ -38,6 +42,8 @@ try {
 
 const write = process.argv.includes('--yes');
 const restore = process.argv.includes('--restore');
+const clearComments = process.argv.includes('--clear-comments');
+const NUDGE_MARKER = 'Nudge from Launch Control';
 /** --as-of YYYY-MM-DD: place dates relative to another day (e.g. the morning of a demo). */
 const asOfArg = process.argv.includes('--as-of') ? process.argv[process.argv.indexOf('--as-of') + 1] : undefined;
 const apiKey = process.env.LINEAR_API_KEY;
@@ -219,16 +225,37 @@ async function restoreSeeded(linear: LinearClient, ex: Existing, demo: ReturnTyp
   });
   console.log(`Restore: ${changes.length} seeded issue(s) differ from the seed.`);
   for (const c of changes) console.log(`  ~ ${c.d.title}`);
-  if (!write) return console.log('Dry run: re-run with --restore --yes to reset them.');
+  if (!write) {
+    if (clearComments) await clearAppComments(linear);
+    return console.log('Dry run: re-run with --restore --yes to reset them.');
+  }
   for (const c of projectChanges) {
     await linear.updateProject(c.p.id, { targetDate: c.l.launchDate, description: c.description });
     console.log(`~ re-dated ${c.l.name} → ${c.l.launchDate}`);
   }
+  if (clearComments) await clearAppComments(linear);
   for (const c of changes) {
     await linear.updateIssue(c.live.id, { description: c.want.description, dueDate: c.want.dueDate, stateId: stateId(c.d.status) });
     console.log(`~ restored ${c.d.title}`);
   }
   console.log('Done. (Nudge comments stay on the issues; delete them in Linear if you want a clean slate.)');
+}
+
+/** Lists (dry run) or deletes the comments Launch Control posted in the team: risk alerts and nudges only. */
+async function clearAppComments(linear: LinearClient) {
+  type D = { comments: { nodes: { id: string; body: string; issue: { identifier: string } | null }[] } };
+  const found: D['comments']['nodes'] = [];
+  for (const marker of [ALERT_MARKER, NUDGE_MARKER]) {
+    const res: { data?: D } = await linear.client.rawRequest<D, Record<string, unknown>>(
+      `query($key: String!, $m: String!) { comments(first: 100, filter: { body: { startsWith: $m }, issue: { team: { key: { eq: $key } } } }) { nodes { id body issue { identifier } } } }`,
+      { key: teamKey, m: marker },
+    );
+    found.push(...(res.data?.comments.nodes ?? []).filter((c) => c.body.startsWith(marker)));
+  }
+  console.log(`Comments posted by Launch Control: ${found.length}${found.length ? ` (${found.map((c) => c.issue?.identifier ?? '?').join(', ')})` : ''}`);
+  if (!write) return;
+  for (const c of found) await linear.deleteComment(c.id);
+  if (found.length) console.log(`- deleted ${found.length} comment(s)`);
 }
 
 main().catch((e) => {

@@ -82,6 +82,16 @@ async function main() {
     });
   }
 
+  await step('risk alerts: review opens (nothing sent)', async () => {
+    await p.click('button:has-text("Reset sample data")');
+    await p.waitForTimeout(400);
+    await p.click('button:has-text("Review 2 alerts")');
+    const items = await p.$$eval('[aria-label="Proposed risk alerts"] li', (e) => e.map((x) => x.textContent ?? ''));
+    await p.click('[class*=alerts] button:has-text("Cancel")');
+    expect(items.length === 2 && items.every((t) => t.startsWith('Tom') || t.startsWith('Rachel')), `unexpected alerts: ${items.join(' | ')}`);
+    return items.map((t) => t.split(' — ')[0].split('Risk alert')[0].trim()).join('; ');
+  });
+
   await step('copy exec update', async () => {
     await p.click('button:has-text("Copy exec update")');
     await p.waitForSelector('button:has-text("Copied"), button:has-text("Copy blocked")', { timeout: 3000 });
@@ -111,11 +121,11 @@ async function main() {
       return `${await headline(p)} (${ids} linked issues)`;
     });
     await step('linear: review fixes opens (nothing written)', async () => {
-      const btn = p.locator('button:has-text("Review")');
+      const btn = p.locator('[class*=hyg] button:has-text("Review")');
       if (!(await btn.count())) return 'no fixes proposed (already applied? run seed:linear --restore)';
       await btn.click();
       const n = await p.locator('[aria-label="Proposed fixes"] li').count();
-      await p.click('button:has-text("Cancel")');
+      await p.click('[class*=hyg] button:has-text("Cancel")');
       expect(n > 0, 'empty review list');
       return `${n} fixes proposed`;
     });

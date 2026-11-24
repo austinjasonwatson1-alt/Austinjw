@@ -1,9 +1,10 @@
 'use client';
 
 import { fmtDate } from '@/lib/dates';
-import { daysSinceUpdate, isOverdue, STALE_DAYS, STATUS_LABEL, type LaunchInfo } from '@/lib/readiness';
+import { daysSinceUpdate, isOverdue, STALE_DAYS, STATUS_LABEL, type LaunchInfo, type RiskAlert } from '@/lib/readiness';
 import type { Issue } from '@/lib/tracker/types';
 import { cx } from './cx';
+import ReviewList, { type Outcome } from './ReviewList';
 
 const PILL: Partial<Record<Issue['status'], string>> = { done: 'sD', blocked: 'sX' };
 
@@ -58,15 +59,51 @@ function IssueRow({ i, asOf, onCycle }: { i: Issue; asOf: string; onCycle?: (id:
   );
 }
 
+export interface AlertProps {
+  alerts: RiskAlert[];
+  noTicketGates: string[];
+  /** True when alerts post to Linear; false when they're only logged (demo data). */
+  live: boolean;
+  send: (ids: string[]) => Promise<Outcome>;
+}
+
+function RiskAlerts({ a, launchId }: { a: AlertProps; launchId: string }) {
+  const n = a.noTicketGates.length;
+  return (
+    <div className={cx('alerts')}>
+      <h3>Risk alerts</h3>
+      <ReviewList
+        key={launchId}
+        items={a.alerts.map((x) => ({ id: x.id, title: x.summary, detail: x.message }))}
+        label="Proposed risk alerts"
+        openLabel={(k) => `Review ${k} alert${k > 1 ? 's' : ''} to owners`}
+        emptyLabel="No owners to alert"
+        confirmLabel={(k) => (a.live ? `Send ${k} to Linear` : `Send ${k} alert${k > 1 ? 's' : ''}`)}
+        busyLabel="Sending…"
+        note={
+          (a.live
+            ? 'Each alert is posted as a comment on its ticket in Linear, so the owner is notified. Nothing is sent until you confirm.'
+            : 'Demo data: alerts are logged, not sent. In Linear mode they post as comments on each ticket.') +
+          (n ? ` ${n} at-risk gate${n > 1 ? 's have' : ' has'} no ticket to alert on: someone has to create ${n > 1 ? 'them' : 'it'}.` : '')
+        }
+        onConfirm={a.send}
+      />
+    </div>
+  );
+}
+
 export default function GatesPanel({
   info,
   asOf,
   onCycle,
+  alerts,
 }: {
   info: LaunchInfo;
   asOf: string;
   /** Omit to show statuses read-only (live Linear data). */
   onCycle?: (id: string) => void;
+  /** Shown when the launch has at-risk gates. */
+  alerts?: AlertProps;
 }) {
   const L = info.launch;
   return (
@@ -110,6 +147,7 @@ export default function GatesPanel({
           </details>
         ))}
       </div>
+      {alerts && <RiskAlerts a={alerts} launchId={L.id} />}
       <p className={cx('how')}>
         {onCycle
           ? 'Tap a status pill to move an issue along (Backlog → In progress → In review → Done → Blocked). Gates, the calendar and the brief update live.'
