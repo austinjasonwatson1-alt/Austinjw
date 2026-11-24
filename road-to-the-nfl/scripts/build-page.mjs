@@ -8,14 +8,19 @@ const out = process.argv[2] ?? 'dist/road-to-the-nfl.html';
 execSync('npx vite build --base=./', { stdio: 'inherit' });
 const assets = readdirSync('dist/assets');
 const js = readFileSync(join('dist/assets', assets.find((f) => f.endsWith('.js'))), 'utf8');
-const css = readFileSync(join('dist/assets', assets.find((f) => f.endsWith('.css'))), 'utf8');
+let css = readFileSync(join('dist/assets', assets.find((f) => f.endsWith('.css'))), 'utf8');
+// Inline the fonts as data URIs (woff2 only; every current browser reads it) so the page works offline.
+css = css.replace(/,\s*url\([^)]*\.woff\)\s*format\(["']?woff["']?\)/g, '');
+css = css.replace(/url\(["']?(?:\.\/|\/assets\/|\.\/assets\/)?([^)"']+\.woff2)["']?\)/g, (m, file) => {
+  const name = file.split('/').pop();
+  if (!assets.includes(name)) return m;
+  return `url(data:font/woff2;base64,${readFileSync(join('dist/assets', name)).toString('base64')})`;
+});
+if (/url\([^)]*\.woff2?\)/.test(css)) throw new Error('a font was left as an external file');
 if (js.includes('</script')) throw new Error('bundle contains a closing script tag');
 
 const page = `<meta charset="utf-8">
 <title>Road to the NFL</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap">
 <style>
 :root { color-scheme: dark; background: #070b17; }
 html, body { height: 100%; }

@@ -61,3 +61,18 @@ describe('standings', () => {
     expect(playoffRace(m)).toBeNull();
   });
 });
+
+describe('save codes', () => {
+  it('round-trip a career into another slot', async () => {
+    const { exportCode, importCode } = await import('../src/career/save');
+    const c = newCareer(2, { ...profile, name: 'Austin Watsón' }, 12);
+    const code = exportCode(c);
+    expect(code.startsWith('RTN1:')).toBe(true);
+    const back = importCode(code, 3)!;
+    expect(back.slot).toBe(3);
+    expect(back.kicker.name).toBe('Austin Watsón');
+    expect(back.skills).toEqual(c.skills);
+    expect(importCode('nonsense', 1)).toBeNull();
+    expect(importCode('RTN1:!!!', 1)).toBeNull();
+  });
+});

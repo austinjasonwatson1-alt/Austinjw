@@ -15,6 +15,12 @@ npm run sim:games              # average scores and kicks per game at each level
 npm run sim:careers            # plays 8 simulated careers and prints how they went
 ```
 
+## Play offline
+
+`npm run build:page -- road-to-the-nfl.html` packs the whole game, fonts included, into one HTML file that needs no
+internet. Double-click it to play in Chrome, Safari or Firefox. Careers save in that browser. To move a career between
+the hosted page and the offline file, use **Copy save code** on its slot, then **Import a save code** on the other side.
+
 ## Controls
 
 | Step | Keys | Mouse |

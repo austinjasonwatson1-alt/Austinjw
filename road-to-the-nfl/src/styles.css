@@ -47,8 +47,7 @@ kbd {
 
 .start {
   height: 100%;
-  display: grid;
-  place-items: center;
+  display: flex;
   background:
     radial-gradient(ellipse at 50% 120%, rgba(43, 106, 47, 0.55), transparent 60%),
     radial-gradient(ellipse at 20% -10%, rgba(255, 245, 220, 0.18), transparent 45%),
@@ -59,6 +58,7 @@ kbd {
 .start-inner {
   text-align: center;
   padding: 16px;
+  margin: auto; /* centred when it fits, scrolls from the top when it doesn't */
 }
 
 .kicker-tag {
@@ -1909,4 +1909,45 @@ button:focus-visible {
   .sr-kicks {
     display: none;
   }
+}
+
+/* Save codes */
+.code-box {
+  width: 100%;
+  min-height: 70px;
+  margin-top: 8px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  word-break: break-all;
+  resize: vertical;
+}
+.slot-btns {
+  flex-wrap: wrap;
+}
+.import-link {
+  margin-top: 14px;
+  font-size: 14px;
+  text-decoration: underline;
+}
+.import {
+  width: min(440px, 100%);
+  margin: 14px auto 0;
+  text-align: left;
+  display: grid;
+  gap: 8px;
+}
+.import label {
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 12px;
+  color: var(--muted);
+}
+.start {
+  overflow-y: auto;
 }

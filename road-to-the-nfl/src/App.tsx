@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import { CONFIG } from './config';
 import { newCareer, seasonLabel } from './career/career';
 import { overall } from './career/progression';
-import { deleteCareer, loadCareer, SLOTS } from './career/save';
+import { deleteCareer, exportCode, importCode, loadCareer, saveCareer, SLOTS } from './career/save';
 import type { Career } from './career/types';
 import { Practice } from './screens/Practice';
 import { CareerApp } from './screens/career/CareerApp';
@@ -42,6 +42,7 @@ export function App() {
                     <button className="primary small" onClick={() => setScreen({ name: 'career', career: c })}>
                       {c.stage === 'retired' ? 'View' : 'Continue'}
                     </button>
+                    <CopyCode career={c} />
                     <DeleteButton
                       onDelete={() => {
                         deleteCareer(slot);
@@ -68,6 +69,10 @@ export function App() {
             Free Practice
           </button>
         </div>
+        <ImportSave
+          used={slots.filter((s) => s.c).map((s) => s.slot)}
+          onImported={() => refresh((n) => n + 1)}
+        />
       </div>
     </div>
   );
@@ -133,6 +138,94 @@ function CreateKicker({ slot, onBack, onCreate }: { slot: number; onBack: () => 
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function CopyCode({ career }: { career: Career }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'show'>('idle');
+  const code = state === 'show' ? exportCode(career) : '';
+  return (
+    <>
+      <button
+        className="ghost small"
+        onClick={() => {
+          const text = exportCode(career);
+          navigator.clipboard
+            .writeText(text)
+            .then(() => setState('copied'))
+            .catch(() => setState('show'));
+        }}
+      >
+        {state === 'copied' ? 'Copied' : 'Copy save code'}
+      </button>
+      {state === 'show' && (
+        <textarea
+          className="code-box"
+          readOnly
+          value={code}
+          aria-label="Save code"
+          onFocus={(e) => e.currentTarget.select()}
+          autoFocus
+        />
+      )}
+    </>
+  );
+}
+
+function ImportSave({ used, onImported }: { used: number[]; onImported: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState('');
+  const [slot, setSlot] = useState(SLOTS.find((s) => !used.includes(s)) ?? 1);
+  const [msg, setMsg] = useState('');
+  const [confirm, setConfirm] = useState(false);
+  if (!open)
+    return (
+      <button className="link import-link" onClick={() => setOpen(true)}>
+        Import a save code
+      </button>
+    );
+  const doImport = () => {
+    const c = importCode(code, slot);
+    if (!c) {
+      setMsg("That doesn't look like a save code. Copy it again from the slot's Copy save code button.");
+      return;
+    }
+    if (used.includes(slot) && !confirm) {
+      setConfirm(true);
+      setMsg(`Slot ${slot} has a career in it. Import again to replace it.`);
+      return;
+    }
+    if (!saveCareer(c)) {
+      setMsg('This browser is blocking saved games, so the career cannot be stored here.');
+      return;
+    }
+    setMsg(`Imported ${c.kicker.name} into slot ${slot}.`);
+    setCode('');
+    setConfirm(false);
+    onImported();
+  };
+  return (
+    <div className="import card">
+      <label htmlFor="importcode">Paste a save code</label>
+      <textarea id="importcode" className="code-box" value={code} onChange={(e) => { setCode(e.target.value); setConfirm(false); }} placeholder="RTN1:..." />
+      <div className="seg">
+        {SLOTS.map((s) => (
+          <button key={s} type="button" className={slot === s ? 'on' : ''} onClick={() => { setSlot(s); setConfirm(false); }}>
+            Slot {s}
+            {used.includes(s) ? ' (used)' : ''}
+          </button>
+        ))}
+      </div>
+      {msg && <p className="note">{msg}</p>}
+      <div className="slot-btns">
+        <button className="primary small" onClick={doImport} disabled={!code.trim()}>
+          {confirm ? 'Replace and import' : 'Import'}
+        </button>
+        <button className="ghost small" onClick={() => { setOpen(false); setMsg(''); }}>
+          Close
+        </button>
+      </div>
     </div>
   );
 }
