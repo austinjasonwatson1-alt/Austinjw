@@ -7,11 +7,19 @@ import { cx } from './cx';
 
 const PILL: Partial<Record<Issue['status'], string>> = { done: 'sD', blocked: 'sX' };
 
-function IssueRow({ i, asOf, onCycle }: { i: Issue; asOf: string; onCycle: (id: string) => void }) {
+function IssueRow({ i, asOf, onCycle }: { i: Issue; asOf: string; onCycle?: (id: string) => void }) {
   const upd = daysSinceUpdate(i, asOf);
   return (
     <li>
-      <code>{i.id}</code>
+      <code>
+        {i.url ? (
+          <a className={cx('idlink')} href={i.url} target="_blank" rel="noopener noreferrer">
+            {i.id}
+          </a>
+        ) : (
+          i.id
+        )}
+      </code>
       <span className={cx('it')}>
         {i.title}
         <small>
@@ -32,14 +40,20 @@ function IssueRow({ i, asOf, onCycle }: { i: Issue; asOf: string; onCycle: (id: 
           )}
         </small>
       </span>
-      <button
-        type="button"
-        className={cx('st', PILL[i.status])}
-        aria-label={`${i.id} status ${STATUS_LABEL[i.status]}, tap to change`}
-        onClick={() => onCycle(i.id)}
-      >
-        {STATUS_LABEL[i.status]}
-      </button>
+      {onCycle ? (
+        <button
+          type="button"
+          className={cx('st', PILL[i.status])}
+          aria-label={`${i.id} status ${STATUS_LABEL[i.status]}, tap to change`}
+          onClick={() => onCycle(i.id)}
+        >
+          {STATUS_LABEL[i.status]}
+        </button>
+      ) : (
+        <span className={cx('st', 'ro', PILL[i.status])} aria-label={`${i.id} status ${STATUS_LABEL[i.status]}`}>
+          {STATUS_LABEL[i.status]}
+        </span>
+      )}
     </li>
   );
 }
@@ -51,7 +65,8 @@ export default function GatesPanel({
 }: {
   info: LaunchInfo;
   asOf: string;
-  onCycle: (id: string) => void;
+  /** Omit to show statuses read-only (live Linear data). */
+  onCycle?: (id: string) => void;
 }) {
   const L = info.launch;
   return (
@@ -96,8 +111,9 @@ export default function GatesPanel({
         ))}
       </div>
       <p className={cx('how')}>
-        Tap a status pill to move an issue along (Backlog → In progress → In review → Done → Blocked). Gates, the
-        calendar and the brief update live.
+        {onCycle
+          ? 'Tap a status pill to move an issue along (Backlog → In progress → In review → Done → Blocked). Gates, the calendar and the brief update live.'
+          : 'Live from Linear. Change an issue in Linear (tap its id to open it), then refresh to rescore.'}
       </p>
     </div>
   );

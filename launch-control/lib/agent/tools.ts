@@ -45,6 +45,9 @@ export interface ToolRun {
 
 export class ToolInputError extends Error {}
 
+/** Short ids (L1) read well in the trace; Linear's project slugs don't, so show the name. */
+const label = (l: { id: string; name: string }) => (/^[A-Z]\d+$/.test(l.id) ? l.id : l.name);
+
 export function runTool(snap: TrackerSnapshot, name: string, input: unknown): ToolRun {
   const { asOf, launches, issues } = snap;
   const launchFor = () => {
@@ -77,7 +80,7 @@ export function runTool(snap: TrackerSnapshot, name: string, input: unknown): To
       const l = launchFor();
       const x = launchInfo(l, issues, asOf);
       return {
-        trace: `get_gates · ${l.id} · ${x.n} gates, ${x.risk} at risk`,
+        trace: `get_gates · ${label(l)} · ${x.n} gates, ${x.risk} at risk`,
         result: {
           launch: l.name,
           go_no_go: fmtDate(x.goNoGo),
@@ -94,7 +97,7 @@ export function runTool(snap: TrackerSnapshot, name: string, input: unknown): To
       const l = launchFor();
       const its = issues.filter((i) => i.launchId === l.id);
       return {
-        trace: `list_issues · ${l.id} · ${its.length} issues`,
+        trace: `list_issues · ${label(l)} · ${its.length} issues`,
         result: its.map((i) => ({
           id: i.id,
           title: i.title,

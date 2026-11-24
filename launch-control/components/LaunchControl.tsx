@@ -13,7 +13,7 @@ import {
   type FixAction,
 } from '@/lib/readiness';
 import { demoSnapshot } from '@/lib/tracker/demo';
-import type { TrackerSnapshot } from '@/lib/tracker/types';
+import type { SourceKind, TrackerSnapshot } from '@/lib/tracker/types';
 import BriefPanel, { type Brief } from './BriefPanel';
 import Calendar from './Calendar';
 import { cx } from './cx';
@@ -24,6 +24,15 @@ const TRACKER_TIMEOUT_MS = 5_000;
 /** A little over the server's 45 s Claude deadline, so the server's own error arrives first. */
 const AGENT_TIMEOUT_MS = 50_000;
 const CACHE_KEY = (id: string) => `lc-brief-${id}`;
+const SOURCE_KEY = 'lc-source';
+
+const savedSource = (): SourceKind => {
+  try {
+    return localStorage.getItem(SOURCE_KEY) === 'linear' ? 'linear' : 'demo';
+  } catch {
+    return 'demo';
+  }
+};
 
 const clock = () => new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
@@ -40,11 +49,12 @@ function cachedBrief(launchId: string): Brief | null {
   return null;
 }
 
-async function fetchSnapshot(signal: AbortSignal): Promise<TrackerSnapshot> {
+async function fetchSnapshot(source: SourceKind, signal: AbortSignal): Promise<TrackerSnapshot> {
   const today = localToday();
   try {
-    const res = await fetch(`/api/tracker?source=demo&today=${today}`, {
-      signal: AbortSignal.any([signal, AbortSignal.timeout(TRACKER_TIMEOUT_MS)]),
+    // The server enforces Linear's 5 s timeout; the browser allows a little more for the round trip.
+    const res = await fetch(`/api/tracker?source=${source}&today=${today}`, {
+      signal: AbortSignal.any([signal, AbortSignal.timeout(TRACKER_TIMEOUT_MS + 2_000)]),
       cache: 'no-store',
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -57,6 +67,8 @@ async function fetchSnapshot(signal: AbortSignal): Promise<TrackerSnapshot> {
 
 export default function LaunchControl() {
   const [snap, setSnap] = useState<TrackerSnapshot | null>(null);
+  const [source, setSource] = useState<SourceKind>('demo');
+  const [loading, setLoading] = useState(false);
   const [sel, setSel] = useState<string | null>(null);
   const [brief, setBrief] = useState<Brief | null>(null);
   const [running, setRunning] = useState(false);
@@ -66,20 +78,26 @@ export default function LaunchControl() {
   const [saved, setSaved] = useState(0);
   const loadCtl = useRef<AbortController | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (src: SourceKind) => {
     loadCtl.current?.abort();
     const ctl = (loadCtl.current = new AbortController());
+    setLoading(true);
     try {
-      const s = await fetchSnapshot(ctl.signal);
+      const s = await fetchSnapshot(src, ctl.signal);
       setSnap(s);
       setSel((cur) => (cur && s.launches.some((l) => l.id === cur) ? cur : (boardSummary(s).hotId ?? s.launches[0]?.id ?? null)));
     } catch {
       /* superseded by a newer load */
+    } finally {
+      if (loadCtl.current === ctl) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    load();
+    // Demo data is the default; a returning visitor gets the source they last chose.
+    const src = savedSource();
+    setSource(src);
+    load(src);
     return () => loadCtl.current?.abort();
   }, [load]);
 
@@ -117,6 +135,8 @@ export default function LaunchControl() {
     );
   }
 
+  /** True only when the data on screen really came from Linear (not a demo fallback). */
+  const live = snap.source === 'linear';
   const info = summary.infos.find((x) => x.launch.id === sel) ?? summary.infos[0];
   const L = info?.launch;
 
@@ -125,6 +145,19 @@ export default function LaunchControl() {
     if (brief && brief.launchId === L.id) shown = brief.kind === 'rules' ? { ...brief, text: rulesBrief(L, snap) } : brief;
     else shown = cachedBrief(L.id) ?? { launchId: L.id, kind: 'rules', text: rulesBrief(L, snap), at: clock(), trace: [] };
   }
+
+  const switchSource = (src: SourceKind) => {
+    if (src === source) return;
+    try {
+      localStorage.setItem(SOURCE_KEY, src);
+    } catch {
+      /* storage blocked: choice lasts for this page view */
+    }
+    stopAgent();
+    setBrief(null);
+    setSource(src);
+    load(src);
+  };
 
   const select = (id: string) => {
     if (id === sel) return;
@@ -170,7 +203,10 @@ export default function LaunchControl() {
       const res = await fetch('/api/brief', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ launchId: launch.id, snapshot: snap }),
+        // Live data: the server reads Linear itself. Demo: send what's on screen.
+        body: JSON.stringify(
+          live ? { launchId: launch.id, source: 'linear', asOf: snap.asOf } : { launchId: launch.id, snapshot: snap },
+        ),
         signal: AbortSignal.any([ctl.signal, AbortSignal.timeout(AGENT_TIMEOUT_MS)]),
       });
       if (!res.ok || !res.body) throw new Error(`http_${res.status}`);
@@ -229,13 +265,30 @@ export default function LaunchControl() {
     setBrief(null);
     setLog([]);
     setSaved(0);
-    load();
+    load('demo');
   };
 
   return (
     <>
       <section className={cx('band')}>
         <div className={cx('wrap')}>
+          <div className={cx('srcbar')}>
+            <span id="src-label">Data source</span>
+            <span className={cx('toggle')} role="group" aria-labelledby="src-label">
+              <button type="button" aria-pressed={source === 'linear'} onClick={() => switchSource('linear')}>
+                Linear
+              </button>
+              <button type="button" aria-pressed={source === 'demo'} onClick={() => switchSource('demo')}>
+                Demo data
+              </button>
+            </span>
+            {source === 'linear' && (
+              <button type="button" className={cx('refresh')} onClick={() => load('linear')} disabled={loading}>
+                {loading ? 'Loading…' : 'Refresh'}
+              </button>
+            )}
+            {source === 'demo' && loading && <span role="status">Loading…</span>}
+          </div>
           {snap.notice && (
             <p className={cx('notice')} role="status">
               <b>Heads up:</b> {snap.notice}
@@ -262,7 +315,7 @@ export default function LaunchControl() {
       {info && shown && (
         <section className={cx('band', 'bandTight')}>
           <div className={cx('wrap', 'work')}>
-            <GatesPanel info={info} asOf={snap.asOf} onCycle={cycleStatus} />
+            <GatesPanel info={info} asOf={snap.asOf} onCycle={live ? undefined : cycleStatus} />
             <BriefPanel brief={shown} running={running} agentAvailable={agentAvailable} onRun={runAgent} />
           </div>
         </section>
@@ -274,15 +327,16 @@ export default function LaunchControl() {
           clean={summary.hygiene}
           saved={saved}
           log={log}
-          onFix={fix}
-          onReset={reset}
+          onFix={live ? undefined : fix}
+          onReset={live ? undefined : reset}
         />
       </section>
 
       <footer className={cx('band', 'bandTight')}>
         <div className={cx('wrap')}>
-          Sample data for a fictional product org; dates are relative to today. Built by Austin Watson as a working
-          prototype of launch readiness tooling.
+          {live
+            ? 'Live data from Linear, seeded with a fictional product org. Built by Austin Watson as a working prototype of launch readiness tooling.'
+            : 'Sample data for a fictional product org; dates are relative to today. Built by Austin Watson as a working prototype of launch readiness tooling.'}
         </div>
       </footer>
     </>

@@ -20,15 +20,14 @@ export async function GET(req: NextRequest) {
   if (!source) {
     return NextResponse.json({
       ...demoSnapshot(asOf),
-      notice: 'Linear isn’t connected yet, so this is the built-in demo data.',
+      notice: 'Linear isn’t configured on this server, so this is the built-in demo data.',
     });
   }
   try {
     return NextResponse.json(await source.load(asOf));
-  } catch {
-    return NextResponse.json({
-      ...demoSnapshot(asOf),
-      notice: `Couldn’t load ${kind} data, so this is the built-in demo data.`,
-    });
+  } catch (e) {
+    const why = e instanceof Error && e.message === 'linear_timeout' ? 'Linear didn’t answer within 5 seconds' : kind === 'linear' ? 'Couldn’t load data from Linear' : 'Couldn’t load tracker data';
+    console.error(`[tracker] ${kind} failed: ${e instanceof Error ? e.message : 'error'}`);
+    return NextResponse.json({ ...demoSnapshot(asOf), notice: `${why}, so this is the built-in demo data.` });
   }
 }

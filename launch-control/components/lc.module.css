@@ -81,7 +81,17 @@
 .log{list-style:none;padding:0;margin:14px 0 0;font-size:14px;max-height:260px;overflow:auto}
 .log li{padding:7px 0;border-top:1px solid var(--edge)}
 .log time{color:var(--mut);font-size:13px;margin-right:8px;font-variant-numeric:tabular-nums}
-/* Not in the prototype: the PRD §6 fallback banner, styled as a risk note. */
+/* Not in the prototype: data source toggle (PRD §4.7), issue links, fallback banner. */
+.srcbar{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px 12px;margin-bottom:20px;font-size:13px;color:var(--mut)}
+.toggle{display:inline-flex;border:1px solid var(--edge);border-radius:999px;padding:2px}
+.toggle button{background:none;border:0;border-radius:999px;padding:6px 14px;min-height:36px;color:var(--mut)}
+.toggle button[aria-pressed=true]{background:var(--sky);color:#0a2540;font-weight:600}
+.toggle button:hover:not([aria-pressed=true]){color:var(--ink)}
+.refresh{background:none;border:1px solid var(--edge);border-radius:999px;padding:6px 12px;min-height:36px;font-size:13px}
+.refresh:hover{border-color:var(--sky)}
+.idlink{color:inherit;text-decoration:none}.idlink:hover{text-decoration:underline}
+.ro{display:inline-flex;align-items:center;cursor:default}.ro:hover{border-color:var(--edge)}
+.sD.ro:hover{border-color:rgba(143,211,255,.5)}.sX.ro:hover{border-color:rgba(255,92,138,.6)}
 .notice{border:1px solid rgba(255,92,138,.6);color:var(--ink);background:rgba(255,92,138,.08);border-radius:10px;padding:10px 14px;font-size:14px;margin-bottom:20px}
 .notice b{color:var(--pink);font-weight:600}
 @media(max-width:900px){.top,.work,.hyg{grid-template-columns:minmax(0,1fr)}.brief{position:static}}

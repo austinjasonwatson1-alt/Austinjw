@@ -9,7 +9,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "seed:build": "tsx scripts/seed-build-project.ts"
+    "seed:build": "tsx scripts/seed-build-project.ts",
+    "seed:linear": "tsx scripts/seed-linear.ts",
+    "check:linear": "tsx scripts/check-linear.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.13.0",

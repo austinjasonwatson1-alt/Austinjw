@@ -22,8 +22,9 @@ export default function HygienePanel({
   clean: number;
   saved: number;
   log: LogEntry[];
-  onFix: () => void;
-  onReset: () => void;
+  /** Omit both to hide the demo-only actions (live Linear data). */
+  onFix?: () => void;
+  onReset?: () => void;
 }) {
   return (
     <div className={cx('wrap', 'hyg')}>
@@ -49,14 +50,18 @@ export default function HygienePanel({
             </div>
           ))}
         </div>
-        <div className={cx('btns')}>
-          <button type="button" className={cx('go')} onClick={onFix}>
-            Auto-fix the safe ones
-          </button>
-          <button type="button" className={cx('ghost')} onClick={onReset}>
-            Reset sample data
-          </button>
-        </div>
+        {onFix && onReset ? (
+          <div className={cx('btns')}>
+            <button type="button" className={cx('go')} onClick={onFix}>
+              Auto-fix the safe ones
+            </button>
+            <button type="button" className={cx('ghost')} onClick={onReset}>
+              Reset sample data
+            </button>
+          </div>
+        ) : (
+          <p className={cx('how')}>Live data is read-only here for now. Fix these in Linear, or switch to Demo data to try auto-fix.</p>
+        )}
       </div>
       <div className={cx('panel')}>
         <h2>Manual work removed</h2>
