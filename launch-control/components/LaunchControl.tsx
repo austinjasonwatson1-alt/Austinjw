@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { readSse } from '@/lib/agent/sse';
 import { localToday } from '@/lib/dates';
 import {
   autofix,
@@ -20,6 +21,8 @@ import GatesPanel from './GatesPanel';
 import HygienePanel, { type LogEntry } from './HygienePanel';
 
 const TRACKER_TIMEOUT_MS = 5_000;
+/** A little over the server's 45 s Claude deadline, so the server's own error arrives first. */
+const AGENT_TIMEOUT_MS = 50_000;
 const CACHE_KEY = (id: string) => `lc-brief-${id}`;
 
 const clock = () => new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -56,7 +59,9 @@ export default function LaunchControl() {
   const [snap, setSnap] = useState<TrackerSnapshot | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [brief, setBrief] = useState<Brief | null>(null);
-  const [running] = useState(false); // the Claude agent arrives in M2
+  const [running, setRunning] = useState(false);
+  const [agentAvailable, setAgentAvailable] = useState(false);
+  const agentCtl = useRef<AbortController | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [saved, setSaved] = useState(0);
   const loadCtl = useRef<AbortController | null>(null);
@@ -77,6 +82,20 @@ export default function LaunchControl() {
     load();
     return () => loadCtl.current?.abort();
   }, [load]);
+
+  useEffect(() => {
+    fetch('/api/brief', { signal: AbortSignal.timeout(TRACKER_TIMEOUT_MS) })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setAgentAvailable(Boolean(j?.available)))
+      .catch(() => setAgentAvailable(false));
+    return () => agentCtl.current?.abort();
+  }, []);
+
+  const stopAgent = () => {
+    agentCtl.current?.abort();
+    agentCtl.current = null;
+    setRunning(false);
+  };
 
   const summary = useMemo(() => (snap ? boardSummary(snap) : null), [snap]);
   const checks = useMemo(() => (snap ? hygieneChecks(snap.issues, snap.asOf) : []), [snap]);
@@ -109,6 +128,7 @@ export default function LaunchControl() {
 
   const select = (id: string) => {
     if (id === sel) return;
+    stopAgent();
     setSel(id);
     setBrief(null);
   };
@@ -123,16 +143,74 @@ export default function LaunchControl() {
     if (shown?.kind === 'ai') setBrief({ ...shown, stale: true });
   };
 
-  const runCheck = () => {
+  const rulesFallback = (trace: string, logText: string) => {
     if (!L) return;
-    setBrief({
-      launchId: L.id,
-      kind: 'rules',
-      text: rulesBrief(L, snap),
-      at: clock(),
-      trace: ['Claude is not available in this view, so the rules engine wrote this brief.'],
-    });
-    addLog([{ text: `Readiness check on ${L.name} (rules engine)`, minutes: MINUTES_PER_SWEEP }]);
+    setBrief({ launchId: L.id, kind: 'rules', text: rulesBrief(L, snap), at: clock(), trace: [trace] });
+    addLog([{ text: logText, minutes: MINUTES_PER_SWEEP }]);
+  };
+
+  const runAgent = async () => {
+    if (!L) return;
+    if (!agentAvailable) {
+      rulesFallback(
+        'Claude is not available in this view, so the rules engine wrote this brief.',
+        `Readiness check on ${L.name} (rules engine)`,
+      );
+      return;
+    }
+    stopAgent();
+    const ctl = (agentCtl.current = new AbortController());
+    const launch = L;
+    const trace: string[] = [];
+    const base = { launchId: launch.id, kind: 'ai' as const, at: clock(), stale: false };
+    setRunning(true);
+    setBrief({ ...base, text: '', trace: [] });
+    let failure = 'error';
+    try {
+      const res = await fetch('/api/brief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ launchId: launch.id, snapshot: snap }),
+        signal: AbortSignal.any([ctl.signal, AbortSignal.timeout(AGENT_TIMEOUT_MS)]),
+      });
+      if (!res.ok || !res.body) throw new Error(`http_${res.status}`);
+      for await (const { event, data } of readSse(res.body)) {
+        const d = data as { label?: string; text?: string; code?: string };
+        if (event === 'tool' && d.label) {
+          trace.push(d.label);
+          setBrief((b) => (b && b.launchId === launch.id ? { ...b, trace: [...trace] } : b));
+        } else if (event === 'text' && typeof d.text === 'string') {
+          setBrief((b) => (b && b.launchId === launch.id ? { ...b, text: d.text! } : b));
+        } else if (event === 'done' && typeof d.text === 'string') {
+          const at = clock();
+          setBrief({ ...base, at, text: d.text, trace: [...trace] });
+          try {
+            localStorage.setItem(CACHE_KEY(launch.id), JSON.stringify({ text: d.text, at }));
+          } catch {
+            /* storage blocked: brief still shows */
+          }
+          addLog([{ text: `Readiness agent briefed ${launch.name}`, minutes: MINUTES_PER_SWEEP }]);
+          return;
+        } else if (event === 'error') {
+          failure = d.code || 'error';
+          throw new Error(failure);
+        }
+      }
+      throw new Error('ended_early');
+    } catch (e) {
+      if (ctl.signal.aborted) return; // superseded by a launch switch or reset
+      if (failure === 'error' && e instanceof DOMException && e.name === 'TimeoutError') failure = 'timeout';
+      else if (failure === 'error' && e instanceof Error) failure = e.message || 'error';
+      rulesFallback(
+        `Claude didn't answer (${failure}), so the rules engine wrote this brief.`,
+        `Readiness check on ${launch.name} (rules engine fallback)`,
+      );
+    } finally {
+      if (agentCtl.current === ctl) {
+        agentCtl.current = null;
+        setRunning(false);
+      }
+    }
   };
 
   const fix = () => {
@@ -142,6 +220,7 @@ export default function LaunchControl() {
   };
 
   const reset = () => {
+    stopAgent();
     try {
       snap.launches.forEach((l) => localStorage.removeItem(CACHE_KEY(l.id)));
     } catch {
@@ -184,7 +263,7 @@ export default function LaunchControl() {
         <section className={cx('band', 'bandTight')}>
           <div className={cx('wrap', 'work')}>
             <GatesPanel info={info} asOf={snap.asOf} onCycle={cycleStatus} />
-            <BriefPanel brief={shown} running={running} agentAvailable={false} onRun={runCheck} />
+            <BriefPanel brief={shown} running={running} agentAvailable={agentAvailable} onRun={runAgent} />
           </div>
         </section>
       )}

@@ -12,6 +12,7 @@
     "seed:build": "tsx scripts/seed-build-project.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.13.0",
     "@linear/sdk": "^103.0.0",
     "next": "^16.4.6",
     "react": "^19.3.1",

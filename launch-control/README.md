@@ -2,14 +2,14 @@
 
 One place that shows every launch's readiness and writes the go/no-go brief from live tracker data, so a product ops manager spends their time fixing risks instead of finding them. See [PRD.md](PRD.md) for scope and [DECISIONS.md](DECISIONS.md) for why things are built the way they are.
 
-> Status: M1 (UI parity on demo data). The Claude agent (M2) and live Linear data (M3) are next. Full README with screenshot lands in M5.
+> Status: M2 (readiness agent). Live Linear data (M3) is next. Full README with screenshot lands in M5.
 
 ## Run locally
 
 ```bash
 cd launch-control
 npm install
-cp .env.example .env.local   # optional until M2/M3: the app runs on demo data with no keys
+cp .env.example .env.local   # optional: with no keys the app runs on demo data and the rules-engine brief
 npm run dev                  # http://localhost:3000
 ```
 
@@ -30,3 +30,7 @@ npm run build     # production build + type check
 ## Scripts
 
 - `npm run seed:build` — dry run of the "Launch Control v1" build project for Linear (prints the plan). Add `-- --yes` to write it; needs `LINEAR_API_KEY` and `LINEAR_TEAM_KEY` in `.env.local`.
+
+## Readiness agent
+
+`POST /api/brief` runs Claude (`claude-sonnet-5-5`) server-side with three read-only tools — `list_launches`, `get_gates`, `list_issues` — for at most 6 tool turns, and streams Server-Sent Events: `tool` (one per tool call, shown as the live trace), `text`, `done`, `error`. Any failure or a 45 s timeout falls back to the rules-engine brief, and the trace says why. The last good AI brief per launch is cached in the browser and marked stale when tickets change.
