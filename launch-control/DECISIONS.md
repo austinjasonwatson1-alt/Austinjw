@@ -22,3 +22,4 @@ One line per product or technical decision and why. Newest at the bottom.
 | Nov 24 | CSS: element styles in `app/globals.css`, everything else copied from the prototype into one CSS module (`components/lc.module.css`) | CLAUDE.md asks for CSS modules with the prototype as the style guide; one file keeps it diffable against the prototype. |
 | Nov 24 | In M1 the brief button reads "Run readiness check" and uses the rules engine with the prototype's "Claude is not available" trace | That is the prototype's own no-Claude behaviour; M2 swaps in the agent. |
 | Nov 24 | `seed-build-project.ts` supports `--dry-run` and needs `--yes` to write | Writing to Linear needs Austin's go-ahead; the dry run shows exactly what would be created first. |
+| Nov 24 | Build-project issues get Gate labels (eng/qa/docs/comms) if they exist, but no Tier label | Keeps the build project out of the launch calendar until we decide the PRD open question about showing it in the demo. |

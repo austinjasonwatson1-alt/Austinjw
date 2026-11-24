@@ -1,0 +1,32 @@
+# Launch Control
+
+One place that shows every launch's readiness and writes the go/no-go brief from live tracker data, so a product ops manager spends their time fixing risks instead of finding them. See [PRD.md](PRD.md) for scope and [DECISIONS.md](DECISIONS.md) for why things are built the way they are.
+
+> Status: M1 (UI parity on demo data). The Claude agent (M2) and live Linear data (M3) are next. Full README with screenshot lands in M5.
+
+## Run locally
+
+```bash
+cd launch-control
+npm install
+cp .env.example .env.local   # optional until M2/M3: the app runs on demo data with no keys
+npm run dev                  # http://localhost:3000
+```
+
+```bash
+npm test          # Vitest: gate rules, hygiene, rules brief, parser
+npm run build     # production build + type check
+```
+
+## How it works
+
+- `lib/tracker/` — `TrackerSource` interface; `demo.ts` is the prototype's sample org with dates relative to today.
+- `lib/readiness/` — pure functions: `gateInfo`, `launchInfo`, `hygieneChecks`, `autofix`, `rulesBrief`, `boardSummary`.
+- `app/api/tracker` — returns launches + issues for the selected source.
+- `components/` — the UI, ported from `prototype/index.html` (the approved design).
+
+**Gate rule:** a gate is *at risk* if it has no ticket, or any open ticket is blocked, overdue, or due after go/no-go (launch date − 2 days). *Ready* when all its tickets are done. Otherwise *in progress*. Tier 1 launches have 10 gates, Tier 2 have 7, Tier 3 have 3.
+
+## Scripts
+
+- `npm run seed:build` — dry run of the "Launch Control v1" build project for Linear (prints the plan). Add `-- --yes` to write it; needs `LINEAR_API_KEY` and `LINEAR_TEAM_KEY` in `.env.local`.
