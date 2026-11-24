@@ -1,6 +1,6 @@
 import { fmtDate } from '../dates';
 import type { GateKey, Issue, Launch, Team, TrackerSnapshot } from '../tracker/types';
-import { isOverdue, launchInfo, STATE_LABEL } from './gates';
+import { isOverdue, launchInfo, STATE_LABEL, type GateInfo, type GateState } from './gates';
 
 /** Who should create a missing gate ticket. Gates not listed fall to the launch PM. */
 const MISSING_GATE_TEAM: Partial<Record<GateKey, Team>> = {
@@ -14,6 +14,21 @@ const MISSING_GATE_TEAM: Partial<Record<GateKey, Team>> = {
 
 const owner = (i: Issue) => i.owner || 'unassigned';
 
+export type Call = 'GO' | 'GO WITH CONDITIONS' | 'NO-GO';
+
+/** The go/no-go call implied by a launch's state; the agent's prompt states the same rule. */
+export const recommendation = (state: GateState): Call =>
+  state === 'ready' ? 'GO' : state === 'risk' ? 'NO-GO' : 'GO WITH CONDITIONS';
+
+/** The ticket a brief should cite for an at-risk gate (blocked first, then overdue, then any open). */
+export function riskTicket(gate: GateInfo, asOf: string): Issue | undefined {
+  return (
+    gate.issues.find((i) => i.status === 'blocked') ||
+    gate.issues.find((i) => isOverdue(i, asOf)) ||
+    gate.issues.find((i) => i.status !== 'done')
+  );
+}
+
 /**
  * The no-AI go/no-go brief: same format as the agent's, built from the same data.
  * Default view and the automatic fallback when Claude can't be reached.
@@ -25,7 +40,7 @@ export function rulesBrief(
   const x = launchInfo(launch, snap.issues, snap.asOf);
   const risk = x.gates.filter((g) => g.state === 'risk');
   const prog = x.gates.filter((g) => g.state === 'prog');
-  const rec = x.state === 'ready' ? 'GO' : risk.length ? 'NO-GO (as of today)' : 'GO WITH CONDITIONS';
+  const rec = recommendation(x.state) === 'NO-GO' ? 'NO-GO (as of today)' : recommendation(x.state);
   const why =
     x.state === 'ready'
       ? 'every gate is done.'
@@ -39,10 +54,7 @@ export function rulesBrief(
       const who = (team && snap.teamLeads[team]) || launch.pm || 'the launch PM';
       return `- ${g.gate.name} — no ticket — ${who} — create and own it before ${fmtDate(x.goNoGo)}`;
     }
-    const i =
-      g.issues.find((i) => i.status === 'blocked') ||
-      g.issues.find((i) => isOverdue(i, snap.asOf)) ||
-      g.issues.find((i) => i.status !== 'done')!;
+    const i = riskTicket(g, snap.asOf)!;
     return `- ${g.gate.name} — ${i.id} — ${owner(i)} — ${g.why.toLowerCase()}: ${i.title}`;
   });
 

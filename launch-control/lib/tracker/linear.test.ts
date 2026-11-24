@@ -141,3 +141,15 @@ describe('Linear adapter: ordering', () => {
     expect(mapLinear(raw, AS_OF).issues.slice(0, 3).map((i) => i.id)).toEqual(['LCH-20', 'LCH-21', 'LCH-22']);
   });
 });
+
+describe('Linear adapter: past launches', () => {
+  it('drops launches whose date has passed, and their issues, but keeps one launching today', () => {
+    const raw = seeded();
+    raw.projects[3].targetDate = '2026-11-20'; // ServiceNow connector shipped last week
+    raw.projects[2].targetDate = AS_OF;
+    const s = mapLinear(raw, AS_OF);
+    expect(s.launches.map((l) => l.name)).not.toContain('ServiceNow connector 3.1');
+    expect(s.launches.map((l) => l.name)).toContain('Knowledge Graph API v2');
+    expect(s.issues.some((i) => i.title === 'Two-way sync for work notes')).toBe(false);
+  });
+});

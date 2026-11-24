@@ -7,6 +7,11 @@
  *
  * Idempotent: an existing project or issue with the same name/title is skipped, never edited.
  * If gate labels (group "Gate": eng, qa, docs, comms…) already exist, gate issues get them.
+ *
+ *   npm run seed:build -- --dogfood --yes
+ *       # puts the build on Launch Control's own calendar: Tier 3 launch on the interview day
+ *       # (Nov 30, so go/no-go = Nov 28, the PRD's demo-ready date), with you as lead and as
+ *       # assignee of its tickets. Idempotent.
  */
 import { LinearClient } from '@linear/sdk';
 
@@ -50,8 +55,37 @@ const GATES: Planned[] = [
 
 const PLAN = [...MILESTONES, ...GATES];
 
+const DOGFOOD = { targetDate: '2026-11-30', description: 'Interview demo', tier: 'Tier 3' };
+
+async function dogfood(linear: LinearClient, write: boolean) {
+  const project = (await linear.projects({ filter: { name: { eq: PROJECT.name } } })).nodes[0];
+  if (!project) throw new Error(`Run seed:build first: no project "${PROJECT.name}"`);
+  const me = await linear.viewer;
+  const tier = (await linear.projectLabels({ filter: { name: { eq: DOGFOOD.tier } } })).nodes[0];
+  if (!tier) throw new Error(`No "${DOGFOOD.tier}" project label: run seed:linear first`);
+  const labels = (await project.labels()).nodes.map((l) => l.id);
+  const issues = (await project.issues({ first: 100 })).nodes;
+  const unassigned = [];
+  for (const i of issues) if (!(await i.assignee)) unassigned.push(i);
+  const lead = await project.lead;
+  console.log(`Dogfood "${project.name}": ${DOGFOOD.tier}, launches ${DOGFOOD.targetDate} (was ${project.targetDate}), lead ${me.name} (was ${lead?.name ?? 'none'}), assign ${unassigned.length} unassigned issue(s) to ${me.name}.`);
+  if (!write) return console.log('Dry run: re-run with --dogfood --yes.');
+  await linear.updateProject(project.id, {
+    targetDate: DOGFOOD.targetDate,
+    description: DOGFOOD.description,
+    leadId: me.id,
+    labelIds: [...new Set([...labels, tier.id])],
+  });
+  for (const i of unassigned) await linear.updateIssue(i.id, { assigneeId: me.id });
+  console.log('Done.');
+}
+
 async function main() {
   const write = process.argv.includes('--yes');
+  if (process.argv.includes('--dogfood')) {
+    if (!process.env.LINEAR_API_KEY) throw new Error('LINEAR_API_KEY is not set');
+    return dogfood(new LinearClient({ apiKey: process.env.LINEAR_API_KEY }), write);
+  }
   const apiKey = process.env.LINEAR_API_KEY;
   const teamKey = process.env.LINEAR_TEAM_KEY || 'LCH';
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { readSse } from '@/lib/agent/sse';
+import { verifyBrief } from '@/lib/agent/verify';
 import { localToday } from '@/lib/dates';
 import {
   autofix,
@@ -295,7 +296,7 @@ export default function LaunchControl() {
       }
       if (!res.ok || !res.body) throw new Error(`http_${res.status}`);
       for await (const { event, data } of readSse(res.body)) {
-        const d = data as { label?: string; text?: string; code?: string };
+        const d = data as { label?: string; text?: string; code?: string; ms?: number; toolCalls?: number };
         if (event === 'tool' && d.label) {
           trace.push(d.label);
           setBrief((b) => (b && b.launchId === launch.id ? { ...b, trace: [...trace] } : b));
@@ -303,7 +304,16 @@ export default function LaunchControl() {
           setBrief((b) => (b && b.launchId === launch.id ? { ...b, text: d.text! } : b));
         } else if (event === 'done' && typeof d.text === 'string') {
           const at = clock();
-          setBrief({ ...base, at, text: d.text, trace: [...trace] });
+          setBrief({
+            ...base,
+            at,
+            text: d.text,
+            trace: [...trace],
+            meta: { ms: d.ms ?? 0, toolCalls: d.toolCalls ?? trace.length },
+            // In live mode the server read Linear moments ago; the screen's snapshot is the same data.
+            check: verifyBrief(d.text, snap, launch),
+            checkedAgainst: live ? 'Linear' : 'demo data',
+          });
           try {
             localStorage.setItem(CACHE_KEY(launch.id), JSON.stringify({ text: d.text, at }));
           } catch {

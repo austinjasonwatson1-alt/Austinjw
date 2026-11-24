@@ -12,7 +12,8 @@
     "seed:build": "tsx scripts/seed-build-project.ts",
     "seed:linear": "tsx scripts/seed-linear.ts",
     "check:linear": "tsx scripts/check-linear.ts",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "eval": "tsx scripts/eval-agent.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.13.0",

@@ -90,7 +90,8 @@ const safeUrl = (u: string) => (/^https:\/\/linear\.app\//.test(u) ? u : undefin
 
 /**
  * Pure mapping from Linear data to a snapshot (PRD §5).
- * - Launches: team projects with a `Tier N` label and a target date.
+ * - Launches: team projects with a `Tier N` label and a target date that hasn't passed
+ *   (a shipped launch has no place on a calendar that runs from today).
  * - Issues: those in a launch project, plus those in no project (hygiene flags them as unlinked).
  *   Issues in other projects (e.g. the build project) and canceled/duplicate issues are left out.
  */
@@ -98,7 +99,7 @@ export function mapLinear({ projects, labels: teamLabels, issues }: RawData, asO
   const launches: Launch[] = [];
   for (const p of projects) {
     const tier = tierOf(p);
-    if (!tier || !p.targetDate) continue;
+    if (!tier || !p.targetDate || p.targetDate.slice(0, 10) < asOf) continue;
     const d = parseProjectDescription(p.description);
     launches.push({
       id: p.slugId,

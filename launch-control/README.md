@@ -17,6 +17,7 @@ Launch Control reads the tracker, scores every launch against its readiness gate
 | **Launch calendar** | Every launch as a bar from today to its date, built from its gate segments: ready, in progress, at risk. The headline is the finding ("L1 Triage Agent GA is at risk: 3 of 10 gates need action, 16 days out"). |
 | **Readiness gates** | Tier 1 launches have 10 gates, Tier 2 have 7, Tier 3 have 3. A gate is **at risk** if it has no ticket, or any open ticket is blocked, overdue, or due after go/no-go (launch − 2 days). **Ready** when every ticket is done. |
 | **Readiness agent** | Claude (`claude-sonnet-5-5`) with three read-only tools (`list_launches`, `get_gates`, `list_issues`), streamed live with a tool trace. Fixed format: Recommendation · Blocking risks · Before go/no-go · Exec update. ~6 s per brief. |
+| **Brief checks** | Every AI brief is checked against the data it was written from: each cited issue ID must exist, and the go/no-go call must match the rules engine. Shown under the brief with the run time and tool calls. |
 | **Rules-engine brief** | Same format with no AI: the default view and the automatic fallback, so the review never stalls. |
 | **Tracker hygiene** | Flags open tickets with no owner, no due date, no update in 14+ days, or no launch. Demo: auto-fix. Linear: review the proposed fixes, then apply the ticked ones. |
 | **Manual work removed** | A log of what was automated and an estimate of minutes saved (45 min per readiness sweep, 3 min per ticket fix). |
@@ -37,6 +38,19 @@ calendar · gates · brief · hygiene  ──GET──▶ /api/tracker   → Tra
 - **`lib/tracker/`**: a `TrackerSource` interface with two adapters. `demo.ts` is the sample org with dates relative to today. `linear.ts` reads a Linear team. `linear-schema.ts` holds the whole Launch Control ↔ Linear mapping (PRD §5), shared by the seed script and the adapter.
 - **`lib/agent/`**: the agent's tools and prompt. **`app/api/brief`** runs the loop server-side and streams `tool`, `text`, `done` and `error` events.
 - **`components/`**: the UI, ported from the approved prototype (`prototype/index.html`).
+
+### How we know the agent is right
+
+`npm run eval` runs the same agent loop as the app on two scenarios (fresh demo data, and "a week later" with five tickets changed so four launches are at risk for different reasons), 3 runs per launch, and checks every brief against its data. Latest run ([docs/EVAL.md](docs/EVAL.md)):
+
+| Metric | Result |
+| --- | --- |
+| Same go/no-go call as the rules engine | **30/30** |
+| Invented issue IDs | **0** of 152 cited |
+| At-risk tickets cited | **21/21** |
+| Exact 4-section format | 30/30 |
+| Latency p50 / p95 | 5.3 s / 6.4 s (target < 30 s) |
+| Cost per brief | ~$0.013 |
 
 ### Safety and resilience
 - **Secrets stay on the server.** The browser only learns *whether* Claude and Linear are configured.
@@ -69,6 +83,7 @@ npm test                                   # Vitest: gate rules, hygiene, briefs
 npm run build                              # production build + type check
 npm run check:linear                       # live Linear readiness vs. demo, launch by launch
 npm run smoke -- <url> --passcode <p>      # walks the demo script in a real browser (see below)
+npm run eval -- --runs 3                   # agent eval, 30 briefs, writes docs/EVAL.md (~$0.40)
 ```
 
 `npm run smoke` needs a browser once per machine: `npx playwright install chromium`. Add `--no-agent` to skip the paid Claude call. It never writes to Linear.
@@ -78,11 +93,12 @@ npm run smoke -- <url> --passcode <p>      # walks the demo script in a real bro
 ```bash
 npm run seed:linear                        # dry run: what would be created in the team
 npm run seed:linear -- --yes               # states, labels, 5 launch projects, 41 issues (skips what exists)
-npm run seed:linear -- --restore --yes     # before a rehearsal: undo hygiene fixes and status changes
+npm run seed:linear -- --restore --yes     # morning of a demo: re-date launches to today, undo fixes and status changes
 npm run seed:build                         # dry run of the build's own "Launch Control v1" project
+npm run seed:build -- --dogfood --yes      # put the build itself on the calendar (Tier 3, launches on the interview day)
 ```
 
-A launch is a team project with a `Tier 1/2/3` project label and a target date. Gates are issue labels in the `Gate` group. Sample-org people aren't workspace members, so owners and PMs are stored as `Owner:` and `PM:` lines; a real assignee always wins.
+A launch is a team project with a `Tier 1/2/3` project label and a target date that hasn't passed. Gates are issue labels in the `Gate` group. Sample-org people aren't workspace members, so owners and PMs are stored as `Owner:` and `PM:` lines; a real assignee always wins.
 
 ## Deploy (Vercel)
 
@@ -90,4 +106,4 @@ Import the repo, set **Root Directory** to `launch-control`, and add the four en
 
 ## Project docs
 
-[PRD](PRD.md) · [Decisions log](DECISIONS.md) · [Backlog](BACKLOG.md) · [Talk track](docs/TALK_TRACK.md) · [Approved prototype](prototype/index.html)
+[PRD](PRD.md) · [Agent eval](docs/EVAL.md) · [Decisions log](DECISIONS.md) · [Backlog](BACKLOG.md) · [Talk track](docs/TALK_TRACK.md) · [Approved prototype](prototype/index.html)

@@ -3,7 +3,7 @@
  *   npm run check:linear
  * Exit code 1 if any launch's gate states differ (use before a demo).
  */
-import { localToday } from '../lib/dates';
+import { isIsoDate, localToday } from '../lib/dates';
 import { boardSummary, hygieneChecks, launchInfo } from '../lib/readiness';
 import { demoSnapshot } from '../lib/tracker/demo';
 import { linearSource } from '../lib/tracker/linear';
@@ -15,7 +15,9 @@ try {
 }
 
 async function main() {
-  const asOf = localToday();
+  const arg = process.argv.includes('--as-of') ? process.argv[process.argv.indexOf('--as-of') + 1] : undefined;
+  if (arg && !isIsoDate(arg)) throw new Error('--as-of needs YYYY-MM-DD');
+  const asOf = arg ?? localToday();
   const t0 = Date.now();
   const live = await linearSource.load(asOf);
   const ms = Date.now() - t0;
@@ -39,7 +41,7 @@ async function main() {
   console.log(`\nHeadline: ${boardSummary(live).headline}`);
   console.log(`Hygiene: ${hygieneChecks(live.issues, asOf).map((c) => `${c.name} ${c.items.length}`).join(' · ')}`);
   if (diffs) {
-    console.log(`\n${diffs} launch(es) differ from the demo.`);
+    console.log(`\n${diffs} launch(es) differ from the demo. If dates drifted, run: npm run seed:linear -- --restore --yes`);
     process.exit(1);
   }
 }

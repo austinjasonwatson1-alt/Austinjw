@@ -1,7 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
 import type { NextRequest } from 'next/server';
-import { agentPrompt } from '@/lib/agent/prompt';
-import { runTool, ToolInputError, TOOL_DEFS } from '@/lib/agent/tools';
+import { DEADLINE_MS, MODEL, runAgentLoop, toAgentError } from '@/lib/agent/run';
 import { getSource } from '@/lib/tracker';
 import type { TrackerSnapshot } from '@/lib/tracker/types';
 import { parseSnapshot } from '@/lib/tracker/validate';
@@ -12,38 +10,16 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const MODEL = 'claude-sonnet-5-5';
-const MAX_TOOL_TURNS = 6;
-const DEADLINE_MS = 45_000; // PRD §6: Claude error/timeout (45 s) → rules brief
 const MAX_BODY_BYTES = 512_000;
-
-const TOOLS: Anthropic.Beta.BetaTool[] = TOOL_DEFS.map((t) => ({ ...t, eager_input_streaming: true }));
 
 /** GET /api/brief → whether the agent can run (the key itself never leaves the server). */
 export function GET() {
   return Response.json({ available: Boolean(process.env.ANTHROPIC_API_KEY), passcodeRequired: passcodeRequired(), model: MODEL });
 }
 
-class AgentError extends Error {
-  constructor(public code: string, message: string) {
-    super(message);
-  }
-}
-
-function errorCode(e: unknown, deadline: AbortSignal): AgentError {
-  if (e instanceof AgentError) return e;
-  if (deadline.aborted) return new AgentError('timeout', 'Claude took longer than 45 seconds.');
-  if (e instanceof Anthropic.AuthenticationError) return new AgentError('auth', 'The Claude API key was rejected.');
-  if (e instanceof Anthropic.RateLimitError) return new AgentError('rate_limited', 'Claude is rate limited right now.');
-  if (e instanceof Anthropic.APIConnectionTimeoutError) return new AgentError('timeout', 'Claude timed out.');
-  if (e instanceof Anthropic.APIConnectionError) return new AgentError('network', 'Could not reach Claude.');
-  if (e instanceof Anthropic.APIError) return new AgentError(`api_${e.status ?? 'error'}`, 'Claude returned an error.');
-  return new AgentError('error', 'The agent failed.');
-}
-
 /**
  * POST /api/brief  { launchId, snapshot }  →  text/event-stream
- * Events: tool {label} · text {text} (full text so far this turn) · done {text, ms, toolTurns} · error {code, message}
+ * Events: tool {label} · text {text} (full text so far this turn) · done {text, ms, toolCalls} · error {code, message}
  */
 export async function POST(req: NextRequest) {
   // Only Claude runs cost money; with no key the browser uses the rules engine and never calls this.
@@ -77,7 +53,6 @@ export async function POST(req: NextRequest) {
   const data = snap;
 
   const enc = new TextEncoder();
-  const started = Date.now();
   const deadline = AbortSignal.any([req.signal, AbortSignal.timeout(DEADLINE_MS)]);
 
   const stream = new ReadableStream<Uint8Array>({
@@ -90,78 +65,14 @@ export async function POST(req: NextRequest) {
         }
       };
       try {
-        if (!process.env.ANTHROPIC_API_KEY) throw new AgentError('no_key', 'No Claude API key is configured.');
-        const client = new Anthropic({ timeout: DEADLINE_MS, maxRetries: 1 });
-        const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: 'user', content: agentPrompt(launch, data.asOf) }];
-        let toolTurns = 0;
-        let parseRetries = 0;
-
-        for (;;) {
-          const turn = client.beta.messages.stream(
-            {
-              model: MODEL,
-              max_tokens: 8000,
-              output_config: { effort: 'medium' },
-              betas: ['server-side-fallback-2026-07-01'],
-              fallbacks: 'default',
-              tools: TOOLS,
-              // After the tool-turn cap, Claude must write the brief from what it has.
-              tool_choice: { type: toolTurns < MAX_TOOL_TURNS ? 'auto' : 'none' },
-              messages,
-            },
-            { signal: deadline },
-          );
-          let text = '';
-          turn.on('text', (delta) => {
-            text += delta;
-            send('text', { text });
-          });
-
-          let msg: Anthropic.Beta.BetaMessage;
-          try {
-            msg = await turn.finalMessage();
-            parseRetries = 0;
-          } catch (e) {
-            // An unparseable streamed tool input (or dropped stream) is retried once; API errors are not.
-            if (e instanceof Anthropic.APIError || deadline.aborted || parseRetries++ >= 1) throw e;
-            continue;
-          }
-
-          if (msg.stop_reason === 'refusal') throw new AgentError('refusal', 'Claude declined this request.');
-          if (msg.stop_reason === 'pause_turn') {
-            messages.push({ role: 'assistant', content: msg.content });
-            continue;
-          }
-          const uses = msg.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');
-          if (!uses.length) {
-            const final = msg.content
-              .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
-              .map((b) => b.text)
-              .join('')
-              .trim();
-            if (!final) throw new AgentError('empty', 'Claude returned no brief.');
-            send('done', { text: final, ms: Date.now() - started, toolTurns });
-            break;
-          }
-          if (msg.stop_reason === 'max_tokens') throw new AgentError('truncated', 'Claude ran out of tokens.');
-
-          messages.push({ role: 'assistant', content: msg.content });
-          const results: Anthropic.Beta.BetaToolResultBlockParam[] = uses.map((u) => {
-            try {
-              const r = runTool(data, u.name, u.input);
-              send('tool', { label: r.trace });
-              return { type: 'tool_result', tool_use_id: u.id, content: JSON.stringify(r.result) };
-            } catch (e) {
-              const message = e instanceof ToolInputError ? e.message : 'Tool failed';
-              send('tool', { label: `${u.name} · error: ${message}` });
-              return { type: 'tool_result', tool_use_id: u.id, content: message, is_error: true };
-            }
-          });
-          messages.push({ role: 'user', content: results });
-          toolTurns++;
-        }
+        const run = await runAgentLoop(data, launch, {
+          signal: deadline,
+          onTool: (label) => send('tool', { label }),
+          onText: (text) => send('text', { text }),
+        });
+        send('done', { text: run.text, ms: run.ms, toolCalls: run.toolCalls });
       } catch (e) {
-        const err = errorCode(e, deadline);
+        const err = toAgentError(e, deadline);
         console.error(`[brief] ${launch.id} failed: ${err.code}`); // code only: never log keys or payloads
         send('error', { code: err.code, message: err.message });
       } finally {

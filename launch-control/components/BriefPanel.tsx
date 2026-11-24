@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import type { BriefCheck } from '@/lib/agent/verify';
 import { execUpdate } from '@/lib/brief/parse';
 import BriefText from './BriefText';
 import { cx } from './cx';
@@ -12,6 +13,34 @@ export interface Brief {
   at: string;
   trace: string[];
   stale?: boolean;
+  /** Fresh AI briefs only: run stats and the check against the tracker data. */
+  meta?: { ms: number; toolCalls: number };
+  check?: BriefCheck;
+  /** "Linear" or "demo data": what the ids were checked against. */
+  checkedAgainst?: string;
+}
+
+function Checks({ check, against }: { check: BriefCheck; against: string }) {
+  const n = check.cited.length;
+  return (
+    <p className={cx('checks')}>
+      {check.unknown.length ? (
+        <span className={cx('bad')}>
+          ⚠ {check.unknown.length} issue ID{check.unknown.length > 1 ? 's' : ''} not in {against}: {check.unknown.join(', ')}
+        </span>
+      ) : (
+        <span>
+          ✓ {n} issue ID{n === 1 ? '' : 's'} checked against {against}
+        </span>
+      )}
+      {' · '}
+      {check.agrees ? (
+        <span>✓ same call as the rules engine</span>
+      ) : (
+        <span className={cx('bad')}>⚠ rules engine says {check.rulesCall}</span>
+      )}
+    </p>
+  );
 }
 
 export default function BriefPanel({
@@ -50,7 +79,10 @@ export default function BriefPanel({
         {brief.kind === 'ai' ? (
           <>
             <span className={cx('pill', 'ai')}>Claude agent</span>
-            <span>written {brief.at}</span>
+            <span>
+              written {brief.at}
+              {brief.meta && ` in ${(brief.meta.ms / 1000).toFixed(1)} s · ${brief.meta.toolCalls} tool call${brief.meta.toolCalls === 1 ? '' : 's'}`}
+            </span>
           </>
         ) : (
           <>
@@ -59,6 +91,9 @@ export default function BriefPanel({
           </>
         )}
       </div>
+      {brief.kind === 'ai' && brief.check && !brief.stale && !running && (
+        <Checks check={brief.check} against={brief.checkedAgainst ?? 'the tracker'} />
+      )}
       <div className={cx('btns')}>
         <button type="button" className={cx('go')} disabled={running} onClick={onRun}>
           {running ? 'Agent is reading the tracker…' : agentAvailable ? 'Run readiness agent' : 'Run readiness check'}

@@ -114,3 +114,4 @@
 .dlg .sub{margin-top:6px}
 .pcin{width:100%;margin-top:16px;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--edge);border-radius:10px;padding:10px 12px;min-height:44px}
 .pcin:focus{outline:2px solid var(--sky);outline-offset:1px}
+.checks{font-size:13px;color:var(--sky);margin-top:8px}.checks .bad{color:var(--pink)}

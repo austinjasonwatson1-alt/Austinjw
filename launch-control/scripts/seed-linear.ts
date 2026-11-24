@@ -5,14 +5,15 @@
  *   npm run seed:linear              # dry run: reads Linear, prints what it would create
  *   npm run seed:linear -- --yes     # writes (needs LINEAR_API_KEY, LINEAR_TEAM_KEY)
  *   npm run seed:linear -- --restore --yes
- *       # before a rehearsal: puts each seeded issue's owner line, due date and status back
- *       # to the seed values (undoes hygiene fixes and status changes). Nothing else is touched.
+ *       # before a rehearsal: re-dates the 5 launch projects relative to today and puts each
+ *       # seeded issue's owner line, due date and status back to the seed values (undoes hygiene
+ *       # fixes and status changes). Run it on the morning of a demo. Nothing else is touched.
  *
  * Idempotent: anything with the same name/title already in the team is skipped, never edited.
  * Dates are placed relative to the day you run it, like the demo.
  */
 import { LinearClient } from '@linear/sdk';
-import { addDays, localToday } from '../lib/dates';
+import { addDays, isIsoDate, localToday } from '../lib/dates';
 import { DEMO_TEAM_LEADS, demoSnapshot } from '../lib/tracker/demo';
 import {
   BLOCKED_LABEL,
@@ -37,6 +38,8 @@ try {
 
 const write = process.argv.includes('--yes');
 const restore = process.argv.includes('--restore');
+/** --as-of YYYY-MM-DD: place dates relative to another day (e.g. the morning of a demo). */
+const asOfArg = process.argv.includes('--as-of') ? process.argv[process.argv.indexOf('--as-of') + 1] : undefined;
 const apiKey = process.env.LINEAR_API_KEY;
 const teamKey = process.env.LINEAR_TEAM_KEY || 'LCH';
 
@@ -45,7 +48,7 @@ interface Existing {
   states: { id: string; name: string; type: string }[];
   labels: { id: string; name: string; parent: { name: string } | null }[];
   projectLabels: { id: string; name: string }[];
-  projects: { id: string; name: string }[];
+  projects: { id: string; name: string; targetDate?: string | null; description?: string | null }[];
   issueTitles: Set<string>;
   issues: { id: string; title: string; description: string | null; dueDate: string | null; state: { name: string } }[];
 }
@@ -68,7 +71,7 @@ async function read(linear: LinearClient): Promise<Existing> {
       vars,
     ),
     gql<{ projects: { nodes: Existing['projects'] } }>(
-      `query($key: String!) { projects(first: 50, filter: { accessibleTeams: { some: { key: { eq: $key } } } }) { nodes { id name } } }`,
+      `query($key: String!) { projects(first: 50, filter: { accessibleTeams: { some: { key: { eq: $key } } } }) { nodes { id name targetDate description } } }`,
       vars,
     ),
     gql<{ issues: { nodes: Existing['issues'] } }>(
@@ -90,7 +93,8 @@ async function read(linear: LinearClient): Promise<Existing> {
 }
 
 async function main() {
-  const asOf = localToday();
+  if (asOfArg && !isIsoDate(asOfArg)) throw new Error('--as-of needs YYYY-MM-DD');
+  const asOf = asOfArg ?? localToday();
   const demo = demoSnapshot(asOf);
   const tiers: Tier[] = [1, 2, 3];
   console.log(`Seed plan for team ${teamKey} (dates relative to ${asOf}):`);
@@ -192,8 +196,17 @@ async function main() {
   console.log(`Done. (${addDays(asOf, 0)})`);
 }
 
-/** Resets seeded issues (matched by title) to their seed owner line, due date and status. */
+/** Re-dates seeded projects and resets seeded issues (matched by name/title) to the seed, relative to today. */
 async function restoreSeeded(linear: LinearClient, ex: Existing, demo: ReturnType<typeof demoSnapshot>) {
+  const projectChanges = demo.launches.flatMap((l) => {
+    const p = ex.projects.find((x) => x.name === l.name);
+    const description = projectDescription(l.milestone, l.pm);
+    if (!p || (p.targetDate === l.launchDate && (p.description ?? '') === description)) return [];
+    return [{ p, l, description }];
+  });
+  console.log(`Restore: ${projectChanges.length} launch project(s) to re-date.`);
+  for (const c of projectChanges) console.log(`  ~ ${c.l.name}: ${c.p.targetDate} → ${c.l.launchDate}`);
+
   const stateId = (status: keyof typeof STATE_FOR_STATUS) =>
     ex.states.find((s) => s.name.toLowerCase() === STATE_FOR_STATUS[status].name.toLowerCase())?.id;
   const changes = demo.issues.flatMap((d) => {
@@ -207,6 +220,10 @@ async function restoreSeeded(linear: LinearClient, ex: Existing, demo: ReturnTyp
   console.log(`Restore: ${changes.length} seeded issue(s) differ from the seed.`);
   for (const c of changes) console.log(`  ~ ${c.d.title}`);
   if (!write) return console.log('Dry run: re-run with --restore --yes to reset them.');
+  for (const c of projectChanges) {
+    await linear.updateProject(c.p.id, { targetDate: c.l.launchDate, description: c.description });
+    console.log(`~ re-dated ${c.l.name} → ${c.l.launchDate}`);
+  }
   for (const c of changes) {
     await linear.updateIssue(c.live.id, { description: c.want.description, dueDate: c.want.dueDate, stateId: stateId(c.d.status) });
     console.log(`~ restored ${c.d.title}`);
