@@ -108,3 +108,9 @@
  .gw{display:none}.ticks span:nth-child(even){display:none}.gate summary{grid-template-columns:12px minmax(0,1fr) auto}
 }
 @media(prefers-reduced-motion:no-preference){.seg{transition:background .35s}.bar{animation:grow .7s ease-out both}@keyframes grow{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}}
+/* Passcode dialog (M5) */
+.dlg{background:var(--panel);color:var(--ink);border:1px solid var(--edge);border-radius:14px;padding:clamp(18px,3vw,28px);width:min(440px,calc(100vw - 32px))}
+.dlg::backdrop{background:rgba(5,18,32,.72)}
+.dlg .sub{margin-top:6px}
+.pcin{width:100%;margin-top:16px;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--edge);border-radius:10px;padding:10px 12px;min-height:44px}
+.pcin:focus{outline:2px solid var(--sky);outline-offset:1px}

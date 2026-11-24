@@ -6,6 +6,7 @@ import { getSource } from '@/lib/tracker';
 import type { TrackerSnapshot } from '@/lib/tracker/types';
 import { parseSnapshot } from '@/lib/tracker/validate';
 import { isIsoDate } from '@/lib/dates';
+import { AGENT_RUNS_PER_HOUR, guard, passcodeRequired } from '@/lib/server/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,7 +21,7 @@ const TOOLS: Anthropic.Beta.BetaTool[] = TOOL_DEFS.map((t) => ({ ...t, eager_inp
 
 /** GET /api/brief → whether the agent can run (the key itself never leaves the server). */
 export function GET() {
-  return Response.json({ available: Boolean(process.env.ANTHROPIC_API_KEY), model: MODEL });
+  return Response.json({ available: Boolean(process.env.ANTHROPIC_API_KEY), passcodeRequired: passcodeRequired(), model: MODEL });
 }
 
 class AgentError extends Error {
@@ -45,6 +46,9 @@ function errorCode(e: unknown, deadline: AbortSignal): AgentError {
  * Events: tool {label} · text {text} (full text so far this turn) · done {text, ms, toolTurns} · error {code, message}
  */
 export async function POST(req: NextRequest) {
+  // Only Claude runs cost money; with no key the browser uses the rules engine and never calls this.
+  const blocked = guard(req, 'brief', AGENT_RUNS_PER_HOUR);
+  if (blocked) return blocked;
   const raw = await req.text();
   if (raw.length > MAX_BODY_BYTES) return Response.json({ error: 'too_large' }, { status: 413 });
   let body: { launchId?: unknown; snapshot?: unknown; source?: unknown; asOf?: unknown };

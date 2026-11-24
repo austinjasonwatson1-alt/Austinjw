@@ -45,6 +45,7 @@ describe('agent tools (prototype parity)', () => {
     expect(p).toContain('Today is Nov 24.');
     expect(p).toContain('Inspect launch L1 ("L1 Triage Agent", General availability, Tier 1, launching Dec 10; go/no-go meeting Dec 8)');
     expect(p).toContain('## Exec update');
+    expect(p).toContain('Use NO-GO (as of today) if any gate is At risk');
   });
 });
 

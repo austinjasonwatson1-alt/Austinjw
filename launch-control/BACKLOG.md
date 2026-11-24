@@ -5,3 +5,5 @@ Ideas that came up during the build. Not in the code until they're pulled into s
 - Persist demo edits (status changes, auto-fix) across reloads. v1 resets on reload by design (no database).
 - Change issue status from Launch Control in Linear mode (live mode is read-only in v1; the agent never writes).
 - Rename the seeded Function labels to a single convention (e.g. all "<Team> team") if the workspace is reused beyond the demo.
+- Slack posting of the exec update (PRD stretch; needs a Slack webhook).
+- Shared rate-limit store (e.g. Vercel KV) if the app outlives the demo; v1 counts per server instance.

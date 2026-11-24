@@ -172,3 +172,11 @@ describe('rules brief', () => {
     expect(rulesBrief(launch('L2'), s)).toContain('GO WITH CONDITIONS — no blockers, but 5 gates are still in progress.');
   });
 });
+
+describe('empty tracker', () => {
+  it('explains what counts as a launch instead of claiming everything is on track', () => {
+    const b = boardSummary({ launches: [], issues: [], asOf: AS_OF });
+    expect(b.headline).toBe('No launches on the calendar yet');
+    expect(b.kpis.map((k) => k.value)).toEqual(['0', '0/0', '0', '100%']);
+  });
+});

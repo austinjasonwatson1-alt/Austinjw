@@ -3,6 +3,7 @@ import { isIsoDate } from '@/lib/dates';
 import { applyConfirmedFixes, MAX_FIXES_PER_APPLY } from '@/lib/hygiene/apply';
 import { getSource } from '@/lib/tracker';
 import { linearFixWriter } from '@/lib/tracker/linear-write';
+import { APPLY_RUNS_PER_HOUR, guard } from '@/lib/server/guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,11 +14,9 @@ export const maxDuration = 60;
  * Linear mode only. Applies the confirmed subset of the fixes the server itself proposes.
  */
 export async function POST(req: NextRequest) {
-  // Writes to Linear from a public URL: require the demo passcode when one is set (UI in M5).
-  const passcode = process.env.DEMO_PASSCODE;
-  if (passcode && req.headers.get('x-demo-passcode') !== passcode) {
-    return Response.json({ error: 'passcode_required' }, { status: 401 });
-  }
+  // Writes to Linear from a public URL: passcode (when set) and a per-IP limit.
+  const blocked = guard(req, 'apply', APPLY_RUNS_PER_HOUR);
+  if (blocked) return blocked;
   const source = getSource('linear');
   const apiKey = process.env.LINEAR_API_KEY;
   if (!source || !apiKey) return Response.json({ error: 'linear_not_configured' }, { status: 409 });

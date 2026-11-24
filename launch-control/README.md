@@ -1,51 +1,93 @@
 # Launch Control
 
-One place that shows every launch's readiness and writes the go/no-go brief from live tracker data, so a product ops manager spends their time fixing risks instead of finding them. See [PRD.md](PRD.md) for scope and [DECISIONS.md](DECISIONS.md) for why things are built the way they are.
+**Is every launch ready? One screen answers it, and an AI agent writes the go/no-go brief from live tracker data.**
 
-> Status: M4 (hygiene fixes in Linear). Demo hardening (M5) is next. Full README with screenshot lands in M5.
+![Launch Control: launch calendar, readiness gates and the Claude go/no-go brief](docs/screenshot.png)
 
-## Run locally
+## The problem
+
+Before a tier 1 launch, someone in product ops spends hours chasing status across R&D, QA, docs, enablement, support and marketing to answer one question: *are we ready?* The answer lives in a tracker, but it's scattered, half the tickets are missing owners or dates, and the gaps that hurt most are the ones nobody filed. The go/no-go meeting runs on stale, hand-assembled status.
+
+Launch Control reads the tracker, scores every launch against its readiness gates, finds the gaps (including gates with no ticket at all), writes the brief, and fixes the tracker hygiene that would otherwise make the report wrong.
+
+## What it does
+
+| | |
+| --- | --- |
+| **Launch calendar** | Every launch as a bar from today to its date, built from its gate segments: ready, in progress, at risk. The headline is the finding ("L1 Triage Agent GA is at risk: 3 of 10 gates need action, 16 days out"). |
+| **Readiness gates** | Tier 1 launches have 10 gates, Tier 2 have 7, Tier 3 have 3. A gate is **at risk** if it has no ticket, or any open ticket is blocked, overdue, or due after go/no-go (launch − 2 days). **Ready** when every ticket is done. |
+| **Readiness agent** | Claude (`claude-sonnet-5-5`) with three read-only tools (`list_launches`, `get_gates`, `list_issues`), streamed live with a tool trace. Fixed format: Recommendation · Blocking risks · Before go/no-go · Exec update. ~6 s per brief. |
+| **Rules-engine brief** | Same format with no AI: the default view and the automatic fallback, so the review never stalls. |
+| **Tracker hygiene** | Flags open tickets with no owner, no due date, no update in 14+ days, or no launch. Demo: auto-fix. Linear: review the proposed fixes, then apply the ticked ones. |
+| **Manual work removed** | A log of what was automated and an estimate of minutes saved (45 min per readiness sweep, 3 min per ticket fix). |
+| **Linear or demo data** | One switch. Demo data is the default so the app always works. |
+
+## How it works
+
+```
+Browser (Next.js client)                    Server (Next.js route handlers)
+─────────────────────────                   ───────────────────────────────────────────────
+calendar · gates · brief · hygiene  ──GET──▶ /api/tracker   → TrackerSource: demo | Linear (5 s timeout)
+                                    ──POST─▶ /api/brief     → Claude tool-use loop, ≤6 tool turns, SSE
+                                    ──POST─▶ /api/hygiene/apply → recompute fixes, write confirmed ones to Linear
+                lib/readiness: pure functions shared by all of the above
+```
+
+- **`lib/readiness/`**: pure, unit-tested functions: `gateInfo`, `launchInfo`, `hygieneChecks`, `proposeFixes`, `rulesBrief`, `boardSummary`. Dates are ISO calendar dates and "today" is an input, so scoring is timezone-free.
+- **`lib/tracker/`**: a `TrackerSource` interface with two adapters. `demo.ts` is the sample org with dates relative to today. `linear.ts` reads a Linear team. `linear-schema.ts` holds the whole Launch Control ↔ Linear mapping (PRD §5), shared by the seed script and the adapter.
+- **`lib/agent/`**: the agent's tools and prompt. **`app/api/brief`** runs the loop server-side and streams `tool`, `text`, `done` and `error` events.
+- **`components/`**: the UI, ported from the approved prototype (`prototype/index.html`).
+
+### Safety and resilience
+- **Secrets stay on the server.** The browser only learns *whether* Claude and Linear are configured.
+- **Untrusted text is rendered as text.** Claude output and Linear titles go through a small Markdown parser into React text nodes; there's no `innerHTML` anywhere.
+- **Every external call has a timeout and a visible fallback.** Linear (5 s) falls back to demo data with a banner. Claude (45 s), or a missing key, rate limit or refusal, falls back to the rules brief, and the trace says why.
+- **Cost and write guards.** A passcode (`DEMO_PASSCODE`) gates Claude runs and Linear writes, plus a per-IP rate limit (10 agent runs per hour).
+- **The agent never writes.** Tracker changes only happen after a person reviews and clicks Apply; the server recomputes the fixes itself and applies only the confirmed ones that are still valid.
+
+## Run it locally
+
+Needs Node.js 20+.
 
 ```bash
 cd launch-control
 npm install
-cp .env.example .env.local   # optional: with no keys the app runs on demo data and the rules-engine brief
-npm run dev                  # http://localhost:3000
+cp .env.example .env.local    # add keys; with none, the app runs on demo data + rules brief
+npm run dev                   # http://localhost:3000
 ```
+
+| Variable | Purpose |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | Claude for the readiness agent |
+| `LINEAR_API_KEY`, `LINEAR_TEAM_KEY` | Live mode (team key, e.g. `LCH`) |
+| `DEMO_PASSCODE` | Required for agent runs and Linear writes when set; leave empty locally |
+
+### Tests and checks
 
 ```bash
-npm test          # Vitest: gate rules, hygiene, rules brief, parser
-npm run build     # production build + type check
+npm test                                   # Vitest: gate rules, hygiene, briefs, agent tools, Linear mapping, guards
+npm run build                              # production build + type check
+npm run check:linear                       # live Linear readiness vs. demo, launch by launch
+npm run smoke -- <url> --passcode <p>      # walks the demo script in a real browser (see below)
 ```
 
-## How it works
+`npm run smoke` needs a browser once per machine: `npx playwright install chromium`. Add `--no-agent` to skip the paid Claude call. It never writes to Linear.
 
-- `lib/tracker/` — `TrackerSource` interface; `demo.ts` is the prototype's sample org with dates relative to today; `linear.ts` reads a Linear team; `linear-schema.ts` is the Launch Control ↔ Linear mapping.
-- `lib/readiness/` — pure functions: `gateInfo`, `launchInfo`, `hygieneChecks`, `autofix`, `rulesBrief`, `boardSummary`.
-- `app/api/tracker` — returns launches + issues for the selected source.
-- `components/` — the UI, ported from `prototype/index.html` (the approved design).
-
-**Gate rule:** a gate is *at risk* if it has no ticket, or any open ticket is blocked, overdue, or due after go/no-go (launch date − 2 days). *Ready* when all its tickets are done. Otherwise *in progress*. Tier 1 launches have 10 gates, Tier 2 have 7, Tier 3 have 3.
-
-## Scripts
-
-- `npm run seed:build` — dry run of the "Launch Control v1" build project for Linear (prints the plan). Add `-- --yes` to write it; needs `LINEAR_API_KEY` and `LINEAR_TEAM_KEY` in `.env.local`.
-
-## Readiness agent
-
-`POST /api/brief` runs Claude (`claude-sonnet-5-5`) server-side with three read-only tools — `list_launches`, `get_gates`, `list_issues` — for at most 6 tool turns, and streams Server-Sent Events: `tool` (one per tool call, shown as the live trace), `text`, `done`, `error`. Any failure or a 45 s timeout falls back to the rules-engine brief, and the trace says why. The last good AI brief per launch is cached in the browser and marked stale when tickets change.
-
-## Linear (live mode)
-
-Set `LINEAR_API_KEY` and `LINEAR_TEAM_KEY` in `.env.local`, then switch **Data source → Linear**. A launch is a project in the team with a `Tier 1/2/3` project label and a target date; gates are issue labels in the `Gate` group. See PRD §5 and `lib/tracker/linear-schema.ts`.
+### Linear setup
 
 ```bash
-npm run seed:linear            # dry run: what would be created in the team
-npm run seed:linear -- --yes   # create states, labels, 5 launch projects and 41 issues (skips what exists)
-npm run check:linear           # load live data and compare readiness with the demo, launch by launch
-npm run seed:linear -- --restore --yes   # before a rehearsal: undo hygiene fixes and status changes on seeded issues
+npm run seed:linear                        # dry run: what would be created in the team
+npm run seed:linear -- --yes               # states, labels, 5 launch projects, 41 issues (skips what exists)
+npm run seed:linear -- --restore --yes     # before a rehearsal: undo hygiene fixes and status changes
+npm run seed:build                         # dry run of the build's own "Launch Control v1" project
 ```
 
-**Hygiene in Linear mode:** *Review fixes* lists every safe fix (assign the team lead, set a due date 4 days before launch, comment to nudge a stale owner), all ticked. *Apply N to Linear* writes only the ticked ones, through `POST /api/hygiene/apply`, which recomputes the fixes from fresh Linear data and applies only ids that are still valid.
+A launch is a team project with a `Tier 1/2/3` project label and a target date. Gates are issue labels in the `Gate` group. Sample-org people aren't workspace members, so owners and PMs are stored as `Owner:` and `PM:` lines; a real assignee always wins.
 
-If Linear is unreachable, unconfigured or slower than 5 s, the app shows the demo data with a banner saying why.
+## Deploy (Vercel)
+
+Import the repo, set **Root Directory** to `launch-control`, and add the four environment variables. Set `DEMO_PASSCODE` before sharing the URL. Then run the smoke test against the production URL.
+
+## Project docs
+
+[PRD](PRD.md) · [Decisions log](DECISIONS.md) · [Backlog](BACKLOG.md) · [Talk track](docs/TALK_TRACK.md) · [Approved prototype](prototype/index.html)

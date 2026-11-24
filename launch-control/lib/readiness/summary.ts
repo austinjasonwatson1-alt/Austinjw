@@ -32,7 +32,10 @@ export function boardSummary(snap: Pick<TrackerSnapshot, 'launches' | 'issues' |
 
   let headline: string;
   let sub: string;
-  if (hot) {
+  if (!infos.length) {
+    headline = 'No launches on the calendar yet';
+    sub = 'A launch is a project with a Tier 1, 2 or 3 label and a target date. Add one in the tracker, or switch to Demo data.';
+  } else if (hot) {
     headline = `${hot.launch.name} ${msShort(hot.launch.milestone)} is at risk: ${hot.risk} of ${hot.n} gates need action, ${hot.daysOut} days out`;
     sub = `Go/no-go is ${fmtDate(hot.goNoGo)}. ${infos.filter((x) => x.state !== 'risk').length} of ${infos.length} launches on the calendar are on track or ready.`;
   } else {

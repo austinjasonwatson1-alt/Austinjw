@@ -21,12 +21,16 @@ import Calendar from './Calendar';
 import { cx } from './cx';
 import GatesPanel from './GatesPanel';
 import HygienePanel, { type LogEntry } from './HygienePanel';
+import PasscodeDialog from './PasscodeDialog';
 
 const TRACKER_TIMEOUT_MS = 5_000;
 /** A little over the server's 45 s Claude deadline, so the server's own error arrives first. */
 const AGENT_TIMEOUT_MS = 50_000;
+const AGENT_RUNS_LABEL = '10 agent runs per hour';
 const CACHE_KEY = (id: string) => `lc-brief-${id}`;
 const SOURCE_KEY = 'lc-source';
+const PASS_KEY = 'lc-pass'; // sessionStorage: forgotten when the browser session ends
+const minutes = (s: number) => `${Math.max(1, Math.ceil(s / 60))} min`;
 
 const savedSource = (): SourceKind => {
   try {
@@ -75,6 +79,10 @@ export default function LaunchControl() {
   const [brief, setBrief] = useState<Brief | null>(null);
   const [running, setRunning] = useState(false);
   const [agentAvailable, setAgentAvailable] = useState(false);
+  const [passRequired, setPassRequired] = useState(false);
+  const [dlg, setDlg] = useState<{ error?: string } | null>(null);
+  const passRef = useRef<string | null>(null);
+  const askResolve = useRef<((v: string | null) => void) | null>(null);
   const agentCtl = useRef<AbortController | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [saved, setSaved] = useState(0);
@@ -106,10 +114,66 @@ export default function LaunchControl() {
   useEffect(() => {
     fetch('/api/brief', { signal: AbortSignal.timeout(TRACKER_TIMEOUT_MS) })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => setAgentAvailable(Boolean(j?.available)))
+      .then((j) => {
+        setAgentAvailable(Boolean(j?.available));
+        setPassRequired(Boolean(j?.passcodeRequired));
+      })
       .catch(() => setAgentAvailable(false));
     return () => agentCtl.current?.abort();
   }, []);
+
+  useEffect(() => {
+    try {
+      passRef.current = sessionStorage.getItem(PASS_KEY);
+    } catch {
+      /* storage blocked: we'll ask */
+    }
+  }, []);
+
+  const askPasscode = (error?: string) =>
+    new Promise<string | null>((resolve) => {
+      askResolve.current = resolve;
+      setDlg({ error });
+    });
+  const closeDialog = (value: string | null) => {
+    setDlg(null);
+    askResolve.current?.(value);
+    askResolve.current = null;
+  };
+
+  /**
+   * POST with the demo passcode. Asks for it first if needed, and again (up to 3 tries) if the
+   * server rejects it. Resolves to null if the person cancels.
+   */
+  const postGuarded = async (url: string, body: unknown, signal: AbortSignal): Promise<Response | null> => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (passRequired && !passRef.current) {
+        const p = await askPasscode(attempt ? 'That passcode didn’t work. Try again.' : undefined);
+        if (!p) return null;
+        passRef.current = p;
+        try {
+          sessionStorage.setItem(PASS_KEY, p);
+        } catch {
+          /* keep it in memory only */
+        }
+      }
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(passRef.current ? { 'x-demo-passcode': passRef.current } : {}) },
+        body: JSON.stringify(body),
+        signal,
+      });
+      if (res.status !== 401) return res;
+      passRef.current = null;
+      try {
+        sessionStorage.removeItem(PASS_KEY);
+      } catch {
+        /* nothing stored */
+      }
+      if (!passRequired) setPassRequired(true); // server config changed since load
+    }
+    return null;
+  };
 
   const stopAgent = () => {
     agentCtl.current?.abort();
@@ -194,6 +258,16 @@ export default function LaunchControl() {
       );
       return;
     }
+    if (passRequired && !passRef.current) {
+      const p = await askPasscode();
+      if (!p) return;
+      passRef.current = p;
+      try {
+        sessionStorage.setItem(PASS_KEY, p);
+      } catch {
+        /* keep it in memory only */
+      }
+    }
     stopAgent();
     const ctl = (agentCtl.current = new AbortController());
     const launch = L;
@@ -203,15 +277,22 @@ export default function LaunchControl() {
     setBrief({ ...base, text: '', trace: [] });
     let failure = 'error';
     try {
-      const res = await fetch('/api/brief', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await postGuarded(
+        '/api/brief',
         // Live data: the server reads Linear itself. Demo: send what's on screen.
-        body: JSON.stringify(
-          live ? { launchId: launch.id, source: 'linear', asOf: snap.asOf } : { launchId: launch.id, snapshot: snap },
-        ),
-        signal: AbortSignal.any([ctl.signal, AbortSignal.timeout(AGENT_TIMEOUT_MS)]),
-      });
+        live ? { launchId: launch.id, source: 'linear', asOf: snap.asOf } : { launchId: launch.id, snapshot: snap },
+        AbortSignal.any([ctl.signal, AbortSignal.timeout(AGENT_TIMEOUT_MS)]),
+      );
+      if (!res) {
+        // Passcode cancelled: put back whatever brief was showing and run nothing.
+        setBrief(null);
+        return;
+      }
+      if (res.status === 429) {
+        const j = (await res.json().catch(() => ({}))) as { retryAfter?: number };
+        failure = `rate limit: ${AGENT_RUNS_LABEL}, try again in ${minutes(j.retryAfter ?? 3600)}`;
+        throw new Error(failure);
+      }
       if (!res.ok || !res.body) throw new Error(`http_${res.status}`);
       for await (const { event, data } of readSse(res.body)) {
         const d = data as { label?: string; text?: string; code?: string };
@@ -239,6 +320,7 @@ export default function LaunchControl() {
     } catch (e) {
       if (ctl.signal.aborted) return; // superseded by a launch switch or reset
       if (failure === 'error' && e instanceof DOMException && e.name === 'TimeoutError') failure = 'timeout';
+      else if (failure === 'error' && e instanceof TypeError) failure = navigator.onLine === false ? 'offline' : 'network';
       else if (failure === 'error' && e instanceof Error) failure = e.message || 'error';
       rulesFallback(
         `Claude didn't answer (${failure}), so the rules engine wrote this brief.`,
@@ -261,19 +343,23 @@ export default function LaunchControl() {
   /** Linear mode: write the confirmed fixes, log the outcome, then reload from Linear. */
   const applyLinearFixes = async (ids: string[]): Promise<{ ok: boolean; message: string }> => {
     try {
-      const res = await fetch('/api/hygiene/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ asOf: snap.asOf, fixIds: ids }),
-        signal: AbortSignal.timeout(60_000),
-      });
+      const res = await postGuarded('/api/hygiene/apply', { asOf: snap.asOf, fixIds: ids }, AbortSignal.timeout(60_000));
+      if (!res) return { ok: false, message: 'Nothing was written: the passcode was not entered.' };
       const j = (await res.json().catch(() => ({}))) as {
         results?: { ok: boolean; text: string; id: string; error?: string }[];
         skipped?: string[];
         error?: string;
+        retryAfter?: number;
       };
       if (!res.ok || !j.results) {
-        const why = j.error === 'passcode_required' ? 'the demo passcode is required' : j.error === 'linear_unavailable' ? 'Linear didn’t answer' : (j.error ?? `HTTP ${res.status}`);
+        const why =
+          j.error === 'rate_limited'
+            ? `too many changes from this network this hour; try again in ${minutes(j.retryAfter ?? 3600)}`
+            : j.error === 'linear_unavailable'
+              ? 'Linear didn’t answer'
+              : j.error === 'linear_not_configured'
+                ? 'Linear isn’t configured on this server'
+                : (j.error ?? `HTTP ${res.status}`);
         addLog([{ text: `Linear fixes not applied: ${why}`, minutes: 0 }]);
         return { ok: false, message: `Nothing was written: ${why}.` };
       }
@@ -374,6 +460,8 @@ export default function LaunchControl() {
           live={live ? { fixes: proposed.fixes, apply: applyLinearFixes } : undefined}
         />
       </section>
+
+      <PasscodeDialog open={dlg != null} error={dlg?.error} onSubmit={(p) => closeDialog(p)} onCancel={() => closeDialog(null)} />
 
       <footer className={cx('band', 'bandTight')}>
         <div className={cx('wrap')}>

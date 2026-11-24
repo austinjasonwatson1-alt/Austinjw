@@ -10,6 +10,7 @@ Rules: base every claim on tool data. Cite issue ids and name owners. A gate wit
 Write exactly this Markdown:
 ## Recommendation
 One of GO, GO WITH CONDITIONS, or NO-GO (as of today), then " — " and one sentence why.
+Use NO-GO (as of today) if any gate is At risk; GO WITH CONDITIONS if none is At risk but some are In progress; GO only if every gate is Ready.
 ## Blocking risks
 Up to 4 bullets: gate — issue id or "no ticket" — owner — what must happen by when.
 ## Before go/no-go
