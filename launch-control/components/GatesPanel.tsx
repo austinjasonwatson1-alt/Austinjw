@@ -1,0 +1,104 @@
+'use client';
+
+import { fmtDate } from '@/lib/dates';
+import { daysSinceUpdate, isOverdue, STALE_DAYS, STATUS_LABEL, type LaunchInfo } from '@/lib/readiness';
+import type { Issue } from '@/lib/tracker/types';
+import { cx } from './cx';
+
+const PILL: Partial<Record<Issue['status'], string>> = { done: 'sD', blocked: 'sX' };
+
+function IssueRow({ i, asOf, onCycle }: { i: Issue; asOf: string; onCycle: (id: string) => void }) {
+  const upd = daysSinceUpdate(i, asOf);
+  return (
+    <li>
+      <code>{i.id}</code>
+      <span className={cx('it')}>
+        {i.title}
+        <small>
+          {i.owner ? i.owner : <span className={cx('bad')}>No owner</span>}
+          {' · '}
+          {i.due == null ? (
+            <span className={cx('bad')}>No due date</span>
+          ) : isOverdue(i, asOf) ? (
+            <span className={cx('bad')}>Overdue, was due {fmtDate(i.due)}</span>
+          ) : (
+            `Due ${fmtDate(i.due)}`
+          )}
+          {i.status !== 'done' && upd >= STALE_DAYS && (
+            <>
+              {' · '}
+              <span className={cx('bad')}>No update in {upd} days</span>
+            </>
+          )}
+        </small>
+      </span>
+      <button
+        type="button"
+        className={cx('st', PILL[i.status])}
+        aria-label={`${i.id} status ${STATUS_LABEL[i.status]}, tap to change`}
+        onClick={() => onCycle(i.id)}
+      >
+        {STATUS_LABEL[i.status]}
+      </button>
+    </li>
+  );
+}
+
+export default function GatesPanel({
+  info,
+  asOf,
+  onCycle,
+}: {
+  info: LaunchInfo;
+  asOf: string;
+  onCycle: (id: string) => void;
+}) {
+  const L = info.launch;
+  return (
+    <div className={cx('panel')}>
+      <div className={cx('lhead')}>
+        <div>
+          <h2>
+            {L.name} · {L.milestone}
+          </h2>
+          <small>
+            Tier {L.tier} · launches {fmtDate(L.launchDate)} · go/no-go {fmtDate(info.goNoGo)} · PM {L.pm ?? 'unassigned'}
+          </small>
+        </div>
+        <small>
+          {info.ready} of {info.n} gates ready
+        </small>
+      </div>
+      <div className={cx('meter')}>
+        <i style={{ width: `${(info.ready / info.n) * 100}%` }} />
+      </div>
+      <div>
+        {info.gates.map((g) => (
+          <details key={`${L.id}-${g.gate.key}`} className={cx('gate', g.state)} open={g.state !== 'ready'}>
+            <summary>
+              <span className={cx('dot')} />
+              <span className={cx('gn')}>{g.gate.name}</span>
+              <span className={cx('gw')}>{g.why}</span>
+              <span className={cx('gc')}>
+                {g.done}/{g.issues.length}
+              </span>
+            </summary>
+            {g.issues.length ? (
+              <ul>
+                {g.issues.map((i) => (
+                  <IssueRow key={i.id} i={i} asOf={asOf} onCycle={onCycle} />
+                ))}
+              </ul>
+            ) : (
+              <p className={cx('none')}>No ticket exists for this gate. Someone has to create and own it.</p>
+            )}
+          </details>
+        ))}
+      </div>
+      <p className={cx('how')}>
+        Tap a status pill to move an issue along (Backlog → In progress → In review → Done → Blocked). Gates, the
+        calendar and the brief update live.
+      </p>
+    </div>
+  );
+}

@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Launch Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE work: an ops console a product org would actually run launches from
+   IDEA a flight-ops readiness board: every launch is a departure, every gate a pre-flight check
+   PICTURE the launch calendar: one track per launch from today to its date, built from its gate segments
+   COLOUR deep sea ground, sky for ready, white for in progress, signal pink for risk
+   TYPE Hanken Grotesk light for the finding, Hanken Grotesk for everything else
+   LAYOUT finding + figures, calendar full width; then gates beside the agent brief; hygiene last. Phone stacks in that order */
+:root{color-scheme:dark;--bg:#0a2540;--panel:#0f2f52;--panel2:#123661;--edge:rgba(143,211,255,.18);--ink:#fff;--mut:rgba(255,255,255,.7);--sky:#8fd3ff;--pink:#ff5c8a;--prog:rgba(255,255,255,.38)}
+:root[data-theme=light],:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.55 "Hanken Grotesk",system-ui,sans-serif;overflow-x:clip}
+.band{padding:clamp(24px,4vw,56px) max(5vw,16px)}
+.wrap{max-width:1240px;margin:0 auto}
+h1{font-weight:300;font-size:clamp(30px,4.2vw,48px);line-height:1.08;letter-spacing:-.02em;margin:0;text-wrap:balance;max-width:20ch}
+h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:0 0 4px}
+p{margin:0}
+small{font-size:13px;color:var(--mut)}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,summary:focus-visible{outline:2px solid var(--sky);outline-offset:2px}
+.top{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:24px 48px;align-items:end}
+.sub{color:var(--mut);margin-top:12px;max-width:52ch}
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--edge);border:1px solid var(--edge);border-radius:12px;overflow:hidden}
+.kpi{background:var(--bg);padding:14px 16px}
+.kpi b{display:block;font-size:30px;font-weight:300;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kpi small{display:block}
+.kpi.hot b{color:var(--pink)}.kpi.ok b{color:var(--sky)}
+.cal{margin-top:32px;border-top:1px solid var(--edge)}
+.axis,.row{display:grid;grid-template-columns:minmax(0,230px) minmax(0,1fr) 92px;gap:16px;align-items:center}
+.axis{padding:10px 12px 6px;font-size:13px;color:var(--mut)}
+.ticks{position:relative;height:18px}
+.ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.ticks span:first-child{transform:none}.ticks span:last-child{transform:translateX(-100%)}
+.row{width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--edge);padding:14px 12px;border-radius:0;min-height:64px}
+.row:hover{background:rgba(143,211,255,.06)}
+.row.on{background:var(--panel);box-shadow:inset 3px 0 0 var(--sky)}
+.nm b{display:block;font-weight:600;line-height:1.25}
+.trk{position:relative;height:22px;background-image:repeating-linear-gradient(to right,rgba(143,211,255,.16) 0 1px,transparent 1px 20%)}
+.bar{position:absolute;left:0;top:4px;height:14px;display:flex;gap:2px}
+.seg{flex:1;border-radius:2px}
+.ready{--c:var(--sky)}.prog{--c:var(--prog)}.risk{--c:var(--pink)}
+.seg,.dot{background:var(--c)}
+.mk{position:absolute;top:3px;width:16px;height:16px;margin-left:4px;transform:rotate(45deg);border:2px solid var(--c);background:var(--bg)}
+.dt{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.dt small{display:block}
+.dt small.risk{color:var(--pink)}.dt small.ready{color:var(--sky)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;padding:12px;font-size:13px;color:var(--mut)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-1px;background:var(--c)}
+.work{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:24px;align-items:start}
+.panel{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:clamp(16px,2.4vw,24px)}
+.lhead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 16px;align-items:baseline;margin-bottom:14px}
+.meter{height:8px;border-radius:4px;background:rgba(255,255,255,.12);overflow:hidden;margin:6px 0 16px;display:flex}
+.meter i{background:var(--sky)}
+.gate{border-top:1px solid var(--edge)}
+.gate summary{display:grid;grid-template-columns:12px minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:12px 2px;cursor:pointer;list-style:none}
+.gate summary::-webkit-details-marker{display:none}
+.dot{width:12px;height:12px;border-radius:50%}
+.gn{font-weight:600}
+.gw{font-size:13px;color:var(--mut);text-align:right}
+.gate.risk .gw{color:var(--pink)}
+.gc{font-size:13px;font-variant-numeric:tabular-nums;color:var(--mut);min-width:2.4em;text-align:right}
+.gate ul{list-style:none;margin:0 0 12px;padding:0 0 0 24px}
+.gate li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 0;border-top:1px dashed var(--edge)}
+code{font:500 13px/1 "Hanken Grotesk",sans-serif;color:var(--sky);white-space:nowrap}
+.it small{display:block}
+.it small .bad{color:var(--pink)}
+.none{color:var(--pink);font-size:14px;margin:0 0 12px 24px}
+.st{border:1px solid var(--edge);background:var(--panel2);border-radius:999px;padding:6px 12px;font-size:13px;min-height:36px;white-space:nowrap}
+.st:hover{border-color:var(--sky)}
+.sD{color:var(--sky);border-color:rgba(143,211,255,.5)}.sX{color:var(--pink);border-color:rgba(255,92,138,.6)}
+.brief{position:sticky;top:16px}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}
+.go{background:var(--sky);color:#0a2540;border:0;border-radius:10px;padding:12px 18px;font-weight:700;min-height:44px}
+.go:disabled{opacity:.6;cursor:progress}
+.ghost{background:none;border:1px solid var(--edge);border-radius:10px;padding:10px 14px;min-height:44px}
+.ghost:hover{border-color:var(--sky)}
+.src{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--mut);flex-wrap:wrap}
+.pill{border:1px solid var(--edge);border-radius:999px;padding:2px 10px;color:var(--ink)}
+.pill.ai{border-color:var(--sky);color:var(--sky)}
+.trace{list-style:none;margin:10px 0 0;padding:0;font-size:13px;color:var(--mut)}
+.trace li{padding:3px 0}
+.trace li::before{content:"→ ";color:var(--sky)}
+.out{margin-top:14px;border-top:1px solid var(--edge);padding-top:6px}
+.out h4{font-size:13px;font-weight:600;color:var(--mut);margin:16px 0 6px}
+.out ul{margin:0;padding-left:18px}
+.out li{margin:4px 0}
+.out p{margin:4px 0}
+.rec{font-size:20px;font-weight:600;line-height:1.3}
+.rec.no{color:var(--pink)}.rec.yes{color:var(--sky)}
+.stale{color:var(--pink);font-size:13px;margin-top:8px}
+.how{font-size:13px;color:var(--mut);margin-top:16px;border-top:1px solid var(--edge);padding-top:12px}
+.hyg{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px}
+.chk{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:12px 0;border-top:1px solid var(--edge)}
+.chk b{font-size:24px;font-weight:300;font-variant-numeric:tabular-nums;text-align:right}
+.chk.bad b{color:var(--pink)}
+.chk small{grid-column:1/-1}
+.big{font-size:clamp(44px,6vw,64px);font-weight:300;line-height:1;color:var(--sky);font-variant-numeric:tabular-nums}
+.log{list-style:none;padding:0;margin:14px 0 0;font-size:14px;max-height:260px;overflow:auto}
+.log li{padding:7px 0;border-top:1px solid var(--edge)}
+.log time{color:var(--mut);font-size:13px;margin-right:8px;font-variant-numeric:tabular-nums}
+footer{color:var(--mut);font-size:13px}
+@media(max-width:900px){.top,.work,.hyg{grid-template-columns:minmax(0,1fr)}.brief{position:static}}
+@media(max-width:600px){
+ .axis{grid-template-columns:minmax(0,1fr);padding-inline:4px}.axis>span:first-child,.axis>span:last-child{display:none}
+ .row{grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;padding-inline:8px}.row .trk{grid-column:1/-1;grid-row:2}
+ .gate li{grid-template-columns:minmax(0,1fr) auto}.gate li code{grid-column:1/-1}
+ .gw{display:none}.ticks span:nth-child(even){display:none}.gate summary{grid-template-columns:12px minmax(0,1fr) auto}
+}
+@media(prefers-reduced-motion:no-preference){.seg{transition:background .35s}.bar{animation:grow .7s ease-out both}@keyframes grow{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}}
+</style>
+</head>
+<body>
+<section class="band">
+ <div class="wrap">
+  <div class="top">
+   <div>
+    <h1 id="finding">Loading launch readiness</h1>
+    <p class="sub" id="sub"></p>
+   </div>
+   <div class="kpis" id="kpis"></div>
+  </div>
+  <div class="cal" id="cal" role="list" aria-label="Launch calendar"></div>
+  <div class="legend"><span class="ready"><i></i>Gate ready</span><span class="prog"><i></i>In progress</span><span class="risk"><i></i>At risk or missing</span><span>Each bar runs from today to the launch date and is built from that launch's gates. Select a launch to inspect it.</span></div>
+ </div>
+</section>
+
+<section class="band" style="padding-top:0">
+ <div class="wrap work">
+  <div class="panel">
+   <div class="lhead"><div><h2 id="lname"></h2><small id="lmeta"></small></div><small id="lcount"></small></div>
+   <div class="meter" id="lmeter"></div>
+   <div id="gates"></div>
+   <p class="how">Tap a status pill to move an issue along (Backlog → In progress → In review → Done → Blocked). Gates, the calendar and the brief update live.</p>
+  </div>
+  <aside class="panel brief" aria-live="polite">
+   <h2>Go/no-go brief</h2>
+   <div class="src" id="src"></div>
+   <div class="btns">
+    <button class="go" id="run">Run readiness agent</button>
+    <button class="ghost" id="copy">Copy exec update</button>
+   </div>
+   <ul class="trace" id="trace"></ul>
+   <div class="out" id="out"></div>
+   <p class="how" id="how">The agent is Claude with three read-only tools over the tracker: list_launches, get_gates and list_issues. It reads the live data, then writes the brief. If Claude can't be reached, a rules engine writes the same brief from the same data, so the launch review never stalls.</p>
+  </aside>
+ </div>
+</section>
+
+<section class="band" style="padding-top:0">
+ <div class="wrap hyg">
+  <div class="panel">
+   <div class="lhead"><div><h2>Tracker hygiene</h2><small>So leadership can report straight from the tool, without cleanup</small></div><small id="hscore"></small></div>
+   <div id="checks"></div>
+   <div class="btns"><button class="go" id="fix">Auto-fix the safe ones</button><button class="ghost" id="reset">Reset sample data</button></div>
+  </div>
+  <div class="panel">
+   <h2>Manual work removed</h2>
+   <small>Estimate: 45 min per readiness sweep done by hand, 3 min per ticket fixed by hand</small>
+   <div class="big" id="saved">0 min</div>
+   <ul class="log" id="log"></ul>
+  </div>
+ </div>
+</section>
+
+<footer class="band" style="padding-top:0"><div class="wrap">Sample data for a fictional product org; dates are relative to today. Built by Austin Watson as a working prototype of launch readiness tooling.</div></footer>
+
+<script>
+{
+const DAY=864e5;
+const T0=new Date();T0.setHours(0,0,0,0);
+const fmt=d=>new Date(T0.getTime()+d*DAY).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $=id=>document.getElementById(id);
+const AX=35;
+const ST={B:'Backlog',P:'In progress',R:'In review',D:'Done',X:'Blocked'};
+const NEXT={B:'P',P:'R',R:'D',D:'X',X:'B'};
+const SL={ready:'Ready',prog:'On track',risk:'At risk'};
+const GATES=[
+ {k:'prd',n:'PRD and scope signed off',t:[1,2]},
+ {k:'eng',n:'Engineering complete',t:[1,2,3]},
+ {k:'qa',n:'QA and performance sign-off',t:[1,2,3]},
+ {k:'flag',n:'Feature flag and rollout plan',t:[1,2]},
+ {k:'sec',n:'Security and legal review',t:[1]},
+ {k:'docs',n:'Docs and release notes',t:[1,2,3]},
+ {k:'enable',n:'Sales and SE enablement',t:[1]},
+ {k:'support',n:'Support runbook and training',t:[1,2]},
+ {k:'price',n:'Pricing and packaging',t:[1]},
+ {k:'comms',n:'Customer comms',t:[1,2]}
+];
+const LAUNCHES=[
+ {id:'L1',name:'L1 Triage Agent',ms:'General availability',tier:1,d:16,pm:'Maya Chen'},
+ {id:'L2',name:'Change Risk Insights',ms:'Early access',tier:1,d:23,pm:'Jordan Ellis'},
+ {id:'L3',name:'Knowledge Graph API v2',ms:'General availability',tier:2,d:9,pm:'Priya Raman'},
+ {id:'L4',name:'ServiceNow connector 3.1',ms:'Minor release',tier:3,d:4,pm:'Sam Ortiz'},
+ {id:'L5',name:'Incident timeline refresh',ms:'Minor release',tier:3,d:30,pm:'Maya Chen'}
+];
+const LEADS={'R&D':'Dana Kim','QA':'Tom Alvarez','Docs':'Erin Walsh','PMM':'Nia Brooks','Support':'Kara Singh','Sales Eng':'Marcus Hill','Security':'Rachel Ng','PM':null};
+/* id, launch, gate, title, team, owner, status, due (days from today), days since update */
+const SEED=[
+ ['LCH-101','L1','prd','Finalize GA scope and success metrics','PM','Maya Chen','D',-10,6],
+ ['LCH-114','L1','eng','Runbook executor for auto-remediation','R&D','Lior Ben-Ami','R',5,1],
+ ['LCH-117','L1','eng','Tenant-level rate limits for agent actions','R&D','Dana Kim','P',8,2],
+ ['LCH-121','L1','eng','Fix duplicate incident merge on retry','R&D',null,'B',10,4],
+ ['LCH-126','L1','qa','Load test at 50k events per minute','QA','Tom Alvarez','X',6,3],
+ ['LCH-127','L1','qa','Regression suite for triage rules','QA','Tom Alvarez','P',9,2],
+ ['LCH-130','L1','flag','Rollout plan: 10% to 50% to 100% by cohort','PM','Maya Chen','D',-3,5],
+ ['LCH-133','L1','sec','Security review of agent action permissions','Security','Rachel Ng','P',-2,9],
+ ['LCH-138','L1','docs','GA docs: setup, guardrails, audit log','Docs','Erin Walsh','P',12,1],
+ ['LCH-139','L1','docs','Release notes draft','Docs',null,'B',null,16],
+ ['LCH-142','L1','enable','SE demo environment with sample incidents','Sales Eng','Marcus Hill','P',10,3],
+ ['LCH-143','L1','enable','Battlecard vs. native ITSM agents','PMM','Nia Brooks','B',11,7],
+ ['LCH-147','L1','price','Packaging: agent add-on SKU','PMM','Nia Brooks','D',-6,8],
+ ['LCH-150','L1','comms','Customer announcement and in-app message','PMM','Nia Brooks','B',14,5],
+ ['LCH-201','L2','prd','EA scope and design-partner criteria','PM','Jordan Ellis','D',-12,10],
+ ['LCH-205','L2','eng','Change ingestion from CI/CD webhooks','R&D','Omar Haddad','P',12,1],
+ ['LCH-206','L2','eng','Risk score model v1','R&D','Lior Ben-Ami','R',9,2],
+ ['LCH-210','L2','qa','EA acceptance tests','QA','Tom Alvarez','B',18,6],
+ ['LCH-212','L2','flag','EA allowlist for 8 design partners','PM','Jordan Ellis','D',-2,3],
+ ['LCH-214','L2','sec','Data protection review for change data','Security','Rachel Ng','D',-4,4],
+ ['LCH-217','L2','docs','EA guide for design partners','Docs','Erin Walsh','B',19,3],
+ ['LCH-219','L2','enable','EA talk track for CSMs','PMM','Nia Brooks','P',15,2],
+ ['LCH-221','L2','support','Support triage path for EA tickets','Support','Kara Singh','D',-1,1],
+ ['LCH-223','L2','price','EA pricing decision (free during EA)','PMM','Nia Brooks','D',-8,12],
+ ['LCH-225','L2','comms','Design-partner invite emails','PM','Jordan Ellis','P',7,1],
+ ['LCH-301','L3','prd','v2 scope and deprecation policy','PM','Priya Raman','D',-15,15],
+ ['LCH-304','L3','eng','Paginate the topology endpoint','R&D','Omar Haddad','D',-1,1],
+ ['LCH-305','L3','eng','Deprecate v1 fields with sunset headers','R&D','Omar Haddad','R',3,1],
+ ['LCH-308','L3','qa','Contract tests for the v2 schema','QA','Ivy Park','P',5,2],
+ ['LCH-310','L3','flag','Gradual rollout by API key','PM','Priya Raman','D',-5,5],
+ ['LCH-312','L3','docs','API reference v2 and migration guide','Docs','Erin Walsh','P',6,18],
+ ['LCH-315','L3','support','Support macro for v1 to v2 questions','Support','Kara Singh','D',-2,2],
+ ['LCH-317','L3','comms','Developer changelog post','PMM','Nia Brooks','B',7,4],
+ ['LCH-401','L4','eng','Two-way sync for work notes','R&D','Dana Kim','D',-3,3],
+ ['LCH-403','L4','qa','Regression on supported ServiceNow versions','QA','Ivy Park','D',-1,1],
+ ['LCH-405','L4','docs','Release notes 3.1','Docs','Erin Walsh','D',0,0],
+ ['LCH-501','L5','eng','Timeline zoom and grouping','R&D','Ben Osei','P',20,2],
+ ['LCH-503','L5','qa','Visual regression snapshots','QA','Ivy Park','B',24,9],
+ ['LCH-505','L5','docs','Help center update','Docs',null,'B',null,21],
+ ['LCH-610',null,null,'Investigate flaky webhook test','R&D','Dana Kim','P',3,4],
+ ['LCH-612',null,null,'Customer ask: export briefs to PDF','PM',null,'B',null,30]
+];
+let issues,log,saved,sel='L1',brief=null,ctl=null,sample=null,running=false;
+const reset=()=>{issues=SEED.map(a=>({id:a[0],launch:a[1],gate:a[2],title:a[3],team:a[4],owner:a[5],status:a[6],due:a[7],upd:a[8]}));log=[];saved=0;brief=null;};
+const L_=id=>LAUNCHES.find(l=>l.id===id);
+const gateInfo=(L,g)=>{
+ const its=issues.filter(i=>i.launch===L.id&&i.gate===g.k);
+ const done=its.filter(i=>i.status==='D').length;
+ const open=its.filter(i=>i.status!=='D');
+ let s,why;
+ if(!its.length){s='risk';why='No ticket exists'}
+ else if(!open.length){s='ready';why='Done'}
+ else if(open.some(i=>i.status==='X')){s='risk';why='Blocked'}
+ else if(open.some(i=>i.due!=null&&i.due<0)){s='risk';why='Overdue'}
+ else if(open.some(i=>i.due!=null&&i.due>L.d-2)){s='risk';why='Due after go/no-go'}
+ else{s='prog';why=open.length+' open'}
+ return {g,its,done,s,why};
+};
+const launchInfo=L=>{
+ const gates=GATES.filter(g=>g.t.includes(L.tier)).map(g=>gateInfo(L,g));
+ const risk=gates.filter(x=>x.s==='risk').length,ready=gates.filter(x=>x.s==='ready').length;
+ return {gates,risk,ready,n:gates.length,state:risk?'risk':ready===gates.length?'ready':'prog'};
+};
+const checks=()=>{
+ const open=issues.filter(i=>i.status!=='D');
+ return [
+  {k:'owner',n:'No owner',d:'Auto-fix assigns the team lead',items:open.filter(i=>!i.owner)},
+  {k:'due',n:'No due date',d:'Auto-fix sets it 4 days before launch',items:open.filter(i=>i.due==null&&i.launch)},
+  {k:'stale',n:'No update in 14+ days',d:'Auto-fix nudges the owner',items:open.filter(i=>i.upd>=14)},
+  {k:'link',n:'Not linked to a launch',d:'Judgment call, routed to a human',items:issues.filter(i=>!i.launch)}
+ ];
+};
+const clean=()=>{const bad=new Set();checks().forEach(c=>c.items.forEach(i=>bad.add(i.id)));return Math.round((issues.length-bad.size)/issues.length*100)};
+const now=()=>new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+const addLog=(t,m)=>{log.unshift({at:now(),t});saved+=m};
+
+const renderTop=()=>{
+ const infos=LAUNCHES.map(L=>({L,x:launchInfo(L)}));
+ const t1=infos.filter(o=>o.L.tier===1).sort((a,b)=>a.L.d-b.L.d);
+ const hot=t1.find(o=>o.x.risk)||infos.filter(o=>o.x.risk).sort((a,b)=>a.L.d-b.L.d)[0];
+ if(hot){
+  const ms=hot.L.ms==='General availability'?'GA':hot.L.ms.toLowerCase();
+  $('finding').textContent=`${hot.L.name} ${ms} is at risk: ${hot.x.risk} of ${hot.x.n} gates need action, ${hot.L.d} days out`;
+  $('sub').textContent=`Go/no-go is ${fmt(hot.L.d-2)}. ${infos.filter(o=>o.x.state!=='risk').length} of ${infos.length} launches on the calendar are on track or ready.`;
+ }else{
+  $('finding').textContent='Every launch on the calendar is on track';
+  $('sub').textContent='No gates are blocked, overdue or missing a ticket.';
+ }
+ const tot=infos.reduce((a,o)=>a+o.x.n,0),rd=infos.reduce((a,o)=>a+o.x.ready,0),rk=infos.filter(o=>o.x.state==='risk').length,hs=clean();
+ $('kpis').innerHTML=[
+  ['',infos.filter(o=>o.L.d<=30).length,'Launches in the next 30 days'],
+  ['ok',`${rd}/${tot}`,'Gates ready'],
+  [rk?'hot':'ok',rk,'Launches at risk'],
+  [hs<85?'hot':'ok',hs+'%','Tracker hygiene']
+ ].map(k=>`<div class="kpi ${k[0]}"><b>${k[1]}</b><small>${k[2]}</small></div>`).join('');
+ const ticks=[0,7,14,21,28,35].map(d=>`<span style="left:${d/AX*100}%">${d?fmt(d):'Today'}</span>`).join('');
+ $('cal').innerHTML=`<div class="axis"><span></span><div class="ticks">${ticks}</div><span></span></div>`+
+  infos.slice().sort((a,b)=>a.L.d-b.L.d).map(({L,x})=>{
+   const w=Math.min(L.d,AX)/AX*100;
+   return `<button class="row ${L.id===sel?'on':''}" data-l="${L.id}" role="listitem" aria-pressed="${L.id===sel}">
+    <span class="nm"><b>${esc(L.name)}</b><small>${esc(L.ms)} · Tier ${L.tier}</small></span>
+    <span class="trk"><span class="bar" style="width:${w}%">${x.gates.map(g=>`<i class="seg ${g.s}" title="${esc(g.g.n)}: ${esc(g.why)}"></i>`).join('')}</span><span class="mk ${x.state}" style="left:${w}%"></span></span>
+    <span class="dt">${fmt(L.d)}<small class="${x.state}">${SL[x.state]}</small></span></button>`;
+  }).join('');
+};
+const issueRow=i=>`<li><code>${esc(i.id)}</code><span class="it">${esc(i.title)}<small>${i.owner?esc(i.owner):'<span class="bad">No owner</span>'} · ${i.due==null?'<span class="bad">No due date</span>':(i.status!=='D'&&i.due<0?`<span class="bad">Overdue, was due ${fmt(i.due)}</span>`:'Due '+fmt(i.due))}${i.status!=='D'&&i.upd>=14?` · <span class="bad">No update in ${i.upd} days</span>`:''}</small></span><button class="st s${i.status}" data-i="${esc(i.id)}" aria-label="${esc(i.id)} status ${ST[i.status]}, tap to change">${ST[i.status]}</button></li>`;
+const renderLaunch=()=>{
+ const L=L_(sel),x=launchInfo(L);
+ $('lname').textContent=`${L.name} · ${L.ms}`;
+ $('lmeta').textContent=`Tier ${L.tier} · launches ${fmt(L.d)} · go/no-go ${fmt(L.d-2)} · PM ${L.pm}`;
+ $('lcount').textContent=`${x.ready} of ${x.n} gates ready`;
+ $('lmeter').innerHTML=`<i style="width:${x.ready/x.n*100}%"></i>`;
+ $('gates').innerHTML=x.gates.map(gi=>`<details class="gate ${gi.s}" ${gi.s!=='ready'?'open':''}><summary><span class="dot"></span><span class="gn">${esc(gi.g.n)}</span><span class="gw">${esc(gi.why)}</span><span class="gc">${gi.done}/${gi.its.length}</span></summary>${gi.its.length?`<ul>${gi.its.map(issueRow).join('')}</ul>`:`<p class="none">No ticket exists for this gate. Someone has to create and own it.</p>`}</details>`).join('');
+};
+const renderHyg=()=>{
+ $('hscore').textContent=clean()+'% clean';
+ $('checks').innerHTML=checks().map(c=>`<div class="chk ${c.items.length?'bad':''}"><span><strong>${c.n}</strong></span><b>${c.items.length}</b><small>${c.items.length?c.items.map(i=>esc(i.id)).join(', ')+' · ':''}${c.d}</small></div>`).join('');
+ $('saved').textContent=saved>=60?`${Math.floor(saved/60)} h ${saved%60} min`:`${saved} min`;
+ $('log').innerHTML=log.length?log.map(l=>`<li><time>${esc(l.at)}</time>${esc(l.t)}</li>`).join(''):'<li>Nothing yet. Run the agent or auto-fix to log work here.</li>';
+};
+
+/* ---------- briefs ---------- */
+const rulesBrief=L=>{
+ const x=launchInfo(L);
+ const risk=x.gates.filter(g=>g.s==='risk'),prog=x.gates.filter(g=>g.s==='prog');
+ const rec=x.state==='ready'?'GO':risk.length?'NO-GO (as of today)':'GO WITH CONDITIONS';
+ const why=x.state==='ready'?'every gate is done.':risk.length?`${risk.length} gate${risk.length>1?'s are':' is'} blocked, overdue or missing a ticket.`:`no blockers, but ${prog.length} gate${prog.length>1?'s are':' is'} still in progress.`;
+ const owner=i=>i.owner||'unassigned';
+ const rl=risk.map(g=>{
+  if(!g.its.length)return `- ${g.g.n} — no ticket — ${LEADS[{support:'Support',docs:'Docs',comms:'PMM',enable:'PMM',sec:'Security',price:'PMM'}[g.g.k]]||L.pm} — create and own it before ${fmt(L.d-2)}`;
+  const i=g.its.find(i=>i.status==='X')||g.its.find(i=>i.status!=='D'&&i.due!=null&&i.due<0)||g.its.find(i=>i.status!=='D');
+  return `- ${g.g.n} — ${i.id} — ${owner(i)} — ${g.why.toLowerCase()}: ${i.title}`;
+ });
+ const pl=prog.flatMap(g=>g.its.filter(i=>i.status!=='D').map(i=>({g,i}))).sort((a,b)=>(a.i.due??99)-(b.i.due??99)).slice(0,4)
+  .map(({g,i})=>`- ${i.id} ${i.title} — ${owner(i)} — ${i.due==null?'no due date':'due '+fmt(i.due)}`);
+ return [
+  '## Recommendation',`${rec} — ${why}`,
+  '## Blocking risks',...(rl.length?rl:['- None.']),
+  '## Before go/no-go',...(pl.length?pl:['- Nothing open.']),
+  '## Exec update',
+  `${L.name} (${L.ms}, Tier ${L.tier}) is ${SL[x.state].toLowerCase()} for ${fmt(L.d)}, with ${x.ready} of ${x.n} readiness gates done. ${risk.length?`The risks are ${risk.map(g=>g.g.n).join('; ')}.`:'There are no blocking risks.'} Go/no-go is ${fmt(L.d-2)}${risk.length?', and we will confirm owners for each risk this week.':'.'}`
+ ].join('\n');
+};
+const md=t=>{
+ let h='',ul=false,sec='';
+ for(const raw of t.split('\n')){
+  const ln=raw.trim();if(!ln)continue;
+  const b=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  if(ln.startsWith('#')){if(ul){h+='</ul>';ul=false}sec=ln.replace(/^#+\s*/,'');h+=`<h4>${esc(sec)}</h4>`;continue}
+  if(/^[-*]\s/.test(ln)){if(!ul){h+='<ul>';ul=true}h+=`<li>${b(ln.replace(/^[-*]\s+/,''))}</li>`;continue}
+  if(ul){h+='</ul>';ul=false}
+  if(/^recommendation/i.test(sec)){const c=/^\**\s*NO-GO/i.test(ln)?'no':/^\**\s*GO\b(?!\s*WITH)/i.test(ln)?'yes':'';h+=`<p class="rec ${c}">${b(ln)}</p>`}
+  else h+=`<p>${b(ln)}</p>`;
+ }
+ return h+(ul?'</ul>':'');
+};
+const showBrief=()=>{
+ const L=L_(sel);
+ if(!brief||brief.id!==sel){
+  let c=null;try{c=JSON.parse(localStorage.getItem('lc-brief-'+sel)||'null')}catch(e){}
+  brief=c?{id:sel,kind:'ai',text:c.text,at:c.at,stale:true,trace:[]}:{id:sel,kind:'rules',text:rulesBrief(L),at:now(),trace:[]};
+ }
+ if(brief.kind==='rules')brief.text=rulesBrief(L);
+ $('src').innerHTML=brief.kind==='ai'?`<span class="pill ai">Claude agent</span><span>written ${esc(brief.at)}</span>`:`<span class="pill">Rules engine</span><span>updates live as tickets move</span>`;
+ $('trace').innerHTML=(brief.trace||[]).map(t=>`<li>${esc(t)}</li>`).join('');
+ $('out').innerHTML=md(brief.text)+(brief.kind==='ai'&&brief.stale?'<p class="stale">Tickets may have changed since this brief. Run the agent again for a fresh read.</p>':'');
+};
+const renderAll=()=>{renderTop();renderLaunch();renderHyg();showBrief();
+ $('run').textContent=running?'Agent is reading the tracker…':sample?'Run readiness agent':'Run readiness check';
+ $('run').disabled=running;
+};
+
+const runAgent=async()=>{
+ const L=L_(sel);
+ if(!sample){brief={id:sel,kind:'rules',text:rulesBrief(L),at:now(),trace:['Claude is not available in this view, so the rules engine wrote this brief.']};addLog(`Readiness check on ${L.name} (rules engine)`,45);renderAll();return}
+ ctl?.abort();ctl=new AbortController();running=true;
+ const trace=[];brief={id:sel,kind:'ai',text:'',at:now(),trace,stale:false};renderAll();$('out').innerHTML='<p>Thinking…</p>';
+ const tr=t=>{trace.push(t);$('trace').innerHTML=trace.map(x=>`<li>${esc(x)}</li>`).join('')};
+ const gatesFor=id=>{const l=L_(id);if(!l)throw new Error('Unknown launch id');return l};
+ const tools=[
+  {name:'list_launches',description:'List every launch on the calendar with tier, launch date, days out and overall readiness state.',inputSchema:{type:'object',properties:{}},
+   execute:()=>{tr('list_launches · '+LAUNCHES.length+' launches');return LAUNCHES.map(l=>{const x=launchInfo(l);return{id:l.id,name:l.name,milestone:l.ms,tier:l.tier,launch_date:fmt(l.d),days_out:l.d,state:SL[x.state],gates_ready:`${x.ready}/${x.n}`}})}},
+  {name:'get_gates',description:'Readiness gates for one launch: gate name, status (Ready, In progress, At risk), reason, and done/total tickets.',inputSchema:{type:'object',properties:{launch_id:{type:'string',description:'Launch id such as L1'}},required:['launch_id']},
+   execute:({launch_id})=>{const l=gatesFor(launch_id),x=launchInfo(l);tr(`get_gates · ${l.id} · ${x.n} gates, ${x.risk} at risk`);return{launch:l.name,go_no_go:fmt(l.d-2),gates:x.gates.map(g=>({gate:g.g.n,status:{ready:'Ready',prog:'In progress',risk:'At risk'}[g.s],reason:g.why,done:`${g.done}/${g.its.length}`}))}}},
+  {name:'list_issues',description:'Tracker issues for one launch: id, title, gate, team, owner, status, due date, overdue flag and days since last update.',inputSchema:{type:'object',properties:{launch_id:{type:'string'}},required:['launch_id']},
+   execute:({launch_id})=>{const l=gatesFor(launch_id);const its=issues.filter(i=>i.launch===l.id);tr(`list_issues · ${l.id} · ${its.length} issues`);return its.map(i=>({id:i.id,title:i.title,gate:(GATES.find(g=>g.k===i.gate)||{}).n,team:i.team,owner:i.owner||'UNASSIGNED',status:ST[i.status],due:i.due==null?'NONE':fmt(i.due),overdue:i.status!=='D'&&i.due!=null&&i.due<0,days_since_update:i.upd}))}}
+ ];
+ const prompt=`You are the launch-readiness agent for a product operations team. Today is ${fmt(0)}.
+Inspect launch ${L.id} ("${L.name}", ${L.ms}, Tier ${L.tier}, launching ${fmt(L.d)}; go/no-go meeting ${fmt(L.d-2)}) with the tools. Call get_gates and list_issues for it; call list_launches only if another launch matters.
+Rules: base every claim on tool data. Cite issue ids and name owners. A gate with no ticket is a gap someone must create. Blocked, overdue, unassigned or due-after-go/no-go work is a risk. Be brief and concrete. No preamble, no closing remarks.
+Write exactly this Markdown:
+## Recommendation
+One of GO, GO WITH CONDITIONS, or NO-GO (as of today), then " — " and one sentence why.
+## Blocking risks
+Up to 4 bullets: gate — issue id or "no ticket" — owner — what must happen by when.
+## Before go/no-go
+Up to 4 bullets of remaining in-progress work, soonest first.
+## Exec update
+Three plain sentences a VP can read in ten seconds.`;
+ try{
+  const r=await sample(prompt,{tools,signal:ctl.signal,modelTier:'default',onText:({text})=>{brief.text=text;$('out').innerHTML=md(text)}});
+  brief.text=r.text;brief.at=now();
+  try{localStorage.setItem('lc-brief-'+L.id,JSON.stringify({text:r.text,at:brief.at}))}catch(e){}
+  addLog(`Readiness agent briefed ${L.name}`,45);
+ }catch(e){
+  if(e?.name==='AbortError'){running=false;return}
+  brief={id:sel,kind:'rules',text:rulesBrief(L),at:now(),trace:[`Claude didn't answer (${e?.code||'error'}), so the rules engine wrote this brief.`]};
+  addLog(`Readiness check on ${L.name} (rules engine fallback)`,45);
+ }
+ running=false;renderAll();
+};
+
+const autofix=()=>{
+ let n=0;
+ issues.forEach(i=>{
+  if(i.status==='D')return;
+  if(!i.owner&&LEADS[i.team]){i.owner=LEADS[i.team];addLog(`Assigned ${i.id} to ${i.owner} (${i.team} lead)`,3);n++}
+  if(i.due==null&&i.launch){i.due=Math.max(1,L_(i.launch).d-4);addLog(`Set ${i.id} due ${fmt(i.due)}, 4 days before launch`,3);n++}
+  if(i.upd>=14&&i.owner){i.upd=0;addLog(`Nudged ${i.owner} for an update on ${i.id}`,3);n++}
+ });
+ const left=issues.filter(i=>!i.launch).length;
+ if(left)addLog(`Left ${left} unlinked ticket${left>1?'s':''} for a human to triage`,0);
+ if(!n&&!left)addLog('Nothing to fix. Tracker is clean.',0);
+ renderAll();
+};
+
+document.addEventListener('click',e=>{
+ const row=e.target.closest('[data-l]');
+ if(row){if(row.dataset.l!==sel){ctl?.abort();running=false;sel=row.dataset.l;brief=null;renderAll()}return}
+ const st=e.target.closest('[data-i]');
+ if(st){e.preventDefault();const i=issues.find(x=>x.id===st.dataset.i);if(!i)return;i.status=NEXT[i.status];i.upd=0;if(brief&&brief.kind==='ai')brief.stale=true;renderAll();const b=document.querySelector(`[data-i="${CSS.escape(i.id)}"]`);b?.focus();return}
+ if(e.target.id==='run'){runAgent();return}
+ if(e.target.id==='fix'){autofix();return}
+ if(e.target.id==='reset'){ctl?.abort();running=false;reset();try{LAUNCHES.forEach(l=>localStorage.removeItem('lc-brief-'+l.id))}catch(x){}renderAll();return}
+ if(e.target.id==='copy'){
+  const m=(brief?.text||'').split(/##\s*Exec update/i)[1];const t=(m||'').replace(/^#.*$/gm,'').trim();
+  const btn=e.target;
+  navigator.clipboard?.writeText(t).then(()=>{btn.textContent='Copied';setTimeout(()=>btn.textContent='Copy exec update',1500)}).catch(()=>{btn.textContent='Copy blocked here';setTimeout(()=>btn.textContent='Copy exec update',1500)});
+ }
+});
+
+reset();renderAll();
+window.claude?.use?.('sample').then(s=>{sample=s;renderAll()}).catch(()=>{});
+}
+</script>
+</body>
+</html>
