@@ -2,7 +2,7 @@
 
 One place that shows every launch's readiness and writes the go/no-go brief from live tracker data, so a product ops manager spends their time fixing risks instead of finding them. See [PRD.md](PRD.md) for scope and [DECISIONS.md](DECISIONS.md) for why things are built the way they are.
 
-> Status: M3 (Linear live). Hygiene fixes in Linear (M4) are next. Full README with screenshot lands in M5.
+> Status: M4 (hygiene fixes in Linear). Demo hardening (M5) is next. Full README with screenshot lands in M5.
 
 ## Run locally
 
@@ -43,6 +43,9 @@ Set `LINEAR_API_KEY` and `LINEAR_TEAM_KEY` in `.env.local`, then switch **Data s
 npm run seed:linear            # dry run: what would be created in the team
 npm run seed:linear -- --yes   # create states, labels, 5 launch projects and 41 issues (skips what exists)
 npm run check:linear           # load live data and compare readiness with the demo, launch by launch
+npm run seed:linear -- --restore --yes   # before a rehearsal: undo hygiene fixes and status changes on seeded issues
 ```
+
+**Hygiene in Linear mode:** *Review fixes* lists every safe fix (assign the team lead, set a due date 4 days before launch, comment to nudge a stale owner), all ticked. *Apply N to Linear* writes only the ticked ones, through `POST /api/hygiene/apply`, which recomputes the fixes from fresh Linear data and applies only ids that are still valid.
 
 If Linear is unreachable, unconfigured or slower than 5 s, the app shows the demo data with a banner saying why.

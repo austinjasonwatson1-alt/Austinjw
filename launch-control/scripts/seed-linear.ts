@@ -4,6 +4,9 @@
  *
  *   npm run seed:linear              # dry run: reads Linear, prints what it would create
  *   npm run seed:linear -- --yes     # writes (needs LINEAR_API_KEY, LINEAR_TEAM_KEY)
+ *   npm run seed:linear -- --restore --yes
+ *       # before a rehearsal: puts each seeded issue's owner line, due date and status back
+ *       # to the seed values (undoes hygiene fixes and status changes). Nothing else is touched.
  *
  * Idempotent: anything with the same name/title already in the team is skipped, never edited.
  * Dates are placed relative to the day you run it, like the demo.
@@ -33,6 +36,7 @@ try {
 }
 
 const write = process.argv.includes('--yes');
+const restore = process.argv.includes('--restore');
 const apiKey = process.env.LINEAR_API_KEY;
 const teamKey = process.env.LINEAR_TEAM_KEY || 'LCH';
 
@@ -43,6 +47,7 @@ interface Existing {
   projectLabels: { id: string; name: string }[];
   projects: { id: string; name: string }[];
   issueTitles: Set<string>;
+  issues: { id: string; title: string; description: string | null; dueDate: string | null; state: { name: string } }[];
 }
 
 async function read(linear: LinearClient): Promise<Existing> {
@@ -66,8 +71,8 @@ async function read(linear: LinearClient): Promise<Existing> {
       `query($key: String!) { projects(first: 50, filter: { accessibleTeams: { some: { key: { eq: $key } } } }) { nodes { id name } } }`,
       vars,
     ),
-    gql<{ issues: { nodes: { title: string }[] } }>(
-      `query($key: String!) { issues(first: 250, filter: { team: { key: { eq: $key } } }) { nodes { title } } }`,
+    gql<{ issues: { nodes: Existing['issues'] } }>(
+      `query($key: String!) { issues(first: 250, filter: { team: { key: { eq: $key } } }) { nodes { id title description dueDate state { name } } } }`,
       vars,
     ),
   ]);
@@ -80,6 +85,7 @@ async function read(linear: LinearClient): Promise<Existing> {
     projectLabels: t.projectLabels.nodes,
     projects: p.projects.nodes,
     issueTitles: new Set(i.issues.nodes.map((x) => x.title)),
+    issues: i.issues.nodes,
   };
 }
 
@@ -97,6 +103,7 @@ async function main() {
 
   const linear = new LinearClient({ apiKey });
   const ex = await read(linear);
+  if (restore) return restoreSeeded(linear, ex, demo);
   const missing = {
     states: Object.values(STATE_FOR_STATUS).filter((s) => !ex.states.some((x) => x.name.toLowerCase() === s.name.toLowerCase())),
     projectLabels: tiers.map(TIER_LABEL).filter((n) => !ex.projectLabels.some((x) => x.name === n)),
@@ -183,6 +190,28 @@ async function main() {
     console.log(`+ ${created?.identifier ?? '?'} ${i.title}`);
   }
   console.log(`Done. (${addDays(asOf, 0)})`);
+}
+
+/** Resets seeded issues (matched by title) to their seed owner line, due date and status. */
+async function restoreSeeded(linear: LinearClient, ex: Existing, demo: ReturnType<typeof demoSnapshot>) {
+  const stateId = (status: keyof typeof STATE_FOR_STATUS) =>
+    ex.states.find((s) => s.name.toLowerCase() === STATE_FOR_STATUS[status].name.toLowerCase())?.id;
+  const changes = demo.issues.flatMap((d) => {
+    const live = ex.issues.find((i) => i.title === d.title);
+    if (!live) return [];
+    const description = d.owner ? ownerLine(d.owner) : '';
+    const want = { description, dueDate: d.due, state: STATE_FOR_STATUS[d.status].name };
+    const same = (live.description ?? '') === want.description && (live.dueDate ?? null) === want.dueDate && live.state.name === want.state;
+    return same ? [] : [{ live, d, want }];
+  });
+  console.log(`Restore: ${changes.length} seeded issue(s) differ from the seed.`);
+  for (const c of changes) console.log(`  ~ ${c.d.title}`);
+  if (!write) return console.log('Dry run: re-run with --restore --yes to reset them.');
+  for (const c of changes) {
+    await linear.updateIssue(c.live.id, { description: c.want.description, dueDate: c.want.dueDate, stateId: stateId(c.d.status) });
+    console.log(`~ restored ${c.d.title}`);
+  }
+  console.log('Done. (Nudge comments stay on the issues; delete them in Linear if you want a clean slate.)');
 }
 
 main().catch((e) => {

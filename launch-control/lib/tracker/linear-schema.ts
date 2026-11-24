@@ -61,3 +61,15 @@ export function parseProjectDescription(description?: string | null): { mileston
   const first = parts[0] && !/^PM:/i.test(parts[0]) ? parts[0] : null;
   return { milestone: first, pm };
 }
+
+/** Sets (or replaces) the `Owner:` line in an issue description, keeping everything else. */
+export function setOwnerLine(description: string | null | undefined, name: string): string {
+  const text = description ?? '';
+  if (line('Owner').test(text)) return text.replace(line('Owner'), ownerLine(name));
+  return text.trim() ? `${ownerLine(name)}\n\n${text}` : ownerLine(name);
+}
+
+/** Comment posted when hygiene nudges the owner of a stale ticket. */
+export const nudgeComment = (owner: string, staleDays: number, goNoGoLabel?: string) =>
+  `Nudge from Launch Control: ${owner}, this ticket has had no update in ${staleDays} days.` +
+  (goNoGoLabel ? ` Can you post a status before go/no-go on ${goNoGoLabel}?` : ' Can you post a status?');

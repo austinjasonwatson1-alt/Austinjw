@@ -55,42 +55,91 @@ export interface FixAction {
   minutes: number;
 }
 
+export type FixKind = 'owner' | 'due' | 'nudge';
+
+/** One safe change to one issue. `id` is deterministic so a client can pick fixes by id. */
+export interface ProposedFix {
+  id: string;
+  kind: FixKind;
+  issueId: string;
+  /** Log line, e.g. "Assigned LCH-121 to Dana Kim (R&D lead)" */
+  text: string;
+  owner?: string;
+  due?: string;
+  /** For nudges: days since the last update, and the launch's go/no-go date if linked. */
+  staleDays?: number;
+  goNoGo?: string;
+}
+
 /**
- * Applies the safe fixes (demo mode): assign the team lead, set a due date
- * 4 days before launch, nudge stale owners. Unlinked tickets are left for a human.
- * Pure: returns new issues plus the log of what it did.
+ * The safe fixes: assign the team lead, set a due date 4 days before launch (at least
+ * tomorrow), nudge the owner of a stale ticket. Evaluated per issue in that order, so a
+ * ticket that just got an owner also gets its nudge. Unlinked tickets are left for a human.
  */
+export function proposeFixes(snap: Pick<TrackerSnapshot, 'issues' | 'launches' | 'teamLeads' | 'asOf'>): {
+  fixes: ProposedFix[];
+  unlinked: number;
+} {
+  const { asOf } = snap;
+  const fixes: ProposedFix[] = [];
+  for (const i of snap.issues) {
+    if (i.status === 'done') continue;
+    let owner = i.owner;
+    const lead = i.team ? snap.teamLeads[i.team] : null;
+    if (!owner && lead) {
+      owner = lead;
+      fixes.push({ id: `owner:${i.id}`, kind: 'owner', issueId: i.id, owner, text: `Assigned ${i.id} to ${owner} (${i.team} lead)` });
+    }
+    const launch = i.launchId ? snap.launches.find((l) => l.id === i.launchId) : undefined;
+    if (i.due == null && launch) {
+      const due = addDays(asOf, Math.max(1, daysBetween(asOf, launch.launchDate) - 4));
+      fixes.push({ id: `due:${i.id}`, kind: 'due', issueId: i.id, due, text: `Set ${i.id} due ${fmtDate(due)}, 4 days before launch` });
+    }
+    const stale = daysSinceUpdate(i, asOf);
+    if (stale >= STALE_DAYS && owner) {
+      fixes.push({
+        id: `nudge:${i.id}`,
+        kind: 'nudge',
+        issueId: i.id,
+        owner,
+        staleDays: stale,
+        goNoGo: launch ? addDays(launch.launchDate, -2) : undefined,
+        text: `Nudged ${owner} for an update on ${i.id}`,
+      });
+    }
+  }
+  return { fixes, unlinked: snap.issues.filter((i) => !i.launchId).length };
+}
+
+/** Applies fixes to in-memory issues (demo mode). Pure. */
+export function applyFixesLocally(issues: Issue[], fixes: ProposedFix[], asOf: string): Issue[] {
+  const byIssue = new Map<string, ProposedFix[]>();
+  fixes.forEach((f) => byIssue.set(f.issueId, [...(byIssue.get(f.issueId) ?? []), f]));
+  return issues.map((orig) => {
+    const fs = byIssue.get(orig.id);
+    if (!fs) return orig;
+    const i = { ...orig };
+    for (const f of fs) {
+      if (f.kind === 'owner') i.owner = f.owner!;
+      if (f.kind === 'due') i.due = f.due!;
+      if (f.kind === 'nudge') i.updatedAt = asOf;
+    }
+    return i;
+  });
+}
+
+export const unlinkedNote = (n: number): FixAction | null =>
+  n ? { text: `Left ${n} unlinked ticket${n > 1 ? 's' : ''} for a human to triage`, minutes: 0 } : null;
+
+/** Demo auto-fix: propose, apply locally, and log what it did. */
 export function autofix(snap: Pick<TrackerSnapshot, 'issues' | 'launches' | 'teamLeads' | 'asOf'>): {
   issues: Issue[];
   actions: FixAction[];
 } {
-  const { asOf } = snap;
-  const actions: FixAction[] = [];
-  let n = 0;
-  const issues = snap.issues.map((orig) => {
-    if (orig.status === 'done') return orig;
-    const i = { ...orig };
-    const lead = i.team ? snap.teamLeads[i.team] : null;
-    if (!i.owner && lead) {
-      i.owner = lead;
-      actions.push({ text: `Assigned ${i.id} to ${i.owner} (${i.team} lead)`, minutes: MINUTES_PER_FIX });
-      n++;
-    }
-    const launch = i.launchId ? snap.launches.find((l) => l.id === i.launchId) : undefined;
-    if (i.due == null && launch) {
-      i.due = addDays(asOf, Math.max(1, daysBetween(asOf, launch.launchDate) - 4));
-      actions.push({ text: `Set ${i.id} due ${fmtDate(i.due)}, 4 days before launch`, minutes: MINUTES_PER_FIX });
-      n++;
-    }
-    if (daysSinceUpdate(i, asOf) >= STALE_DAYS && i.owner) {
-      i.updatedAt = asOf;
-      actions.push({ text: `Nudged ${i.owner} for an update on ${i.id}`, minutes: MINUTES_PER_FIX });
-      n++;
-    }
-    return i;
-  });
-  const left = issues.filter((i) => !i.launchId).length;
-  if (left) actions.push({ text: `Left ${left} unlinked ticket${left > 1 ? 's' : ''} for a human to triage`, minutes: 0 });
-  if (!n && !left) actions.push({ text: 'Nothing to fix. Tracker is clean.', minutes: 0 });
-  return { issues, actions };
+  const { fixes, unlinked } = proposeFixes(snap);
+  const actions: FixAction[] = fixes.map((f) => ({ text: f.text, minutes: MINUTES_PER_FIX }));
+  const note = unlinkedNote(unlinked);
+  if (note) actions.push(note);
+  if (!fixes.length && !unlinked) actions.push({ text: 'Nothing to fix. Tracker is clean.', minutes: 0 });
+  return { issues: applyFixesLocally(snap.issues, fixes, snap.asOf), actions };
 }

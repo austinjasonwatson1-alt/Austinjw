@@ -8,7 +8,9 @@ import {
   boardSummary,
   hygieneChecks,
   MINUTES_PER_SWEEP,
+  MINUTES_PER_FIX,
   NEXT_STATUS,
+  proposeFixes,
   rulesBrief,
   type FixAction,
 } from '@/lib/readiness';
@@ -117,6 +119,7 @@ export default function LaunchControl() {
 
   const summary = useMemo(() => (snap ? boardSummary(snap) : null), [snap]);
   const checks = useMemo(() => (snap ? hygieneChecks(snap.issues, snap.asOf) : []), [snap]);
+  const proposed = useMemo(() => (snap ? proposeFixes(snap) : { fixes: [], unlinked: 0 }), [snap]);
 
   const addLog = (entries: FixAction[]) => {
     const at = clock();
@@ -255,6 +258,45 @@ export default function LaunchControl() {
     addLog(r.actions);
   };
 
+  /** Linear mode: write the confirmed fixes, log the outcome, then reload from Linear. */
+  const applyLinearFixes = async (ids: string[]): Promise<{ ok: boolean; message: string }> => {
+    try {
+      const res = await fetch('/api/hygiene/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asOf: snap.asOf, fixIds: ids }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        results?: { ok: boolean; text: string; id: string; error?: string }[];
+        skipped?: string[];
+        error?: string;
+      };
+      if (!res.ok || !j.results) {
+        const why = j.error === 'passcode_required' ? 'the demo passcode is required' : j.error === 'linear_unavailable' ? 'Linear didn’t answer' : (j.error ?? `HTTP ${res.status}`);
+        addLog([{ text: `Linear fixes not applied: ${why}`, minutes: 0 }]);
+        return { ok: false, message: `Nothing was written: ${why}.` };
+      }
+      const good = j.results.filter((r) => r.ok);
+      const bad = j.results.filter((r) => !r.ok);
+      const entries: FixAction[] = [
+        ...good.map((r) => ({ text: `${r.text} in Linear`, minutes: MINUTES_PER_FIX })),
+        ...bad.map((r) => ({ text: `Couldn’t apply in Linear: ${r.text} (${r.error ?? 'error'})`, minutes: 0 })),
+      ];
+      if (j.skipped?.length) entries.push({ text: `Skipped ${j.skipped.length} fix${j.skipped.length > 1 ? 'es' : ''} already handled in Linear`, minutes: 0 });
+      if (proposed.unlinked) entries.push({ text: `Left ${proposed.unlinked} unlinked ticket${proposed.unlinked > 1 ? 's' : ''} for a human to triage`, minutes: 0 });
+      addLog(entries);
+      await load('linear');
+      return {
+        ok: !bad.length,
+        message: `Wrote ${good.length} fix${good.length === 1 ? '' : 'es'} to Linear${bad.length ? `; ${bad.length} failed (see log)` : ''}${j.skipped?.length ? `; ${j.skipped.length} already handled` : ''}.`,
+      };
+    } catch {
+      addLog([{ text: 'Linear fixes not applied: the request failed', minutes: 0 }]);
+      return { ok: false, message: 'Nothing was confirmed as written: the request failed. Refresh to check Linear.' };
+    }
+  };
+
   const reset = () => {
     stopAgent();
     try {
@@ -329,6 +371,7 @@ export default function LaunchControl() {
           log={log}
           onFix={live ? undefined : fix}
           onReset={live ? undefined : reset}
+          live={live ? { fixes: proposed.fixes, apply: applyLinearFixes } : undefined}
         />
       </section>
 

@@ -147,7 +147,7 @@ export function mapLinear({ projects, labels: teamLabels, issues }: RawData, asO
   return { source: 'linear', asOf, launches, issues: out, teamLeads };
 }
 
-const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> =>
+export const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> =>
   Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error('linear_timeout')), ms))]);
 
 export function linearConfigured(): boolean {

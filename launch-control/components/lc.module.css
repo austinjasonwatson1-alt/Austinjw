@@ -91,6 +91,12 @@
 .refresh:hover{border-color:var(--sky)}
 .idlink{color:inherit;text-decoration:none}.idlink:hover{text-decoration:underline}
 .ro{display:inline-flex;align-items:center;cursor:default}.ro:hover{border-color:var(--edge)}
+.fixlist{list-style:none;padding:0;margin:4px 0 0}
+.fixlist li{border-top:1px solid var(--edge);padding:8px 0}
+.fixlist label{display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:14px}
+.fixlist input{accent-color:var(--sky);width:18px;height:18px;margin:2px 0 0;flex:none}
+.fixlist small{display:block}
+.msg{font-size:13px;margin-top:8px;color:var(--mut)}.msg.bad{color:var(--pink)}
 .sD.ro:hover{border-color:rgba(143,211,255,.5)}.sX.ro:hover{border-color:rgba(255,92,138,.6)}
 .notice{border:1px solid rgba(255,92,138,.6);color:var(--ink);background:rgba(255,92,138,.08);border-radius:10px;padding:10px 14px;font-size:14px;margin-bottom:20px}
 .notice b{color:var(--pink);font-weight:600}
