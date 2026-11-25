@@ -38,6 +38,7 @@ export default function Calendar({
           const L = x.launch;
           const on = L.id === selected;
           const w = (Math.min(Math.max(x.daysOut, 0), AXIS_DAYS) / AXIS_DAYS) * 100;
+          const gng = x.daysOut - 2 > 0 && x.daysOut <= AXIS_DAYS ? ((x.daysOut - 2) / AXIS_DAYS) * 100 : null;
           return (
             <button
               key={L.id}
@@ -60,6 +61,7 @@ export default function Calendar({
                   ))}
                 </span>
                 <span className={cx('mk', x.state)} style={{ left: `${w}%` }} />
+                {gng != null && <span className={cx('gng')} style={{ left: `${gng}%` }} title={`Go/no-go ${fmtDate(x.goNoGo)}`} />}
               </span>
               <span className={cx('dt')}>
                 {fmtDate(L.launchDate)}
@@ -81,6 +83,10 @@ export default function Calendar({
         <span className={cx('risk')}>
           <i />
           At risk or missing
+        </span>
+        <span>
+          <i className={cx('gngKey')} />
+          Go/no-go
         </span>
         <span>
           Each bar runs from today to the launch date and is built from that launch&apos;s gates. Select a launch to

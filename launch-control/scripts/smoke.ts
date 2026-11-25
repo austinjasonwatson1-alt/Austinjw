@@ -87,7 +87,7 @@ async function main() {
     await p.waitForTimeout(400);
     await p.click('button:has-text("Review 2 alerts")');
     const items = await p.$$eval('[aria-label="Proposed risk alerts"] li', (e) => e.map((x) => x.textContent ?? ''));
-    await p.click('[class*=alerts] button:has-text("Cancel")');
+    await p.click('[class*=alertbox] button:has-text("Cancel")');
     expect(items.length === 2 && items.every((t) => t.startsWith('Tom') || t.startsWith('Rachel')), `unexpected alerts: ${items.join(' | ')}`);
     return items.map((t) => t.split(' — ')[0].split('Risk alert')[0].trim()).join('; ');
   });

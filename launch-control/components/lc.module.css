@@ -118,3 +118,32 @@
 .alerts{border-top:1px solid var(--edge);margin-top:4px;padding-top:14px}
 .alerts h3{font-size:15px;font-weight:600;margin:0}
 .alerts .fixlist small{font-size:13px;line-height:1.45}
+
+/* Design polish (Nov 25) */
+.topbar{padding:14px max(5vw,16px);border-bottom:1px solid var(--edge);background:rgba(8,30,52,.6)}
+.topin{max-width:1240px;margin:0 auto;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 20px}
+.brand{display:flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none}
+.brand svg{width:28px;height:28px;flex:none}
+.brand b{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.brand small{display:block;font-size:12px;line-height:1.2}
+.topright{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-size:13px;color:var(--mut)}
+.toplink{color:var(--mut);text-decoration:none;border:1px solid var(--edge);border-radius:999px;padding:6px 12px;min-height:36px;display:inline-flex;align-items:center}
+.toplink:hover{color:var(--ink);border-color:var(--sky)}
+.srcbar{margin-bottom:0}
+.alertbox{border:1px solid rgba(255,92,138,.45);background:rgba(255,92,138,.06);border-radius:12px;padding:12px 14px;margin:0 0 16px}
+.alertbox h3{font-size:15px;font-weight:600;margin:0;display:flex;align-items:center;gap:8px}
+.alertbox h3::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--pink)}
+.alertbox .btns{margin:10px 0 0}
+.alertbox .how{margin-top:8px;border-top:0;padding-top:0}
+.collapsedNote{font-size:13px;color:var(--mut);margin:10px 0 0}
+.gng{position:absolute;top:0;width:2px;height:22px;margin-left:-1px;background:rgba(255,255,255,.75);border-radius:1px;pointer-events:none}
+.legend .gngKey{display:inline-block;width:2px;height:12px;background:rgba(255,255,255,.75);margin-right:6px;vertical-align:-1px}
+@media(prefers-reduced-motion:no-preference){
+ .working::after{content:"";display:inline-block;width:8px;height:8px;margin-left:10px;border-radius:50%;background:#0a2540;vertical-align:1px;animation:pulse 1s ease-in-out infinite}
+ @keyframes pulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1.1)}}
+ .trace li{animation:fadein .35s ease-out both}
+ @keyframes fadein{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+ .thinking{animation:breathe 1.4s ease-in-out infinite}
+ @keyframes breathe{0%,100%{opacity:.45}50%{opacity:1}}
+}
+@media(max-width:600px){.brand small{display:none}.gng{height:22px}}

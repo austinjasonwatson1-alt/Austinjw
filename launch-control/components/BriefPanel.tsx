@@ -95,7 +95,7 @@ export default function BriefPanel({
         <Checks check={brief.check} against={brief.checkedAgainst ?? 'the tracker'} />
       )}
       <div className={cx('btns')}>
-        <button type="button" className={cx('go')} disabled={running} onClick={onRun}>
+        <button type="button" className={cx('go', running && 'working')} disabled={running} onClick={onRun}>
           {running ? 'Agent is reading the tracker…' : agentAvailable ? 'Run readiness agent' : 'Run readiness check'}
         </button>
         <button type="button" className={cx('ghost')} onClick={copy}>
@@ -108,7 +108,11 @@ export default function BriefPanel({
         ))}
       </ul>
       <div className={cx('out')}>
-        {running && !brief.text ? <p>Thinking…</p> : <BriefText text={brief.text} />}
+        {running && !brief.text ? (
+          <p className={cx('thinking')}>Reading the tracker and checking each gate…</p>
+        ) : (
+          <BriefText text={brief.text} />
+        )}
         {brief.kind === 'ai' && brief.stale && (
           <p className={cx('stale')}>Tickets may have changed since this brief. Run the agent again for a fresh read.</p>
         )}

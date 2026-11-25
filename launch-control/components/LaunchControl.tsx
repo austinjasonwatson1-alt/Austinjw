@@ -454,8 +454,22 @@ export default function LaunchControl() {
 
   return (
     <>
-      <section className={cx('band')}>
-        <div className={cx('wrap')}>
+      <header className={cx('topbar')}>
+        <div className={cx('topin')}>
+        <a className={cx('brand')} href="/" aria-label="Launch Control home">
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <rect width="64" height="64" rx="14" fill="#0f2f52" />
+            <rect x="10" y="26" width="9" height="12" rx="2" fill="#8fd3ff" />
+            <rect x="21" y="26" width="9" height="12" rx="2" fill="#8fd3ff" />
+            <rect x="32" y="26" width="9" height="12" rx="2" fill="#ff5c8a" />
+            <rect x="44" y="21" width="15" height="15" transform="rotate(45 51.5 32)" fill="#0f2f52" stroke="#ff5c8a" strokeWidth="3.5" />
+          </svg>
+          <span>
+            <b>Launch Control</b>
+            <small>Launch readiness and go/no-go</small>
+          </span>
+        </a>
+        <div className={cx('topright')}>
           <div className={cx('srcbar')}>
             <span id="src-label">Data source</span>
             <span className={cx('toggle')} role="group" aria-labelledby="src-label">
@@ -473,6 +487,15 @@ export default function LaunchControl() {
             )}
             {source === 'demo' && loading && <span role="status">Loading…</span>}
           </div>
+          <a className={cx('toplink')} href="/one-pager">
+            One-pager
+          </a>
+        </div>
+        </div>
+      </header>
+
+      <section className={cx('band')}>
+        <div className={cx('wrap')}>
           {snap.notice && (
             <p className={cx('notice')} role="status">
               <b>Heads up:</b> {snap.notice}

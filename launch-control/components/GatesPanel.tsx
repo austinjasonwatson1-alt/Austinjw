@@ -70,7 +70,7 @@ export interface AlertProps {
 function RiskAlerts({ a, launchId }: { a: AlertProps; launchId: string }) {
   const n = a.noTicketGates.length;
   return (
-    <div className={cx('alerts')}>
+    <div className={cx('alertbox')}>
       <h3>Risk alerts</h3>
       <ReviewList
         key={launchId}
@@ -124,9 +124,15 @@ export default function GatesPanel({
       <div className={cx('meter')}>
         <i style={{ width: `${(info.ready / info.n) * 100}%` }} />
       </div>
+      {alerts && <RiskAlerts a={alerts} launchId={L.id} />}
       <div>
         {info.gates.map((g) => (
-          <details key={`${L.id}-${g.gate.key}`} className={cx('gate', g.state)} open={g.state !== 'ready'}>
+          <details
+            key={`${L.id}-${g.gate.key}`}
+            className={cx('gate', g.state)}
+            // Focus on what needs action: open the at-risk gates; if none, open what's in progress.
+            open={info.risk ? g.state === 'risk' : g.state === 'prog'}
+          >
             <summary>
               <span className={cx('dot')} />
               <span className={cx('gn')}>{g.gate.name}</span>
@@ -147,7 +153,9 @@ export default function GatesPanel({
           </details>
         ))}
       </div>
-      {alerts && <RiskAlerts a={alerts} launchId={L.id} />}
+      {info.risk > 0 && info.gates.some((g) => g.state === 'prog') && (
+        <p className={cx('collapsedNote')}>Gates in progress are collapsed so the risks stand out. Open any gate to see its tickets.</p>
+      )}
       <p className={cx('how')}>
         {onCycle
           ? 'Tap a status pill to move an issue along (Backlog → In progress → In review → Done → Blocked). Gates, the calendar and the brief update live.'
