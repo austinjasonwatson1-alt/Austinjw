@@ -1,0 +1,1 @@
+Launch Control: launch calendar with readiness gates, showing L1 Triage Agent at risk with 3 of 10 gates needing action
