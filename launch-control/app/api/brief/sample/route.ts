@@ -1,6 +1,6 @@
 import { unstable_cache } from 'next/cache';
 import type { NextRequest } from 'next/server';
-import { DEADLINE_MS, runAgentLoop } from '@/lib/agent/run';
+import { DEADLINE_MS, runAgentLoop, toAgentError } from '@/lib/agent/run';
 import { daysBetween, isIsoDate } from '@/lib/dates';
 import { demoSnapshot } from '@/lib/tracker/demo';
 
@@ -34,8 +34,11 @@ const saved = unstable_cache(
   { revalidate: 86_400 },
 );
 
+const codeOf = (e: unknown) => toAgentError(e, new AbortController().signal).code;
+
 export async function GET(req: NextRequest) {
-  if (!process.env.ANTHROPIC_API_KEY) return Response.json({ error: 'no_key' }, { status: 404 });
+  // Failures answer 200 with available:false: a missing sample is normal, not an error in the visitor's console.
+  if (!process.env.ANTHROPIC_API_KEY) return Response.json({ available: false, reason: 'no_key' });
   const q = req.nextUrl.searchParams;
   const launch = q.get('launch') ?? '';
   const serverToday = new Date().toISOString().slice(0, 10);
@@ -45,7 +48,8 @@ export async function GET(req: NextRequest) {
   try {
     return Response.json(await saved(launch, asOf));
   } catch (e) {
-    console.error(`[sample] ${launch} failed: ${e instanceof Error ? e.message.slice(0, 40) : 'error'}`);
-    return Response.json({ error: 'unavailable' }, { status: 503 });
+    const reason = e instanceof Error && e.message === 'sample_budget' ? 'budget' : codeOf(e);
+    console.error(`[sample] ${launch} failed: ${reason}`); // code only
+    return Response.json({ available: false, reason });
   }
 }
