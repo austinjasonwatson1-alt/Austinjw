@@ -30,7 +30,7 @@ const saved = unstable_cache(
     const run = await runAgentLoop(snap, launch, { signal: AbortSignal.timeout(DEADLINE_MS), onTool: (t) => trace.push(t) });
     return { text: run.text, ms: run.ms, toolCalls: run.toolCalls, trace, asOf };
   },
-  ['sample-brief-v1'],
+  ['sample-brief-v2'],
   { revalidate: 86_400 },
 );
 

@@ -12,6 +12,11 @@ export interface BriefCheck {
   /** The rules engine's call for the same data. */
   rulesCall: Call;
   agrees: boolean;
+  /** At-risk gates per the rules, and how many bullets the brief lists under "Blocking risks". */
+  riskGates: number;
+  riskBullets: number;
+  /** True when the brief lists more blocking risks than there are at-risk gates. */
+  extraRisks: boolean;
   /** At-risk tickets the rules engine would cite, and which of them the brief missed. */
   riskIds: string[];
   missedRisks: string[];
@@ -45,6 +50,10 @@ export function verifyBrief(text: string, snap: Pick<TrackerSnapshot, 'issues' |
     .map((g) => riskTicket(g, snap.asOf)?.id)
     .filter((id): id is string => !!id);
   const call = briefCall(text);
+  const blocks = parseBrief(text);
+  const h = blocks.findIndex((b) => b.kind === 'heading' && /^blocking risks/i.test(b.text));
+  const list = blocks[h + 1];
+  const bullets = h >= 0 && list?.kind === 'list' ? list.items.filter((it) => !/^none\.?$/i.test(it.map((s) => s.text).join('').trim())).length : 0;
   const rulesCall = recommendation(x.state);
   return {
     cited,
@@ -52,6 +61,9 @@ export function verifyBrief(text: string, snap: Pick<TrackerSnapshot, 'issues' |
     call,
     rulesCall,
     agrees: call === rulesCall,
+    riskGates: x.risk,
+    riskBullets: bullets,
+    extraRisks: bullets > x.risk,
     riskIds,
     missedRisks: riskIds.filter((id) => !cited.includes(id)),
   };

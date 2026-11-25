@@ -1,5 +1,5 @@
 import { fmtDate } from '../dates';
-import { daysSinceUpdate, gateName, GATE_STATUS_LABEL, isOverdue, launchInfo, STATE_LABEL, STATUS_LABEL } from '../readiness';
+import { daysSinceUpdate, gateName, GATE_STATUS_LABEL, isOverdue, launchInfo, missingGateOwner, STATE_LABEL, STATUS_LABEL } from '../readiness';
 import type { TrackerSnapshot } from '../tracker/types';
 
 /**
@@ -16,7 +16,7 @@ export const TOOL_DEFS = [
   {
     name: 'get_gates',
     description:
-      'Readiness gates for one launch: gate name, status (Ready, In progress, At risk), reason, and done/total tickets.',
+      'Readiness gates for one launch: gate name, status (Ready, In progress, At risk), reason, done/total tickets, and for a gate with no ticket the suggested owner who should create it.',
     input_schema: {
       type: 'object' as const,
       properties: { launch_id: { type: 'string', description: 'Launch id such as L1' } },
@@ -89,6 +89,8 @@ export function runTool(snap: TrackerSnapshot, name: string, input: unknown): To
             status: GATE_STATUS_LABEL[g.state],
             reason: g.why,
             done: `${g.done}/${g.issues.length}`,
+            // A gate nobody filed a ticket for: who should create and own it (that function's lead, else the PM).
+            ...(g.issues.length ? {} : { suggested_owner: missingGateOwner(g.gate.key, l, snap.teamLeads) }),
           })),
         },
       };

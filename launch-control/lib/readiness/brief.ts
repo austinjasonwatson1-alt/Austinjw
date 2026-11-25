@@ -14,6 +14,12 @@ const MISSING_GATE_TEAM: Partial<Record<GateKey, Team>> = {
 
 const owner = (i: Issue) => i.owner || 'unassigned';
 
+/** Who should create and own the ticket for a gate nobody filed: that function's lead, else the launch PM. */
+export function missingGateOwner(gate: GateKey, launch: Launch, teamLeads: TrackerSnapshot['teamLeads']): string {
+  const team = MISSING_GATE_TEAM[gate];
+  return (team && teamLeads[team]) || launch.pm || 'the launch PM';
+}
+
 export type Call = 'GO' | 'GO WITH CONDITIONS' | 'NO-GO';
 
 /** The go/no-go call implied by a launch's state; the agent's prompt states the same rule. */
@@ -50,8 +56,7 @@ export function rulesBrief(
 
   const riskLines = risk.map((g) => {
     if (!g.issues.length) {
-      const team = MISSING_GATE_TEAM[g.gate.key];
-      const who = (team && snap.teamLeads[team]) || launch.pm || 'the launch PM';
+      const who = missingGateOwner(g.gate.key, launch, snap.teamLeads);
       return `- ${g.gate.name} — no ticket — ${who} — create and own it before ${fmtDate(x.goNoGo)}`;
     }
     const i = riskTicket(g, snap.asOf)!;

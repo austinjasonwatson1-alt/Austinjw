@@ -59,6 +59,7 @@ interface Row {
   riskIds?: string[];
   missed?: string[];
   format?: boolean;
+  extra?: boolean;
 }
 
 const pct = (n: number, d: number) => (d ? `${Math.round((n / d) * 100)}%` : 'n/a');
@@ -107,6 +108,7 @@ async function main() {
           riskIds: v.riskIds,
           missed: v.missedRisks,
           format: JSON.stringify(heads) === JSON.stringify(HEADINGS),
+          extra: v.extraRisks,
         };
         rows.push(row);
         console.log(
@@ -134,6 +136,7 @@ async function main() {
     ['Briefs whose go/no-go call passed the readiness-rules check', `${agreed}/${ok.length} (${pct(agreed, ok.length)})`],
     ['Invented issue ids', `${invented} of ${citedTotal} cited`],
     ['At-risk tickets cited (recall)', `${riskTotal - riskMissed}/${riskTotal} (${pct(riskTotal - riskMissed, riskTotal)})`],
+    ['Blocking risks limited to at-risk gates', `${ok.filter((r) => !r.extra).length}/${ok.length}`],
     ['Exact 4-section format', `${ok.filter((r) => r.format).length}/${ok.length}`],
     ['Latency p50 / p95', `${(quantile(ms, 0.5) / 1000).toFixed(1)} s / ${(quantile(ms, 0.95) / 1000).toFixed(1)} s (target < 30 s)`],
     ['Cost per brief (avg)', `$${(cost / Math.max(1, ok.length)).toFixed(3)} (total $${cost.toFixed(2)})`],

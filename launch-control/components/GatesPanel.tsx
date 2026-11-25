@@ -119,7 +119,7 @@ export default function GatesPanel({
           </small>
         </div>
         <small>
-          {info.ready} of {info.n} gates ready
+          {info.n} gates: {info.ready} ready · {info.n - info.ready - info.risk} in progress · {info.risk} at risk
         </small>
       </div>
       <div className={cx('meter')}>

@@ -604,7 +604,7 @@ export default function LaunchControl() {
               ? `Live from Linear: ${snap.launches.length} upcoming launches.`
               : `A sample product org with ${snap.launches.length} upcoming launches.`}{' '}
             Each launch must pass a set of readiness gates (checkpoints like QA sign-off, security review and docs) before its
-            go/no-go review.
+            go/no-go review. GA means general availability.
           </p>
           <div className={cx('top')}>
             <div>

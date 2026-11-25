@@ -17,7 +17,7 @@ The "manual work removed" counter. It's the least defensible number on the page.
 The first agent runs added an extra section and once said "go with conditions" while two gates were at risk. Both showed up because I tested instead of assuming. I tightened the prompt, added a check under every brief, and built an eval so I'd know if it regressed.
 
 **5. How do you know the AI is right?**
-Every brief is checked against the data it read: each issue ID must exist, and its call must match the rules engine. Across 30 runs on two scenarios: 30 of 30 matching calls, 0 invented IDs out of 152, and every at-risk ticket cited. If a check fails, the screen says so in pink.
+Every brief is checked against the data it read: each issue ID must exist, and its call must match the rules engine. Across 30 runs on two scenarios: 30 of 30 matching calls, 0 invented IDs out of 157, and every at-risk ticket cited. If a check fails, the screen says so in pink.
 
 **6. If the rules engine already makes the call, why use AI at all?**
 The rules decide go or no-go; they can't write. The agent turns ticket data into a brief a VP can read in ten seconds, names what each owner has to do by when, and notices things the rules don't score, like an unassigned ticket inside a healthy gate. The rules are the floor and the benchmark; the AI is the communication layer.

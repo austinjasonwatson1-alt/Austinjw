@@ -42,6 +42,11 @@ function Checks({ check, against }: { check: BriefCheck; against: string }) {
       ) : (
         <span className={cx('bad')}>⚠ readiness rules say {check.rulesCall}</span>
       )}
+      {check.extraRisks && (
+        <span className={cx('bad')}>
+          {' · '}⚠ lists {check.riskBullets} blocking risks; {check.riskGates} gate{check.riskGates === 1 ? ' is' : 's are'} at risk
+        </span>
+      )}
     </p>
   );
 }

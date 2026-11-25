@@ -21,7 +21,7 @@ describe('agent tools (prototype parity)', () => {
     const res = r.result as { go_no_go: string; gates: { gate: string; status: string; reason: string }[] };
     expect(res.go_no_go).toBe('Dec 8');
     expect(res.gates.find((g) => g.gate === 'Support runbook and training')).toEqual({
-      gate: 'Support runbook and training', status: 'At risk', reason: 'No ticket exists', done: '0/0',
+      gate: 'Support runbook and training', status: 'At risk', reason: 'No ticket exists', done: '0/0', suggested_owner: 'Kara Singh',
     });
   });
   it('list_issues', () => {

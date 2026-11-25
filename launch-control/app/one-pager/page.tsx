@@ -11,9 +11,9 @@ const REPO = 'https://github.com/austinjasonwatson1-alt/Austinjw/tree/claude/pen
 
 const STATS = [
   ['30/30', 'briefs passed the readiness-rules check on the go/no-go call'],
-  ['0 of 152', 'issue IDs invented by the agent'],
+  ['0 of 157', 'issue IDs invented by the agent'],
   ['21/21', 'at-risk tickets cited in the brief'],
-  ['5.3 s · 1.3¢', 'typical brief time and cost'],
+  ['4.6 s · 1.3¢', 'typical brief time and cost'],
 ];
 
 export default function OnePager() {
@@ -56,7 +56,7 @@ export default function OnePager() {
               confirms every change.
             </li>
             <li>
-              <strong>Never stalls:</strong> a rules engine writes the same brief if Claude or the tracker is unavailable.
+              <strong>Never stalls:</strong> the readiness rules still write a plain brief if Claude or the tracker is unavailable.
             </li>
           </ul>
         </section>

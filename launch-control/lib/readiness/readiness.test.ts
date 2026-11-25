@@ -58,7 +58,7 @@ describe('fresh demo data (prototype expected results)', () => {
 
   it('headline and KPIs', () => {
     const b = boardSummary(fresh());
-    expect(b.headline).toBe('L1 Triage Agent general availability launch is at risk: 3 of 10 gates need action, 16 days out');
+    expect(b.headline).toBe('L1 Triage Agent GA is at risk: 3 of 10 gates need action, 16 days out');
     expect(b.sub).toBe('Go/no-go, the review where it is approved or held, is Dec 8. 4 of 5 launches on the calendar are on track or ready.');
     expect(b.kpis.map((k) => [k.value, k.tone])).toEqual([
       ['5', ''],

@@ -14,6 +14,13 @@ describe('verifyBrief', () => {
     expect(v.agrees).toBe(true);
     expect(v.riskIds).toEqual(['LCH-126', 'LCH-133']);
     expect(v.missedRisks).toEqual([]);
+    expect([v.riskGates, v.riskBullets, v.extraRisks]).toEqual([3, 3, false]);
+  });
+
+  it('flags a brief that lists more blocking risks than there are at-risk gates', () => {
+    const text = '## Recommendation\nNO-GO — x\n## Blocking risks\n- a LCH-126\n- b LCH-133\n- c no ticket\n- d LCH-121 unassigned';
+    expect(verifyBrief(text, snap, L1)).toMatchObject({ riskGates: 3, riskBullets: 4, extraRisks: true });
+    expect(verifyBrief('## Recommendation\nGO — x\n## Blocking risks\n- None.', snap, snap.launches[3])).toMatchObject({ riskBullets: 0, extraRisks: false });
   });
 
   it('flags invented ids, a different call and missed risks', () => {

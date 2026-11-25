@@ -19,8 +19,7 @@ export interface BoardSummary {
   hygiene: number;
 }
 
-/** "general availability launch", "early access launch", "minor release": spelled out for first-time readers. */
-const msShort = (ms: string) => (/release/i.test(ms) ? ms.toLowerCase() : `${ms.toLowerCase()} launch`);
+const msShort = (ms: string) => (ms === 'General availability' ? 'GA' : ms.toLowerCase());
 
 /** Finding-as-headline plus the 4 KPIs above the launch calendar. */
 export function boardSummary(snap: Pick<TrackerSnapshot, 'launches' | 'issues' | 'asOf'>): BoardSummary {
