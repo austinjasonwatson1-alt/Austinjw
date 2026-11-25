@@ -43,6 +43,7 @@ export default function HygienePanel({
   checks,
   clean,
   saved,
+  waiting,
   log,
   onFix,
   onReset,
@@ -51,6 +52,8 @@ export default function HygienePanel({
   checks: HygieneCheck[];
   clean: number;
   saved: number;
+  /** Manual work available to remove right now, computed from the data on screen. */
+  waiting: { minutes: number; sweeps: number; fixes: number; alerts: number };
   log: LogEntry[];
   /** Demo actions. Omit both for live Linear data and pass `live` instead. */
   onFix?: () => void;
@@ -97,7 +100,21 @@ export default function HygienePanel({
       <div className={cx('panel')}>
         <h2>Manual work removed</h2>
         <small>Estimate: 45 min per readiness sweep done by hand, 3 min per ticket fixed or owner chased by hand</small>
-        <div className={cx('big')}>{minutes(saved)}</div>
+        {log.length === 0 && waiting.minutes > 0 ? (
+          <>
+            <div className={cx('big', 'bigWaiting')}>{minutes(waiting.minutes)}</div>
+            <p className={cx('waitnote')}>
+              of manual work waiting this week: {waiting.sweeps} readiness sweep{waiting.sweeps === 1 ? '' : 's'}, {waiting.fixes} ticket
+              fix{waiting.fixes === 1 ? '' : 'es'} and {waiting.alerts} owner alert{waiting.alerts === 1 ? '' : 's'}. Run the agent, send an
+              alert or apply a fix and this becomes a count of what was removed.
+            </p>
+          </>
+        ) : (
+          <>
+            <div className={cx('big')}>{minutes(saved)}</div>
+            {waiting.minutes > 0 && <p className={cx('waitnote')}>removed so far, of about {minutes(waiting.minutes)} still waiting.</p>}
+          </>
+        )}
         <ul className={cx('log')}>
           {log.length ? (
             log.map((l, n) => (
@@ -107,7 +124,7 @@ export default function HygienePanel({
               </li>
             ))
           ) : (
-            <li>Nothing yet. Run the agent or auto-fix to log work here.</li>
+            <li>Each automated action is logged here with the time it took off someone&apos;s plate.</li>
           )}
         </ul>
       </div>

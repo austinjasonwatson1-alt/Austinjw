@@ -47,12 +47,14 @@ calendar · gates · brief · hygiene  ──GET──▶ /api/tracker   → Tra
 
 | Metric | Result |
 | --- | --- |
-| Same go/no-go call as the rules engine | **30/30** |
+| Briefs whose go/no-go call passed the readiness-rules check | **30/30** |
 | Invented issue IDs | **0** of 152 cited |
 | At-risk tickets cited | **21/21** |
 | Exact 4-section format | 30/30 |
 | Latency p50 / p95 | 5.3 s / 6.4 s (target < 30 s) |
 | Cost per brief | ~$0.013 |
+
+The rules make the go/no-go call and act as the guardrail on the agent. The agent adds what rules can't: who has to do what by when, the things the rules don't score (an unowned ticket in a healthy gate), and an update a VP can read in ten seconds.
 
 ### Safety and resilience
 - **Secrets stay on the server.** The browser only learns *whether* Claude and Linear are configured.

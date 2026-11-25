@@ -131,7 +131,7 @@ async function main() {
   const cost = ok.reduce((a, r) => a + r.cost!, 0);
   const summary: [string, string][] = [
     ['Briefs completed', `${ok.length}/${rows.length}`],
-    ['Same go/no-go call as the rules engine', `${agreed}/${ok.length} (${pct(agreed, ok.length)})`],
+    ['Briefs whose go/no-go call passed the readiness-rules check', `${agreed}/${ok.length} (${pct(agreed, ok.length)})`],
     ['Invented issue ids', `${invented} of ${citedTotal} cited`],
     ['At-risk tickets cited (recall)', `${riskTotal - riskMissed}/${riskTotal} (${pct(riskTotal - riskMissed, riskTotal)})`],
     ['Exact 4-section format', `${ok.filter((r) => r.format).length}/${ok.length}`],

@@ -99,6 +99,9 @@ export default function LaunchControl() {
   const [alerted, setAlerted] = useState<Set<string>>(new Set());
   /** Decisions recorded this session, keyed "source:launchId". */
   const [decisions, setDecisions] = useState<Record<string, Recorded>>({});
+  /** Demo data exactly as loaded (no ticket edits or fixes yet): the saved agent briefs still match it. */
+  const [pristine, setPristine] = useState(true);
+  const [samples, setSamples] = useState<Record<string, Brief>>({});
   const [saved, setSaved] = useState(0);
   const loadCtl = useRef<AbortController | null>(null);
 
@@ -195,9 +198,49 @@ export default function LaunchControl() {
     setRunning(false);
   };
 
+  // Visitors without the passcode still see Claude's work: a saved agent run for the untouched demo data.
+  useEffect(() => {
+    if (!snap || snap.source !== 'demo' || !pristine || !sel || !agentAvailable) return;
+    const key = `${snap.asOf}:${sel}`;
+    if (samples[key]) return;
+    const launch = snap.launches.find((l) => l.id === sel);
+    if (!launch) return;
+    const ctl = new AbortController();
+    fetch(`/api/brief/sample?launch=${encodeURIComponent(sel)}&today=${snap.asOf}`, { signal: ctl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { text?: string; ms?: number; toolCalls?: number; trace?: string[]; asOf?: string } | null) => {
+        if (!j?.text || j.asOf !== snap.asOf) return;
+        const text = j.text;
+        setSamples((m) => ({
+          ...m,
+          [key]: {
+            launchId: sel,
+            kind: 'ai',
+            text,
+            at: '',
+            trace: j.trace ?? [],
+            saved: true,
+            meta: { ms: j.ms ?? 0, toolCalls: j.toolCalls ?? 0 },
+            check: verifyBrief(text, snap, launch),
+            checkedAgainst: 'demo data',
+          },
+        }));
+      })
+      .catch(() => {});
+    return () => ctl.abort();
+  }, [snap, sel, pristine, agentAvailable, samples]);
+
   const summary = useMemo(() => (snap ? boardSummary(snap) : null), [snap]);
   const checks = useMemo(() => (snap ? hygieneChecks(snap.issues, snap.asOf) : []), [snap]);
   const proposed = useMemo(() => (snap ? proposeFixes(snap) : { fixes: [], unlinked: 0 }), [snap]);
+  /** Manual work waiting right now, from the data on screen: one sweep per launch, plus each proposed fix and alert. */
+  const waiting = useMemo(() => {
+    if (!snap) return { minutes: 0, sweeps: 0, fixes: 0, alerts: 0 };
+    const alerts = snap.launches.reduce((n, l) => n + proposeAlerts(snap, l).alerts.length, 0);
+    const sweeps = snap.launches.length;
+    const fixes = proposed.fixes.length;
+    return { minutes: sweeps * MINUTES_PER_SWEEP + (fixes + alerts) * MINUTES_PER_FIX, sweeps, fixes, alerts };
+  }, [snap, proposed]);
 
   const addLog = (entries: FixAction[]) => {
     const at = clock();
@@ -224,7 +267,16 @@ export default function LaunchControl() {
   let shown: Brief | null = null;
   if (L) {
     if (brief && brief.launchId === L.id) shown = brief.kind === 'rules' ? { ...brief, text: rulesBrief(L, snap) } : brief;
-    else shown = cachedBrief(L.id) ?? { launchId: L.id, kind: 'rules', text: rulesBrief(L, snap), at: clock(), trace: [] };
+    else
+      shown =
+        cachedBrief(L.id) ??
+        (snap.source === 'demo' && pristine ? samples[`${snap.asOf}:${L.id}`] : undefined) ?? {
+          launchId: L.id,
+          kind: 'rules',
+          text: rulesBrief(L, snap),
+          at: clock(),
+          trace: [],
+        };
   }
 
   const switchSource = (src: SourceKind) => {
@@ -248,13 +300,15 @@ export default function LaunchControl() {
   };
 
   const cycleStatus = (id: string) => {
+    setPristine(false);
     setSnap((s) =>
       s && {
         ...s,
         issues: s.issues.map((i) => (i.id === id ? { ...i, status: NEXT_STATUS[i.status], updatedAt: s.asOf } : i)),
       },
     );
-    if (shown?.kind === 'ai') setBrief({ ...shown, stale: true });
+    // A live agent brief is kept and marked stale; a saved sample no longer applies, so the rules brief takes over.
+    if (shown?.kind === 'ai' && !shown.saved) setBrief({ ...shown, stale: true });
   };
 
   const rulesFallback = (trace: string, logText: string) => {
@@ -358,6 +412,7 @@ export default function LaunchControl() {
   };
 
   const fix = () => {
+    setPristine(false);
     const r = autofix(snap);
     setSnap({ ...snap, issues: r.issues });
     addLog(r.actions);
@@ -480,6 +535,7 @@ export default function LaunchControl() {
     stopAgent();
     setAlerted(new Set());
     setDecisions({});
+    setPristine(true);
     try {
       snap.launches.forEach((l) => localStorage.removeItem(CACHE_KEY(l.id)));
     } catch {
@@ -602,6 +658,7 @@ export default function LaunchControl() {
           checks={checks}
           clean={summary.hygiene}
           saved={saved}
+          waiting={waiting}
           log={log}
           onFix={live ? undefined : fix}
           onReset={live ? undefined : reset}

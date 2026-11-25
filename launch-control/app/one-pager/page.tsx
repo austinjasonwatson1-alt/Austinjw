@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 const REPO = 'https://github.com/austinjasonwatson1-alt/Austinjw/tree/claude/pensive-curie-80dv7b/launch-control';
 
 const STATS = [
-  ['30/30', 'same go/no-go call as the rules engine'],
+  ['30/30', 'briefs passed the readiness-rules check on the go/no-go call'],
   ['0 of 152', 'issue IDs invented by the agent'],
   ['21/21', 'at-risk tickets cited in the brief'],
   ['5.3 s · 1.3¢', 'typical brief time and cost'],
@@ -78,7 +78,8 @@ export default function OnePager() {
           </div>
           <p className={s.cap}>
             Eval: 30 briefs over two scenarios (fresh data, and a week later with four launches at risk for different reasons),
-            each checked against the data it read. The same check runs under every brief in the app.
+            each checked against the data it read. The rules make the call and act as the guardrail; the agent explains it:
+            who must do what by when, and the update for execs. The same check runs under every brief in the app.
           </p>
         </section>
 

@@ -15,7 +15,7 @@ Run 2026-11-24 with `npm run eval -- --runs 3` · model `claude-sonnet-5-5` (eff
 | Metric | Result |
 | --- | --- |
 | Briefs completed | 30/30 |
-| Same go/no-go call as the rules engine | 30/30 (100%) |
+| Briefs whose go/no-go call passed the readiness-rules check | 30/30 (100%) |
 | Invented issue ids | 0 of 152 cited |
 | At-risk tickets cited (recall) | 21/21 (100%) |
 | Exact 4-section format | 30/30 |

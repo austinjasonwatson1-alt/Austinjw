@@ -162,3 +162,5 @@
 .preview p{margin:6px 0 0}
 .preview small{display:block}
 .dlink{color:var(--sky)}
+.bigWaiting{color:var(--ink)}
+.waitnote{font-size:14px;color:var(--mut);margin-top:6px;max-width:52ch}

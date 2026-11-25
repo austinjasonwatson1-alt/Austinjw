@@ -17,6 +17,8 @@ export interface Brief {
   /** Fresh AI briefs only: run stats and the check against the tracker data. */
   meta?: { ms: number; toolCalls: number };
   check?: BriefCheck;
+  /** A real agent run on the untouched demo data, saved earlier today and shown without the passcode. */
+  saved?: boolean;
   /** "Linear" or "demo data": what the ids were checked against. */
   checkedAgainst?: string;
 }
@@ -36,9 +38,9 @@ function Checks({ check, against }: { check: BriefCheck; against: string }) {
       )}
       {' · '}
       {check.agrees ? (
-        <span>✓ same call as the rules engine</span>
+        <span>✓ call passes the readiness rules</span>
       ) : (
-        <span className={cx('bad')}>⚠ rules engine says {check.rulesCall}</span>
+        <span className={cx('bad')}>⚠ readiness rules say {check.rulesCall}</span>
       )}
     </p>
   );
@@ -83,7 +85,7 @@ export default function BriefPanel({
           <>
             <span className={cx('pill', 'ai')}>Claude agent</span>
             <span>
-              written {brief.at}
+              {brief.saved ? 'saved run from today' : `written ${brief.at}`}
               {brief.meta && ` in ${(brief.meta.ms / 1000).toFixed(1)} s · ${brief.meta.toolCalls} tool call${brief.meta.toolCalls === 1 ? '' : 's'}`}
             </span>
           </>
@@ -123,8 +125,9 @@ export default function BriefPanel({
       {decision && !running && <DecisionBar key={brief.launchId} d={decision} />}
       <p className={cx('how')}>
         The agent is Claude with three read-only tools over the tracker: list_launches, get_gates and list_issues. It
-        reads the live data, then writes the brief. If Claude can&apos;t be reached, a rules engine writes the same brief
-        from the same data, so the launch review never stalls.
+        reads the live data, then writes the brief. The readiness rules make the go/no-go call and check the agent;
+        the agent explains it: who has to do what by when, and the update for execs. If Claude can&apos;t be reached, the
+        rules write a plain brief from the same data, so the launch review never stalls.
       </p>
     </aside>
   );
