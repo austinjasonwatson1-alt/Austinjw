@@ -1,0 +1,120 @@
+/* Ported from prototype/index.html (the approved style guide). Keep in sync with it. */
+.band{padding:clamp(24px,4vw,56px) max(5vw,16px)}
+.bandTight{padding-top:0}
+.wrap{max-width:1240px;margin:0 auto}
+.top{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:24px 48px;align-items:end}
+.sub{color:var(--mut);margin-top:12px;max-width:52ch}
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--edge);border:1px solid var(--edge);border-radius:12px;overflow:hidden}
+.kpi{background:var(--bg);padding:14px 16px}
+.kpi b{display:block;font-size:30px;font-weight:300;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kpi small{display:block}
+.kpi.hot b{color:var(--pink)}.kpi.ok b{color:var(--sky)}
+.cal{margin-top:32px;border-top:1px solid var(--edge)}
+.axis,.row{display:grid;grid-template-columns:minmax(0,230px) minmax(0,1fr) 92px;gap:16px;align-items:center}
+.axis{padding:10px 12px 6px;font-size:13px;color:var(--mut)}
+.ticks{position:relative;height:18px}
+.ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.ticks span:first-child{transform:none}.ticks span:last-child{transform:translateX(-100%)}
+.row{width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--edge);padding:14px 12px;border-radius:0;min-height:64px}
+.row:hover{background:rgba(143,211,255,.06)}
+.row.on{background:var(--panel);box-shadow:inset 3px 0 0 var(--sky)}
+.nm b{display:block;font-weight:600;line-height:1.25}
+.trk{position:relative;height:22px;background-image:repeating-linear-gradient(to right,rgba(143,211,255,.16) 0 1px,transparent 1px 20%)}
+.bar{position:absolute;left:0;top:4px;height:14px;display:flex;gap:2px}
+.seg{flex:1;border-radius:2px}
+.ready{--c:var(--sky)}.prog{--c:var(--prog)}.risk{--c:var(--pink)}
+.seg,.dot{background:var(--c)}
+.mk{position:absolute;top:3px;width:16px;height:16px;margin-left:4px;transform:rotate(45deg);border:2px solid var(--c);background:var(--bg)}
+.dt{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.dt small{display:block}
+.dt small.risk{color:var(--pink)}.dt small.ready{color:var(--sky)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;padding:12px;font-size:13px;color:var(--mut)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-1px;background:var(--c)}
+.work{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:24px;align-items:start}
+.panel{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:clamp(16px,2.4vw,24px)}
+.lhead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 16px;align-items:baseline;margin-bottom:14px}
+.meter{height:8px;border-radius:4px;background:rgba(255,255,255,.12);overflow:hidden;margin:6px 0 16px;display:flex}
+.meter i{background:var(--sky)}
+.gate{border-top:1px solid var(--edge)}
+.gate summary{display:grid;grid-template-columns:12px minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:12px 2px;cursor:pointer;list-style:none}
+.gate summary::-webkit-details-marker{display:none}
+.dot{width:12px;height:12px;border-radius:50%}
+.gn{font-weight:600}
+.gw{font-size:13px;color:var(--mut);text-align:right}
+.gate.risk .gw{color:var(--pink)}
+.gc{font-size:13px;font-variant-numeric:tabular-nums;color:var(--mut);min-width:2.4em;text-align:right}
+.gate ul{list-style:none;margin:0 0 12px;padding:0 0 0 24px}
+.gate li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 0;border-top:1px dashed var(--edge)}
+.it small{display:block}
+.it small .bad{color:var(--pink)}
+.none{color:var(--pink);font-size:14px;margin:0 0 12px 24px}
+.st{border:1px solid var(--edge);background:var(--panel2);border-radius:999px;padding:6px 12px;font-size:13px;min-height:36px;white-space:nowrap}
+.st:hover{border-color:var(--sky)}
+.sD{color:var(--sky);border-color:rgba(143,211,255,.5)}.sX{color:var(--pink);border-color:rgba(255,92,138,.6)}
+.brief{position:sticky;top:16px}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}
+.go{background:var(--sky);color:#0a2540;border:0;border-radius:10px;padding:12px 18px;font-weight:700;min-height:44px}
+.go:disabled{opacity:.6;cursor:progress}
+.ghost{background:none;border:1px solid var(--edge);border-radius:10px;padding:10px 14px;min-height:44px}
+.ghost:hover{border-color:var(--sky)}
+.src{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--mut);flex-wrap:wrap}
+.pill{border:1px solid var(--edge);border-radius:999px;padding:2px 10px;color:var(--ink)}
+.pill.ai{border-color:var(--sky);color:var(--sky)}
+.trace{list-style:none;margin:10px 0 0;padding:0;font-size:13px;color:var(--mut)}
+.trace li{padding:3px 0}
+.trace li::before{content:"→ ";color:var(--sky)}
+.out{margin-top:14px;border-top:1px solid var(--edge);padding-top:6px}
+.out h4{font-size:13px;font-weight:600;color:var(--mut);margin:16px 0 6px}
+.out ul{margin:0;padding-left:18px}
+.out li{margin:4px 0}
+.out p{margin:4px 0}
+.rec{font-size:20px;font-weight:600;line-height:1.3}
+.rec.no{color:var(--pink)}.rec.yes{color:var(--sky)}
+.stale{color:var(--pink);font-size:13px;margin-top:8px}
+.how{font-size:13px;color:var(--mut);margin-top:16px;border-top:1px solid var(--edge);padding-top:12px}
+.hyg{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px}
+.chk{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:12px 0;border-top:1px solid var(--edge)}
+.chk b{font-size:24px;font-weight:300;font-variant-numeric:tabular-nums;text-align:right}
+.chk.bad b{color:var(--pink)}
+.chk small{grid-column:1/-1}
+.big{font-size:clamp(44px,6vw,64px);font-weight:300;line-height:1;color:var(--sky);font-variant-numeric:tabular-nums}
+.log{list-style:none;padding:0;margin:14px 0 0;font-size:14px;max-height:260px;overflow:auto}
+.log li{padding:7px 0;border-top:1px solid var(--edge)}
+.log time{color:var(--mut);font-size:13px;margin-right:8px;font-variant-numeric:tabular-nums}
+/* Not in the prototype: data source toggle (PRD §4.7), issue links, fallback banner. */
+.srcbar{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px 12px;margin-bottom:20px;font-size:13px;color:var(--mut)}
+.toggle{display:inline-flex;border:1px solid var(--edge);border-radius:999px;padding:2px}
+.toggle button{background:none;border:0;border-radius:999px;padding:6px 14px;min-height:36px;color:var(--mut)}
+.toggle button[aria-pressed=true]{background:var(--sky);color:#0a2540;font-weight:600}
+.toggle button:hover:not([aria-pressed=true]){color:var(--ink)}
+.refresh{background:none;border:1px solid var(--edge);border-radius:999px;padding:6px 12px;min-height:36px;font-size:13px}
+.refresh:hover{border-color:var(--sky)}
+.idlink{color:inherit;text-decoration:none}.idlink:hover{text-decoration:underline}
+.ro{display:inline-flex;align-items:center;cursor:default}.ro:hover{border-color:var(--edge)}
+.fixlist{list-style:none;padding:0;margin:4px 0 0}
+.fixlist li{border-top:1px solid var(--edge);padding:8px 0}
+.fixlist label{display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:14px}
+.fixlist input{accent-color:var(--sky);width:18px;height:18px;margin:2px 0 0;flex:none}
+.fixlist small{display:block}
+.msg{font-size:13px;margin-top:8px;color:var(--mut)}.msg.bad{color:var(--pink)}
+.sD.ro:hover{border-color:rgba(143,211,255,.5)}.sX.ro:hover{border-color:rgba(255,92,138,.6)}
+.notice{border:1px solid rgba(255,92,138,.6);color:var(--ink);background:rgba(255,92,138,.08);border-radius:10px;padding:10px 14px;font-size:14px;margin-bottom:20px}
+.notice b{color:var(--pink);font-weight:600}
+@media(max-width:900px){.top,.work,.hyg{grid-template-columns:minmax(0,1fr)}.brief{position:static}}
+@media(max-width:600px){
+ .axis{grid-template-columns:minmax(0,1fr);padding-inline:4px}.axis>span:first-child,.axis>span:last-child{display:none}
+ .row{grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;padding-inline:8px}.row .trk{grid-column:1/-1;grid-row:2}
+ .gate li{grid-template-columns:minmax(0,1fr) auto}.gate li code{grid-column:1/-1}
+ .gw{display:none}.ticks span:nth-child(even){display:none}.gate summary{grid-template-columns:12px minmax(0,1fr) auto}
+}
+@media(prefers-reduced-motion:no-preference){.seg{transition:background .35s}.bar{animation:grow .7s ease-out both}@keyframes grow{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}}
+/* Passcode dialog (M5) */
+.dlg{background:var(--panel);color:var(--ink);border:1px solid var(--edge);border-radius:14px;padding:clamp(18px,3vw,28px);width:min(440px,calc(100vw - 32px))}
+.dlg::backdrop{background:rgba(5,18,32,.72)}
+.dlg .sub{margin-top:6px}
+.pcin{width:100%;margin-top:16px;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--edge);border-radius:10px;padding:10px 12px;min-height:44px}
+.pcin:focus{outline:2px solid var(--sky);outline-offset:1px}
+.checks{font-size:13px;color:var(--sky);margin-top:8px}.checks .bad{color:var(--pink)}
+.alerts{border-top:1px solid var(--edge);margin-top:4px;padding-top:14px}
+.alerts h3{font-size:15px;font-weight:600;margin:0}
+.alerts .fixlist small{font-size:13px;line-height:1.45}

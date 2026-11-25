@@ -1,0 +1,37 @@
+/* Element-level styles from prototype/index.html. Component classes live in components/lc.module.css. */
+:root {
+  color-scheme: dark;
+  --bg: #0a2540;
+  --panel: #0f2f52;
+  --panel2: #123661;
+  --edge: rgba(143, 211, 255, 0.18);
+  --ink: #fff;
+  --mut: rgba(255, 255, 255, 0.7);
+  --sky: #8fd3ff;
+  --pink: #ff5c8a;
+  --prog: rgba(255, 255, 255, 0.38);
+}
+* { box-sizing: border-box; min-width: 0; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.55 var(--font-hanken), 'Hanken Grotesk', system-ui, sans-serif;
+  overflow-x: clip;
+}
+h1 {
+  font-weight: 300;
+  font-size: clamp(30px, 4.2vw, 48px);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  margin: 0;
+  text-wrap: balance;
+  max-width: 20ch;
+}
+h2 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 4px; }
+p { margin: 0; }
+small { font-size: 13px; color: var(--mut); }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, summary:focus-visible { outline: 2px solid var(--sky); outline-offset: 2px; }
+code { font: 500 13px/1 var(--font-hanken), 'Hanken Grotesk', sans-serif; color: var(--sky); white-space: nowrap; }
+footer { color: var(--mut); font-size: 13px; }
