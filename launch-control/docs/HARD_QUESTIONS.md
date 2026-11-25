@@ -45,6 +45,32 @@ Keys stay on the server. AI output and tracker text are treated as untrusted and
 **13. What does it cost to run?**
 About a cent per brief with the current model. At five launches reviewed weekly that's well under a dollar a month in AI cost.
 
+## About this role (from the posting)
+
+**18. The posting says the process is new and much of it is yours to design. Where would you start?**
+By watching one real launch go through today's process before changing anything. Then agree with each function what "ready" means for their gate and who owns it. I'd design it with the teams, not for them, and automate the step that's repeated most first.
+
+**19. Where should humans stay in the loop in an agentic delivery process?**
+Wherever a mistake is expensive or hard to undo: the go/no-go call, anything customer-facing, anything that reassigns people's work, and any message to leadership. Agents read, score, draft and propose. In Launch Control the agent has no write access at all; every write is previewed and confirmed.
+
+**20. We use Linear and DevRev. What's your DevRev experience?**
+[Answer honestly with your own experience.] The architecture point: the tracker sits behind one interface. Linear is one adapter; DevRev is another adapter plus a mapping of what counts as a launch, a gate and a blocker. The first thing I'd want to understand is which system owns which record, and where the handoff between them drops things.
+
+**21. Which product delivery KPIs would you define?**
+Launch date predictability (days slipped against the committed date). Share of gates ready a week before go/no-go. Risks found before the review versus in it. Share of releases that followed the process. Tracker hygiene. Manual hours removed. I'd start with two, baseline them, and add more only when someone acts on the first two.
+
+**22. A KPI slips. What do you do?**
+Find out whether it's the measure or the process: is the data right, and is it one launch or a pattern? Then take it to the owner of that step with the evidence and one proposed change, and re-measure. [Add your own example.]
+
+**23. This is launches. What about SKO or a Customer Advisory Board?**
+Same shape, different gates. An SKO has a date, owners across functions, and things that must be true before it: content, enablement, logistics, exec prep. I'd run it as a program with gates and a go/no-go. [Add your own example of a large program.]
+
+**24. How do you hold senior stakeholders to an agenda and a date?**
+Send the brief before the meeting so the meeting is for decisions, not status. Open with the call the data suggests. Record the decision and owners before people leave, and publish it. [Add your own example.]
+
+**25. How do you measure the manual work an automation removes?**
+Time the manual version first, even roughly, with the person who does it. Count how often it happens. After the automation, count runs and spot-check the time. In the demo the minutes are estimates and labelled that way; in the role I'd baseline before building.
+
 ## About you and the role
 
 **14. How would you roll this out without annoying people?**

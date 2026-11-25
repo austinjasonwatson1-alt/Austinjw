@@ -21,7 +21,7 @@ export default function OnePager() {
     <main className={s.page}>
       <header className={s.head}>
         <div>
-          <p className={s.kicker}>Launch readiness, automated</p>
+          <p className={s.kicker}>Automated where it&apos;s safe, human where the stakes are highest</p>
           <h1 className={s.title}>Launch Control</h1>
         </div>
         <div className={s.by}>
@@ -33,8 +33,9 @@ export default function OnePager() {
 
       <p className={s.lede}>
         Before a tier 1 launch, product ops spends hours chasing status across R&amp;D, QA, docs, enablement, support and
-        marketing to answer one question: <strong>are we ready?</strong> Launch Control answers it on one screen, and an AI
-        agent writes the go/no-go brief from live tracker data, so the time goes into fixing risks instead of finding them.
+        marketing to answer one question: <strong>are we ready?</strong> Launch Control makes the launch calendar the single
+        source of truth, read live from the tracker, and an AI agent writes the go/no-go brief, so the time goes into fixing
+        risks instead of finding them.
       </p>
 
       <div className={s.grid}>
@@ -50,8 +51,9 @@ export default function OnePager() {
               recommendation, blocking risks with owners and issue IDs, and a three-line exec update.
             </li>
             <li>
-              <strong>Closes the loop:</strong> drafts a risk alert to each owner, fixes tracker hygiene, and posts the
-              go/no-go decision to leadership as a status update. A person reviews and confirms every change.
+              <strong>Closes the loop:</strong> drafts a risk alert to each owner, posts the go/no-go decision to leadership
+              as a status update, and keeps the data clean enough to report from the tool without cleanup. A person
+              confirms every change.
             </li>
             <li>
               <strong>Never stalls:</strong> a rules engine writes the same brief if Claude or the tracker is unavailable.
@@ -102,15 +104,15 @@ export default function OnePager() {
           <div className={s.plan}>
             <div>
               <b>Days 1–30 · Learn</b>
-              <p>Sit in on two go/no-go reviews. Agree gate definitions and owners with R&amp;D, QA, Docs, PMM and Support. Connect the real tracker (one adapter file).</p>
+              <p>Watch a tier 1 launch run on today&apos;s process. Agree gate definitions and owners with each function. Connect Linear and DevRev (one adapter each).</p>
             </div>
             <div>
               <b>Days 31–60 · Run in parallel</b>
-              <p>Run alongside the manual process on two launches. Measure prep time and risks surfaced before the meeting. Post the exec update to Slack.</p>
+              <p>Run alongside the current process on two launches. Baseline two delivery KPIs and the manual hours per launch. Publish readiness on a weekly cadence.</p>
             </div>
             <div>
               <b>Days 61–90 · Make it the default</b>
-              <p>Default for every Tier 1 go/no-go. Add readiness trend over time and hygiene targets per team. Report the before/after numbers.</p>
+              <p>Default for every tier 1 go/no-go, early access through GA. Extend the same gates model to minor releases and GTM programs. Report the manual work removed.</p>
             </div>
           </div>
         </section>
