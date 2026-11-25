@@ -540,7 +540,10 @@ export default function LaunchControl() {
         <div className={cx('wrap')}>
           {live
             ? 'Live data from Linear, seeded with a fictional product org. Built by Austin Watson as a working prototype of launch readiness tooling.'
-            : 'Sample data for a fictional product org; dates are relative to today. Built by Austin Watson as a working prototype of launch readiness tooling.'}
+            : 'Sample data for a fictional product org; dates are relative to today. Built by Austin Watson as a working prototype of launch readiness tooling.'}{' '}
+          <a href="/one-pager" style={{ color: 'var(--sky)' }}>
+            One-pager
+          </a>
         </div>
       </footer>
     </>

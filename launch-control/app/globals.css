@@ -35,3 +35,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 button:focus-visible, summary:focus-visible { outline: 2px solid var(--sky); outline-offset: 2px; }
 code { font: 500 13px/1 var(--font-hanken), 'Hanken Grotesk', sans-serif; color: var(--sky); white-space: nowrap; }
 footer { color: var(--mut); font-size: 13px; }
+
+/* Printing (the one-pager): white paper, dark ink. */
+@media print {
+  :root { color-scheme: light; }
+  html, body { background: #fff !important; color: #0a2540 !important; }
+}
