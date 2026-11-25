@@ -260,6 +260,51 @@ class SoundEngine {
     beat();
   }
 
+  private chantTimer: number | null = null;
+  private chantMode: 'home' | 'road' | null = null;
+
+  /** Crowd chant while you line up a big kick: home crowds stomp and clap, road crowds boo and whistle. */
+  chant(mode: 'home' | 'road' | null) {
+    if (mode === this.chantMode) return;
+    this.chantMode = mode;
+    if (this.chantTimer !== null) window.clearInterval(this.chantTimer);
+    this.chantTimer = null;
+    if (!mode || !this.ctx) return;
+    const beat = () => {
+      if (!this.ctx || this.chantMode !== mode) return;
+      const t = this.ctx.currentTime;
+      if (mode === 'home') {
+        // stomp, stomp, clap
+        for (const [dt, kind] of [[0, 'stomp'], [0.32, 'stomp'], [0.64, 'clap']] as const) {
+          if (kind === 'stomp') this.noiseBurst(t + dt, 'lowpass', 220, 0.8, 0.35, 0.005, 0.12, this.brown!);
+          else this.noiseBurst(t + dt, 'bandpass', 2300, 1.4, 0.3, 0.002, 0.07);
+        }
+      } else {
+        // a rolling boo plus scattered whistles
+        const out = this.ctx.createGain();
+        out.gain.setValueAtTime(0.0001, t);
+        out.gain.exponentialRampToValueAtTime(0.2, t + 0.3);
+        out.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
+        const f = this.ctx.createBiquadFilter();
+        f.type = 'bandpass';
+        f.frequency.value = 420;
+        f.Q.value = 2;
+        f.connect(out).connect(this.master!);
+        for (let i = 0; i < 8; i++) {
+          const o = this.ctx.createOscillator();
+          o.type = 'sawtooth';
+          o.frequency.value = 110 + Math.random() * 70;
+          o.connect(f);
+          o.start(t);
+          o.stop(t + 1.4);
+        }
+        if (Math.random() < 0.6) this.tone(t + Math.random() * 0.8, 'sine', 2600, 2200, 0.4, 0.04, 0.03, 0.4);
+      }
+    };
+    beat();
+    this.chantTimer = window.setInterval(beat, mode === 'home' ? 1200 : 1500);
+  }
+
   /** Referee whistle (timeouts). */
   whistle() {
     if (!this.ctx) return;

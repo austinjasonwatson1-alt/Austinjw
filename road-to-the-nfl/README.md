@@ -25,11 +25,12 @@ the hosted page and the offline file, use **Copy save code** on its slot, then *
 
 | Step | Keys | Mouse |
 |---|---|---|
-| Aim | ← → | move over the posts |
+| Aim | ← → (↑ ↓ high or low kick) | move over the posts · touch: drag, then Set aim |
 | Set aim, stop power, stop accuracy | Space | click |
 | Skip ahead during the flight | Space | click |
 | After the kick | Space = again · N = new random spot · Esc = setup | buttons |
 | Sound on/off | M | speaker button |
+| Replay a kick | R | Replay button |
 
 ## Tuning
 
@@ -50,6 +51,16 @@ slow motion (`slowMo`), sound levels (`audio`) and team kits. The practice kicke
 - **Big moments:** game-winning, game-tying and go-ahead kicks get a celebration: the team mobs you, confetti,
   fireworks and your name on the video board.
 - **Records:** school, program and NFL record books (real NFL marks, no names) with callouts when you pass one.
+- **Your call:** near the edge of his range the coach asks if you can make it. Back it up and trust soars; miss and it
+  craters. Pick a high kick (clears the rush, drifts more) or a low one (cuts the wind, easier to block) with ↑ ↓.
+- **Surprises:** bad snaps you have to save with a quick press, swirling stadiums where the flags shift, hurry-up kicks
+  with the clock running, and a harder edge rush in big moments.
+- **Story:** slumps after costly misses (a clutch make ends one), press conferences after big moments, and the high
+  school rival who follows your career to college and the NFL.
+- **Broadcast:** booth captions, end-zone replays of big kicks (R), day and night games, domes, snow, chants, and
+  road crowds that groan at your makes.
+- **Traits:** unlock Big Leg, Ice Water, Wind Whisperer, Cold Blooded, Metronome, The Closer and Automatic.
+- **Settings:** difficulty (Easy/Normal/Hard), a kicking tutorial, touch controls, and a legacy wall of past careers.
 - **Transfer portal:** in any college offseason before your senior year, enter the portal for offers based on your
   overall and last season. Withdraw and your coach will have signed a new kicker to battle in camp.
 - **Schedule tab:** results, league or conference standings, the playoff race and the bracket.

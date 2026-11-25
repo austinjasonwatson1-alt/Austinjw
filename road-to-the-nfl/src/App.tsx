@@ -3,6 +3,7 @@ import { CONFIG } from './config';
 import { newCareer, seasonLabel } from './career/career';
 import { overall } from './career/progression';
 import { deleteCareer, exportCode, importCode, loadCareer, saveCareer, SLOTS } from './career/save';
+import { readLegacy, readSettings, writeSettings, type Difficulty } from './career/story';
 import type { Career } from './career/types';
 import { Practice } from './screens/Practice';
 import { CareerApp } from './screens/career/CareerApp';
@@ -69,6 +70,8 @@ export function App() {
             Free Practice
           </button>
         </div>
+        <Settings />
+        <LegacyWall />
         <ImportSave
           used={slots.filter((s) => s.c).map((s) => s.slot)}
           onImported={() => refresh((n) => n + 1)}
@@ -226,6 +229,60 @@ function ImportSave({ used, onImported }: { used: number[]; onImported: () => vo
           Close
         </button>
       </div>
+    </div>
+  );
+}
+
+function Settings() {
+  const [st, setSt] = useState(readSettings());
+  const set = (d: Difficulty) => {
+    writeSettings({ difficulty: d });
+    setSt({ ...st, difficulty: d });
+  };
+  return (
+    <div className="settings">
+      <div className="settings-row">
+        <span className="settings-l">Difficulty</span>
+        <div className="seg">
+          {(['easy', 'normal', 'hard'] as Difficulty[]).map((d) => (
+            <button key={d} className={st.difficulty === d ? 'on' : ''} onClick={() => set(d)}>
+              {CONFIG.difficulty[d].label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <button
+        className="link import-link"
+        onClick={() => {
+          writeSettings({ tutorialDone: false });
+          setSt({ ...st, tutorialDone: false });
+        }}
+      >
+        {st.tutorialDone ? 'Show the kicking tutorial again' : 'The kicking tutorial will show on your next kick'}
+      </button>
+    </div>
+  );
+}
+
+function LegacyWall() {
+  const list = readLegacy();
+  if (!list.length) return null;
+  return (
+    <div className="legacy">
+      <div className="settings-l">Legacy wall</div>
+      {list.map((e, i) => (
+        <div key={i} className="legacy-row">
+          <div>
+            <div className="legacy-name">{e.name}</div>
+            <div className="note">
+              {e.years} · {e.points} pts · long {e.longest}
+              {e.titles ? ` · ${e.titles} title${e.titles > 1 ? 's' : ''}` : ''}
+              {e.honors ? ` · ${e.honors} honors` : ''}
+            </div>
+          </div>
+          <div className="legacy-verdict">{e.verdict}</div>
+        </div>
+      ))}
     </div>
   );
 }

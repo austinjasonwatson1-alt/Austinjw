@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { CONFIG } from '../config';
 import { Rng } from '../sim/rng';
 import type { Camera } from './camera';
 import { sound } from '../audio/sound';
 import type { Kit } from './figures';
-import { describeWind, goalPlaneY, powerSpeedFrac, rate, resolveKick, type KickResult, type KickSetup, type KickerRatings, type Vec3 } from './physics';
-import { buildCamera, drawMeters, drawScene, FIREWORK_TIMES, type Phase, type SceneView } from './render';
+import { describeWind, goalPlaneY, powerSpeedFrac, rate, resolveKick, type Trajectory, type KickResult, type KickSetup, type KickerRatings, type Vec3 } from './physics';
+import { buildCamera, buildReplayCamera, drawMeters, drawScene, FIREWORK_TIMES, type Phase, type SceneView, type Venue } from './render';
+import { afterKick, inFlight, preKick, type BoothContext, type Caption } from './booth';
+import { applyDifficulty, readSettings, writeSettings } from '../career/story';
 
 export interface SessionLine {
   label: string;
@@ -45,6 +47,15 @@ interface Props {
   board?: [string, string];
   /** Painted in the end zone. */
   endzone?: string;
+  /** Your crowd or theirs: road crowds groan at your makes and roar at your misses. */
+  home?: boolean;
+  /** No timeouts, clock running: aim before the snap. */
+  hurry?: boolean;
+  /** Broadcast booth context (game day). */
+  booth?: Partial<BoothContext>;
+  venue?: Venue;
+  /** Ice Water trait: icing doesn't speed up the meters. */
+  icingImmune?: boolean;
   seed: number;
   onResult: (r: KickResult) => void;
   onAgain: () => void;
@@ -76,6 +87,12 @@ interface Runtime {
   contactAt: number | null;
   icedUntil: number;
   celebrateAt: number | null;
+  trajectory: Trajectory;
+  badSnap: boolean;
+  snapAt: number | null;
+  hurryEnds: number | null;
+  replayAt: number | null;
+  replayDone: boolean;
   keys: { left: boolean; right: boolean };
 }
 
@@ -104,6 +121,12 @@ const fresh = (): Runtime => ({
   keys: { left: false, right: false },
   icedUntil: 0,
   celebrateAt: null,
+  trajectory: 'normal',
+  badSnap: false,
+  snapAt: null,
+  hurryEnds: null,
+  replayAt: null,
+  replayDone: false,
 });
 
 /** Playback speed through a close call: normal, easing down to slow motion around the posts, then back. */
@@ -119,10 +142,11 @@ function slowScale(fi: number, decideIndex: number): number {
 }
 
 /** The crowd and the posts react the moment the result is known. */
-function react(r: KickResult) {
+function react(r: KickResult, home: boolean) {
   if (r.outcome === 'GOOD_UPRIGHT' || r.outcome === 'UPRIGHT_NO' || r.outcome === 'GOOD_CROSSBAR' || r.outcome === 'CROSSBAR_NO') sound.clang();
   if (r.outcome === 'BLOCKED') sound.block();
-  if (r.made) sound.roar(r.slowMo ? 1.3 : 1);
+  // On the road the crowd is against you: they groan at your makes and roar at your misses.
+  if (r.made === home) sound.roar(r.slowMo ? 1.3 : 1);
   else sound.groan();
 }
 
@@ -171,7 +195,12 @@ function detailText(r: KickResult, setup: KickSetup): string {
 }
 
 export function KickScene(props: Props) {
-  const { setup, kicker, kickerName, accent, session, seed, onResult, onAgain, mode = 'practice' } = props;
+  const { setup, kickerName, accent, session, seed, onResult, onAgain, mode = 'practice' } = props;
+  const settings = useMemo(() => readSettings(), []);
+  // Difficulty shifts the ratings the kick uses.
+  const kicker = useMemo(() => applyDifficulty(props.kicker, settings.difficulty), [props.kicker, settings.difficulty]);
+  const home = props.home ?? true;
+  const venue: Venue = props.venue ?? { time: 'night', dome: false, snowField: setup.weather === 'snow' };
   const onNewSpot = props.onNewSpot ?? (() => {});
   const onExit = props.onExit ?? (() => {});
   const P = CONFIG.practice;
@@ -181,7 +210,33 @@ export function KickScene(props: Props) {
   // Composure decides how much of the moment's pressure reaches the meters.
   const cf = rate(kicker.composure, CONFIG.pressure.composureFactor);
   const eff = Math.min(1, (props.pressure ?? 0) * cf);
-  const speedMult = 1 + eff * CONFIG.pressure.speedGain + (props.iced ? CONFIG.icing.speedGain * cf : 0);
+  const speedMult = (1 + eff * CONFIG.pressure.speedGain + (props.iced && !props.icingImmune ? CONFIG.icing.speedGain * cf : 0)) * CONFIG.difficulty[settings.difficulty].meterSpeed;
+  const [traj, setTraj] = useState<Trajectory>('normal');
+  const [tutorial, setTutorial] = useState(!settings.tutorialDone);
+  const [touch, setTouch] = useState(false);
+  const [caption, setCaption] = useState<Caption | null>(null);
+  const [replaying, setReplaying] = useState(false);
+  const [snapUi, setSnapUi] = useState<null | 'live' | 'saved' | 'botched'>(null);
+  const [hurryLeft, setHurryLeft] = useState<number | null>(null);
+  const boothCtx: BoothContext = {
+    kickerName,
+    distance: setup.distanceYd,
+    xp: props.cardTitle?.startsWith('Extra') ?? false,
+    windMph: setup.windMph,
+    windWords: describeWind(setup.windMph, setup.windToDeg),
+    weather: setup.weather ?? 'clear',
+    pressure: props.pressure ?? 0,
+    tag: props.cardTag ?? null,
+    iced: !!props.iced,
+    vouched: false,
+    hurry: !!props.hurry,
+    swirl: !!setup.swirl,
+    home,
+    seasonLine: null,
+    longest: null,
+    practice: mode === 'practice',
+    ...props.booth,
+  };
   const [icing, setIcing] = useState(!!props.iced);
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -199,8 +254,8 @@ export function KickScene(props: Props) {
     if (force?.clutch) clutch = force.clutch;
   }
   const boardLines: [string, string] = props.board ?? (session ? ['FREE PRACTICE', `FG ${session.made}/${session.att} · LONG ${session.long || '-'}`] : ['ROAD TO THE NFL', `${setup.distanceYd}-YARD TRY`]);
-  const cb = useRef({ onResult, onAgain, onNewSpot, onExit, setup, kicker, mode, eff, speedMult, teamKit, oppKit, kickerNumber, clutch, isRecord, boardLines });
-  cb.current = { onResult, onAgain, onNewSpot, onExit, setup, kicker, mode, eff, speedMult, teamKit, oppKit, kickerNumber, clutch, isRecord, boardLines };
+  const cb = useRef({ onResult, onAgain, onNewSpot, onExit, setup, kicker, mode, eff, speedMult, teamKit, oppKit, kickerNumber, clutch, isRecord, boardLines, home, venue, boothCtx });
+  cb.current = { onResult, onAgain, onNewSpot, onExit, setup, kicker, mode, eff, speedMult, teamKit, oppKit, kickerNumber, clutch, isRecord, boardLines, home, venue, boothCtx };
   const timers = useRef<number[]>([]);
   useEffect(() => () => timers.current.forEach((id) => window.clearTimeout(id)), []);
 
@@ -211,7 +266,19 @@ export function KickScene(props: Props) {
     rt.current = fresh();
     rt.current.phaseStart = now();
     setUi({ phase: 'aim', result: null, called: false, slow: false });
+    setTraj('normal');
+    setReplaying(false);
+    setSnapUi(null);
     sound.crowd(CONFIG.audio.crowdIdle + cb.current.eff * 0.35, 1.5);
+    // Rare bad snaps, more often on a wet field.
+    const S = CONFIG.story.snap;
+    const wet = setup.weather === 'rain' || setup.weather === 'snow';
+    rt.current.badSnap = new Rng(seed * 31 + 7).next() < (wet ? S.badWeather : S.chance);
+    setCaption(preKick(cb.current.boothCtx, seed));
+    if (props.hurry) {
+      rt.current.hurryEnds = now() + CONFIG.story.hurry.seconds;
+      setHurryLeft(CONFIG.story.hurry.seconds);
+    } else setHurryLeft(null);
     if (props.iced) {
       rt.current.icedUntil = now() + CONFIG.icing.waitS;
       setIcing(true);
@@ -227,8 +294,18 @@ export function KickScene(props: Props) {
   useEffect(() => {
     const live = ui.phase === 'aim' || ui.phase === 'power' || ui.phase === 'accuracy';
     sound.heartbeat(live && eff > 0.3 ? eff : 0);
-    return () => sound.heartbeat(0);
+    sound.chant(live && (props.pressure ?? 0) >= 0.35 && mode === 'game' && !venue.dome ? (home ? 'home' : 'road') : null);
+    return () => {
+      sound.heartbeat(0);
+      sound.chant(null);
+    };
   }, [ui.phase, eff]);
+
+  // Booth captions follow the kick.
+  useEffect(() => {
+    if (ui.phase === 'flight' && !ui.called) setCaption(inFlight(boothCtx, seed, rt.current.trajectory));
+    if (ui.called && ui.result) setCaption(afterKick(boothCtx, ui.result, seed));
+  }, [ui.phase, ui.called]);
 
   const setPhase = (p: Phase) => {
     rt.current.phase = p;
@@ -243,7 +320,13 @@ export function KickScene(props: Props) {
     switch (s.phase) {
       case 'aim':
         if (t < s.icedUntil) break;
+        s.hurryEnds = null;
+        setHurryLeft(null);
         setPhase('power');
+        break;
+      case 'snap':
+        // Got the ball down in time
+        if (s.snapAt !== null && t - s.snapAt <= CONFIG.story.snap.windowS) launch(t, CONFIG.story.snap.recoveredShift, 1, 'saved');
         break;
       case 'power':
         s.powerLocked = s.power;
@@ -255,24 +338,19 @@ export function KickScene(props: Props) {
         s.accuracyLocked = s.accuracy;
         // Dev-only hook so automated checks can force a strike (never in a build).
         if (import.meta.env.DEV) {
-          const force = (window as unknown as { __rtnForce?: { accuracy?: number; aimX?: number } }).__rtnForce;
+          const force = (window as unknown as { __rtnForce?: { accuracy?: number; aimX?: number; badSnap?: boolean } }).__rtnForce;
           if (force?.accuracy !== undefined) s.accuracyLocked = force.accuracy;
           if (force?.aimX !== undefined) s.aimX = force.aimX;
+          if (force?.badSnap) s.badSnap = true;
         }
-        const { setup: su, kicker: k } = cb.current;
-        const r = resolveKick(su, { aimXFt: s.aimX, power: s.powerLocked ?? 0, accuracy: s.accuracyLocked }, k, new Rng(seed * 7919 + 17));
-        s.result = r;
-        s.lockAt = t;
-        s.bounces = [];
-        for (let i = Math.max(1, r.decideIndex - 5); i < r.path.length - 1; i++) {
-          const a = r.path[i - 1];
-          const b = r.path[i];
-          const c = r.path[i + 1];
-          if (b.z < 0.05 && a.z > 0.05 && c.z >= b.z) s.bounces.push(i);
+        if (s.badSnap) {
+          s.snapAt = t;
+          setSnapUi('live');
+          sound.thud(0.5);
+          setPhase('snap');
+          break;
         }
-        sound.crowd(CONFIG.audio.crowdHush, 0.4);
-        setUi((u) => ({ ...u, result: r }));
-        setPhase('flight');
+        launch(t, 0, 1, null);
         break;
       }
       case 'flight': {
@@ -283,10 +361,64 @@ export function KickScene(props: Props) {
         break;
       }
       case 'result':
+        if (s.replayAt !== null) {
+          s.replayAt = null;
+          s.replayDone = true;
+          setReplaying(false);
+          break;
+        }
         cb.current.onAgain();
         break;
     }
   }, [seed]);
+
+  /** Resolve the kick and start the approach. A bad snap shifts the strike. */
+  function launch(t: number, shift: number, powerScale: number, snap: 'saved' | 'botched' | null) {
+    const s = rt.current;
+    if (snap) setSnapUi(snap);
+    const dirShift = shift ? (Math.random() < 0.5 ? -1 : 1) * shift : 0;
+    const { setup: su, kicker: k } = cb.current;
+    const r = resolveKick(
+      { ...su, rush: cb.current.eff },
+      { aimXFt: s.aimX, power: (s.powerLocked ?? 0) * powerScale, accuracy: Math.max(-1, Math.min(1, (s.accuracyLocked ?? 0) + dirShift)), trajectory: s.trajectory },
+      k,
+      new Rng(seed * 7919 + 17),
+    );
+    s.result = r;
+    s.lockAt = t;
+    s.snapAt = null;
+    s.bounces = [];
+    for (let i = Math.max(1, r.decideIndex - 5); i < r.path.length - 1; i++) {
+      const a = r.path[i - 1];
+      const b = r.path[i];
+      const c = r.path[i + 1];
+      if (b.z < 0.05 && a.z > 0.05 && c.z >= b.z) s.bounces.push(i);
+    }
+    sound.crowd(CONFIG.audio.crowdHush, 0.4);
+    setUi((u) => ({ ...u, result: r }));
+    setPhase('flight');
+  }
+
+  const startReplay = () => {
+    const s = rt.current;
+    if (!s.result || s.result.crossXFt === null) return;
+    s.replayAt = now();
+    setReplaying(true);
+  };
+
+  const cycleTraj = (dir: 1 | -1) => {
+    const order: Trajectory[] = ['low', 'normal', 'high'];
+    const s = rt.current;
+    if (s.phase !== 'aim') return;
+    const i = Math.max(0, Math.min(2, order.indexOf(s.trajectory) + dir));
+    s.trajectory = order[i];
+    setTraj(order[i]);
+  };
+  const setTrajectory = (t: Trajectory) => {
+    if (rt.current.phase !== 'aim') return;
+    rt.current.trajectory = t;
+    setTraj(t);
+  };
 
   // Keyboard
   useEffect(() => {
@@ -301,6 +433,14 @@ export function KickScene(props: Props) {
       } else if (e.code === 'ArrowRight') {
         e.preventDefault();
         s.keys.right = true;
+      } else if (e.code === 'ArrowUp') {
+        e.preventDefault();
+        cycleTraj(1);
+      } else if (e.code === 'ArrowDown') {
+        e.preventDefault();
+        cycleTraj(-1);
+      } else if (e.code === 'KeyR' && s.phase === 'result' && s.replayAt === null) {
+        startReplay();
       } else if (e.code === 'KeyN' && cb.current.mode === 'practice' && (s.phase === 'result' || s.phase === 'aim')) {
         cb.current.onNewSpot();
       } else if (e.code === 'KeyM') {
@@ -339,6 +479,12 @@ export function KickScene(props: Props) {
       const su = cb.current.setup;
       const pt = (t - s.phaseStart) * cb.current.speedMult;
 
+      if (s.phase === 'aim' && s.hurryEnds !== null) {
+        const left = s.hurryEnds - t;
+        if (left <= 0) advance();
+        else if (Math.ceil(left) !== Math.ceil(left + dt)) setHurryLeft(Math.ceil(left));
+      }
+      if (s.phase === 'snap' && s.snapAt !== null && t - s.snapAt > CONFIG.story.snap.windowS) launch(t, CONFIG.story.snap.botchedShift, 0.92, 'botched');
       if (s.phase === 'aim') {
         const dir = (s.keys.right ? 1 : 0) - (s.keys.left ? 1 : 0);
         s.aimX = Math.max(-m.aimRangeFt, Math.min(m.aimRangeFt, s.aimX + dir * m.aimKeySpeedFtS * dt));
@@ -410,13 +556,15 @@ export function KickScene(props: Props) {
         spin = fi * 0.42;
         if (s.decidedAt === null && i >= r.decideIndex) {
           s.decidedAt = t;
-          react(r);
+          react(r, cb.current.home);
           cb.current.onResult(r);
           if (r.made && (cb.current.clutch || cb.current.isRecord(r))) {
             s.celebrateAt = t;
             s.shakeUntil = t + 0.5;
-            sound.roar(1.5);
-            for (const ft of FIREWORK_TIMES) timers.current.push(window.setTimeout(() => sound.firework(), ft * 1000));
+            if (cb.current.home) {
+              sound.roar(1.5);
+              for (const ft of FIREWORK_TIMES) timers.current.push(window.setTimeout(() => sound.firework(), ft * 1000));
+            }
             setUi((u) => ({ ...u }));
           }
         }
@@ -434,11 +582,39 @@ export function KickScene(props: Props) {
         if (s.phase === 'flight' && fi >= path.length - 1 + CONFIG.presentation.resultDelayS * 60 && s.called) {
           setPhase('result');
           sound.crowd(CONFIG.audio.crowdIdle + cb.current.eff * 0.2, 3);
+          const big = !!cb.current.clutch || r.slowMo || cb.current.isRecord(r) || (r.made && cb.current.setup.distanceYd >= 50) || r.outcome === 'BLOCKED';
+          if (big && !s.replayDone && r.crossXFt !== null && cb.current.mode === 'game') {
+            s.replayAt = t + 0.6;
+            setReplaying(true);
+          }
         }
         const want = Math.max(0, ball.z - 14) * 0.45;
         s.lookBoost += (want - s.lookBoost) * Math.min(1, dt * 3);
       } else {
         s.lookBoost += (0 - s.lookBoost) * Math.min(1, dt * 3);
+      }
+
+      // Replay: the same flight from the end zone, at half speed.
+      let replayCam = false;
+      if (s.replayAt !== null && s.result && t >= s.replayAt) {
+        const path = s.result.path;
+        const fi = (t - s.replayAt) * 60 * 0.5;
+        const end = Math.min(path.length - 1, s.result.decideIndex + 55);
+        if (fi >= end) {
+          s.replayAt = null;
+          s.replayDone = true;
+          setReplaying(false);
+        } else {
+          const i = Math.floor(fi);
+          const f = fi - i;
+          const a = path[i];
+          const b = path[Math.min(path.length - 1, i + 1)];
+          ball = { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: a.z + (b.z - a.z) * f };
+          tracer = path.slice(0, i + 1).concat([ball]);
+          spin = fi * 0.42;
+          held = false;
+          replayCam = true;
+        }
       }
 
       // Size
@@ -457,7 +633,7 @@ export function KickScene(props: Props) {
         s.result && s.result.slowMo && s.slowBlend > 0 && s.result.crossXFt !== null
           ? { blend: s.slowBlend, focus: { x: s.result.crossXFt, y: goalPlaneY(su.distanceYd), z: s.result.crossZFt ?? 12 }, ball }
           : undefined;
-      const cam = buildCamera(w, h, su, s.lookBoost, shake, t, slow);
+      const cam = replayCam && s.result ? buildReplayCamera(w, h, su, ball, s.result.crossXFt ?? 0) : buildCamera(w, h, su, s.lookBoost, shake, t, slow);
       camRef.current = cam;
       const view: SceneView = {
         setup: su,
@@ -499,9 +675,12 @@ export function KickScene(props: Props) {
                   ? 'GO-AHEAD KICK!'
                   : 'NEW RECORD!',
         endzone: props.endzone ?? '',
+        venue: cb.current.venue,
+        snapT: s.phase === 'snap' && s.snapAt !== null ? t - s.snapAt : null,
+        replay: replayCam,
       };
       drawScene(ctx, cam, w, h, view);
-      if (s.slowBlend < 0.03) drawMeters(ctx, w, h, view);
+      if (s.slowBlend < 0.03 && !replayCam) drawMeters(ctx, w, h, view);
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
@@ -512,6 +691,7 @@ export function KickScene(props: Props) {
     const s = rt.current;
     const cam = camRef.current;
     if (s.phase !== 'aim' || !cam) return;
+    if (e.pointerType === 'touch' && e.type === 'pointermove' && e.buttons === 0) return;
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const planeY = goalPlaneY(cb.current.setup.distanceYd);
@@ -535,10 +715,12 @@ export function KickScene(props: Props) {
     { key: 'flight', label: 'Flight' },
   ];
   const stepIdx = ui.phase === 'result' ? 3 : steps.findIndex((s) => s.key === ui.phase);
-  const hint = icing
+  const hint = icing || tutorial
     ? ''
     : ui.phase === 'aim'
-      ? 'Read the wind · ← → or mouse to aim · SPACE / click to set'
+      ? touch
+        ? 'Read the wind · drag to aim · tap Set aim'
+        : 'Read the wind · ← → or mouse to aim · ↑ ↓ high or low · SPACE / click to set'
       : ui.phase === 'power'
         ? 'SPACE to stop near the top · past the line = more leg, smaller sweet spot'
         : ui.phase === 'accuracy'
@@ -556,7 +738,22 @@ export function KickScene(props: Props) {
 
   return (
     <div className={`scene ${ui.slow ? 'slowmo' : ''}`} ref={wrapRef} style={{ '--accent': accent } as CSSProperties}>
-      <canvas ref={canvasRef} className="scene-canvas" onPointerMove={onPointerMove} onPointerDown={() => advance()} />
+      <canvas
+        ref={canvasRef}
+        className="scene-canvas"
+        onPointerMove={onPointerMove}
+        onPointerDown={(e) => {
+          // Touch: tapping in the aim step moves the target; the Set aim button locks it.
+          if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+            if (!touch) setTouch(true);
+            if (rt.current.phase === 'aim') {
+              onPointerMove(e);
+              return;
+            }
+          }
+          advance();
+        }}
+      />
 
       {props.bug ??
         (session && (
@@ -605,7 +802,10 @@ export function KickScene(props: Props) {
             {Math.round(setup.windMph)}
             <small> MPH</small>
           </div>
-          <div className="wind-desc">{describeWind(setup.windMph, setup.windToDeg)}</div>
+          <div className="wind-desc">
+            {describeWind(setup.windMph, setup.windToDeg)}
+            {setup.swirl && setup.windMph >= 4 && <span className="swirl-tag">Swirling</span>}
+          </div>
         </div>
       </div>
 
@@ -629,6 +829,82 @@ export function KickScene(props: Props) {
 
       {hint && <div className="hint">{hint}</div>}
 
+      {caption && !replaying && !ui.slow && (
+        <div className={`booth ${caption.who === 'Analyst' ? 'analyst' : ''}`} key={caption.text}>
+          <span className="booth-who">{caption.who}</span>
+          <span className="booth-text">{caption.text}</span>
+        </div>
+      )}
+
+      {(ui.phase === 'aim' || ui.phase === 'power' || ui.phase === 'accuracy') && (
+        <div className={`traj ${ui.phase !== 'aim' ? 'locked' : ''}`}>
+          {(['low', 'normal', 'high'] as Trajectory[]).map((t) => (
+            <button key={t} className={traj === t ? 'on' : ''} onClick={() => setTrajectory(t)} title={t === 'high' ? 'Clears the rush, hangs in the wind, a little shorter' : t === 'low' ? 'Cuts through the wind, easier to block' : 'Full distance'}>
+              {t === 'low' ? '↓ Low' : t === 'high' ? '↑ High' : 'Normal'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {hurryLeft !== null && ui.phase === 'aim' && (
+        <div className="hurry">
+          <div className="hurry-n">{hurryLeft}</div>
+          <div className="hurry-l">Clock running · aim fast</div>
+        </div>
+      )}
+
+      {snapUi && ui.phase !== 'result' && (
+        <div className={`snap snap-${snapUi}`}>
+          {snapUi === 'live' ? (
+            <>
+              <div className="snap-big">Bad snap!</div>
+              <div className="snap-sub">{touch ? 'Tap' : 'Press SPACE'} now to get it down</div>
+              <div className="snap-bar">
+                <div style={{ animationDuration: `${CONFIG.story.snap.windowS}s` }} />
+              </div>
+            </>
+          ) : (
+            <div className="snap-sub">{snapUi === 'saved' ? 'Holder gets it down!' : 'The hold is a mess!'}</div>
+          )}
+        </div>
+      )}
+
+      {touch && ui.phase === 'aim' && (
+        <button className="set-aim" onClick={() => advance()}>
+          Set aim
+        </button>
+      )}
+
+      {replaying && (
+        <div className="replay-tag">
+          <span className="rec-dot" /> Replay
+        </div>
+      )}
+
+      {tutorial && (ui.phase === 'aim' || ui.phase === 'power' || ui.phase === 'accuracy' || ui.phase === 'flight') && (
+        <div className="tutorial">
+          <div className="tut-step">How to kick · {ui.phase === 'aim' ? '1 of 4' : ui.phase === 'power' ? '2 of 4' : ui.phase === 'accuracy' ? '3 of 4' : '4 of 4'}</div>
+          <div className="tut-text">
+            {ui.phase === 'aim'
+              ? `Read the wind on the dial and the flags on the uprights, then move the target to play it. ${touch ? 'Drag' : 'Use ← → or the mouse'}. Pick a kick: High clears the rush but drifts more; Low cuts through wind but can get blocked. ${touch ? 'Tap Set aim' : 'Press Space or click'} when you're lined up.`
+              : ui.phase === 'power'
+                ? 'The power meter climbs. Stop it near the white line. Going past it adds distance but shrinks the green sweet spot on the next meter.'
+                : ui.phase === 'accuracy'
+                  ? 'Stop the marker in the green. Early or late hooks or slices the ball. Big moments make the meters faster and shakier.'
+                  : 'Watch it fly. Close calls go to slow motion. Space skips ahead.'}
+          </div>
+          <button
+            className="ghost small"
+            onClick={() => {
+              writeSettings({ tutorialDone: true });
+              setTutorial(false);
+            }}
+          >
+            Got it, don't show again
+          </button>
+        </div>
+      )}
+
       <button
         className="mute"
         title="Sound on/off (M)"
@@ -640,7 +916,7 @@ export function KickScene(props: Props) {
         {muted ? '🔇' : '🔊'}
       </button>
 
-      {call && ui.result && (
+      {call && ui.result && !replaying && (
         <div className={`call ${call.good ? 'good' : 'miss'} ${call.clutch ? 'clutch' : ''}`} key={seed}>
           <div className="call-big">{call.big}</div>
           {recordCall && <div className="call-record">{recordCall}</div>}
@@ -650,6 +926,11 @@ export function KickScene(props: Props) {
               <button onClick={() => onAgain()}>
                 <kbd>Space</kbd> {props.continueLabel ?? 'Continue'}
               </button>
+              {ui.result.crossXFt !== null && (
+                <button onClick={startReplay}>
+                  <kbd>R</kbd> Replay
+                </button>
+              )}
             </div>
           )}
           {ui.phase === 'result' && mode === 'practice' && (
@@ -660,6 +941,11 @@ export function KickScene(props: Props) {
               <button onClick={() => onNewSpot()}>
                 <kbd>N</kbd> New spot
               </button>
+              {ui.result.crossXFt !== null && (
+                <button onClick={startReplay}>
+                  <kbd>R</kbd> Replay
+                </button>
+              )}
               <button onClick={() => onExit()}>
                 <kbd>Esc</kbd> Setup
               </button>

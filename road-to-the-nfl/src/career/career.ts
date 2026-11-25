@@ -6,6 +6,7 @@ import { COLLEGES, FIRST, HS_COLORS, LAST, MASCOTS, NFL_TEAMS, TOWNS } from './d
 import { GameSim, type GameSetup } from './gamesim';
 import { makeRecordBook, updateRecords, type RecordScope } from './records';
 import { advanceStandings, buildStandings, mySeed, sorted } from './standings';
+import { advanceNemesis, blankCounters, easeSlump, effectiveSkills, pressFor, startSlump, trackKicks, type PressConf } from './story';
 import { clampSkill, costToRaise, evenSkills, kickPoints, levelCost, overall, stageLevel } from './progression';
 import type { Career, CareerSummary, Contract, KickerProfile, Offer, Rival, SchedGame, SeasonLine, SkillKey, Team } from './types';
 
@@ -57,7 +58,18 @@ function teamStrength(rng: Rng, mean: number, sd: number): number {
   return Math.max(15, Math.min(95, Math.round(mean + rng.normal() * sd)));
 }
 
-function weatherFor(rng: Rng, frac: number, level: string): { weather: Weather; tempF: number; windMph: number; windToDeg: number } {
+type Conditions = { weather: Weather; tempF: number; windMph: number; windToDeg: number; dome?: boolean; time?: 'day' | 'night'; swirl?: boolean };
+
+/** Weather plus the venue: day or night, dome, and whether the stadium swirls. */
+function venueFor(rng: Rng, frac: number, level: 'hs' | 'college' | 'nfl', homeShort: string): Conditions {
+  const w = weatherFor(rng, frac, level);
+  const V = CONFIG.venues;
+  const time: 'day' | 'night' = rng.next() < V.nightChance[level] ? 'night' : 'day';
+  const swirl = !w.dome && w.windMph >= 6 && (level === 'nfl' ? V.swirlTeams.includes(homeShort) : rng.next() < V.swirlChance);
+  return { ...w, time, swirl };
+}
+
+function weatherFor(rng: Rng, frac: number, level: string): Conditions {
   const r = rng.next();
   const late = frac > 0.6;
   let weather: Weather = 'clear';
@@ -66,7 +78,7 @@ function weatherFor(rng: Rng, frac: number, level: string): { weather: Weather; 
   else if (late && r < 0.34) weather = 'cold';
   // Some NFL games are indoors
   const dome = level === 'nfl' && rng.next() < 0.28;
-  if (dome) return { weather: 'clear', tempF: 72, windMph: 0, windToDeg: 0 };
+  if (dome) return { weather: 'clear', tempF: 72, windMph: 0, windToDeg: 0, dome: true };
   const [lo, hi] = CONFIG.weather[weather].tempF;
   const tempF = Math.round(rng.range(lo, hi) - (late && weather === 'clear' ? 12 : 0));
   const windMph = Math.round(Math.max(0, Math.pow(rng.next(), 1.5) * 22 + (weather === 'clear' ? 0 : 3)));
@@ -150,6 +162,10 @@ export function newCareer(slot: number, kicker: KickerProfile, seed: number): Ca
   c.team = hsTeam(rng, kicker.school);
   c.rival = genRival(rng, C().camp.rival.hsSenior);
   c.records = makeRecordBook('school', c.team.name, undefined, rng, () => genName(rng));
+  c.nemesis = { name: c.rival.name, overall: c.rival.overall, team: null, teamShort: null, note: 'the senior you fought for the job' };
+  c.counters = blankCounters();
+  c.traits = [];
+  c.slump = null;
   c.pending = { kind: 'camp', title: `${c.team.name} kicking camp`, rival: c.rival, why: `${c.rival.name}, a senior, kicked last year. Beat him for the job.` };
   news(c, `${kicker.name} joins the ${c.team.name} as a junior from ${kicker.hometown || 'town'}.`);
   return c;
@@ -178,7 +194,8 @@ function makeSchedule(c: Career, rng: Rng): SchedGame[] {
       used.add(t.name);
       opp = { ...t, strength: teamStrength(rng, 50, 10) };
     }
-    out.push({ week: i + 1, opp, home: i % 2 === (rng.next() < 0.5 ? 0 : 1), playoff: false, ...weatherFor(rng, i / n, lvl) });
+    const home = i % 2 === (rng.next() < 0.5 ? 0 : 1);
+    out.push({ week: i + 1, opp, home, playoff: false, ...venueFor(rng, i / n, lvl, home ? c.team!.short : opp.short) });
   }
   return out;
 }
@@ -215,13 +232,14 @@ export function gameSetup(c: Career, g: SchedGame): GameSetup {
     weather: g.weather,
     windMph: g.windMph,
     windToDeg: g.windToDeg,
-    kicker: c.skills,
+    kicker: effectiveSkills(c, g.weather),
     kickerName: c.kicker.name,
     trust: c.trust,
     role: c.role,
     rival: c.rival,
     autoXp: c.settings.autoXp,
     seed: (c.seed ^ (c.year * 977 + c.week * 131 + c.seasonNo * 7)) >>> 0,
+    oppKickerName: c.nemesis?.teamShort && c.nemesis.teamShort === g.opp.short ? c.nemesis.name : null,
   };
 }
 
@@ -234,6 +252,7 @@ export interface GameSummary {
   trustBefore: number;
   trustAfter: number;
   notes: string[];
+  press: PressConf | null;
 }
 
 export function recordGame(c0: Career, sim: GameSim): { career: Career; summary: GameSummary } {
@@ -320,11 +339,36 @@ export function recordGame(c0: Career, sim: GameSim): { career: Career; summary:
     }
   }
 
+  // Traits
+  for (const t of trackKicks(c, kicks, g.windMph, g.weather)) {
+    notes.push(`TRAIT UNLOCKED: ${t.name} (${t.effect}).`);
+    news(c, `${c.kicker.name} earns a trait: ${t.name}. ${t.effect}.`);
+  }
+
+  // Slumps: a costly miss sticks with you; a clutch make shakes it.
+  const clutchMiss = fgs.some((k) => !k.made && (k.gw || g.playoff));
+  const clutchMake = fgs.some((k) => k.made && k.gw);
+  if (clutchMiss) {
+    startSlump(c, g.playoff ? `Missed in the ${g.label ?? 'playoffs'}` : 'Missed with the game on the line');
+    notes.push("That miss will stick with you. You're in a slump: your composure and touch take a hit until it fades or you make a big one.");
+  } else {
+    const eased = easeSlump(c, clutchMake);
+    if (eased === 'ended') notes.push('The slump is over.');
+  }
+
+  // Press conference after the big moments
+  let press: PressConf | null = null;
+  const gwKick = fgs.find((k) => k.gw);
+  if (gwKick && gwKick.made && won) press = pressFor('gwMade', c.kicker.name, '');
+  else if (gwKick && !gwKick.made) press = pressFor('gwMissed', c.kicker.name, `from ${gwKick.d}`);
+  else if (calls.length) press = pressFor('record', c.kicker.name, calls[0].replace(/^NEW /, 'a new ').replace(/\.$/, '').toLowerCase());
+  else if (fgs.filter((k) => !k.made).length >= 2) press = pressFor('rough', c.kicker.name, `${fgs.filter((k) => !k.made).length} misses`);
+
   jobChecks(c, rng, notes);
   c.week += 1;
   c.drillDone = false;
   advanceSchedule(c, rng);
-  return { career: c, summary: { game: g, pointsEarned: pts, trustBefore, trustAfter: c.trust, notes } };
+  return { career: c, summary: { game: g, pointsEarned: pts, trustBefore, trustAfter: c.trust, notes, press } };
 }
 
 function jobChecks(c: Career, rng: Rng, notes: string[]) {
@@ -422,7 +466,7 @@ function advanceSchedule(c: Career, rng: Rng) {
       home: rng.next() < 0.5,
       label: nextLabel,
       playoff: true,
-      ...weatherFor(rng, 1, lvl),
+      ...venueFor(rng, 1, lvl, c.team!.short),
     };
     c.schedule.push(g);
     news(c, `${c.team!.name} advance to the ${nextLabel}.`);
@@ -845,14 +889,22 @@ export function chooseOffer(c0: Career, offer: Offer): Career {
   c.contract = offer.contract ?? null;
   c.lastTen = resign ? c.lastTen : [];
   if (!resign) c.trust = C().trust.start[c.level];
-  if (offer.rivalOvr === null) {
+  const nm = advanceNemesis(c, rng);
+  if (nm) news(c, nm);
+  const nemesisHere = c.nemesis?.team === offer.team.name;
+  if (offer.rivalOvr === null && !nemesisHere) {
     c.role = 'starter';
     c.rival = null;
     startSeason(c);
   } else {
-    c.rival = genRival(rng, offer.rivalOvr);
+    c.rival = nemesisHere && c.nemesis ? { name: c.nemesis.name, overall: Math.max(c.nemesis.overall, offer.rivalOvr ?? 0) } : genRival(rng, offer.rivalOvr ?? 60);
     c.role = 'backup';
-    c.pending = { kind: 'camp', title: `${offer.team.name} camp`, rival: c.rival, why: `${c.rival.name} is the kicker to beat.` };
+    c.pending = {
+      kind: 'camp',
+      title: `${offer.team.name} camp`,
+      rival: c.rival,
+      why: nemesisHere ? `Of all places: ${c.rival.name}, your old rival, kicks here. Round two.` : `${c.rival.name} is the kicker to beat.`,
+    };
   }
   return c;
 }
@@ -1042,7 +1094,7 @@ export function campCost(from: number, to: number) {
 
 /** Fill in fields added after a save was made (records, standings). */
 export function migrateCareer(c0: Career): Career {
-  if (c0.records !== undefined && c0.standings !== undefined) return c0;
+  if (c0.records !== undefined && c0.standings !== undefined && c0.counters !== undefined) return c0;
   const c = clone(c0);
   const rng = rngFor(c, 'migrate');
   if (c.records === undefined) {
@@ -1060,6 +1112,22 @@ export function migrateCareer(c0: Career): Career {
       }
     }
     c.recordsBroken = c.recordsBroken ?? [];
+  }
+  if (c.counters === undefined) {
+    const k = blankCounters();
+    for (const e of c.log) {
+      if (e.xp) continue;
+      if (e.made) {
+        k.fgMade++;
+        k.streak++;
+        k.bestStreak = Math.max(k.bestStreak, k.streak);
+        k.long = Math.max(k.long, e.d);
+      } else k.streak = 0;
+    }
+    c.counters = k;
+    c.traits = [];
+    c.slump = null;
+    c.nemesis = null;
   }
   if (c.standings === undefined) {
     c.standings = c.inSeason && c.role !== 'unsigned' ? buildStandings(c, rng) : null;

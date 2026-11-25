@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import { CONFIG } from '../../config';
 import { accentFor, kitFor } from '../../career/look';
 import { autoMakeProb } from '../../career/progression';
+import { effectiveSkills } from '../../career/story';
 import type { Career } from '../../career/types';
 import { KickScene } from '../../kick/KickScene';
 import type { KickSetup } from '../../kick/physics';
@@ -102,7 +103,7 @@ export function KickSeries({ title, intro, kicks, career, rival, verdict, onDone
       key={i}
       mode="game"
       setup={k.setup}
-      kicker={career.skills}
+      kicker={effectiveSkills(career, k.setup.weather)}
       kickerName={career.kicker.name}
       kickerNumber={career.kicker.number}
       accent={accent}

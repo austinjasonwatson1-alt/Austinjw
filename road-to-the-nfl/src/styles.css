@@ -1951,3 +1951,390 @@ button:focus-visible {
 .start {
   overflow-y: auto;
 }
+
+/* Booth captions, trajectory, hurry, bad snaps, replays, tutorial */
+.booth {
+  position: absolute;
+  top: 98px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(640px, calc(100% - 32px));
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  background: rgba(8, 12, 26, 0.86);
+  border-left: 3px solid var(--accent);
+  padding: 7px 14px;
+  border-radius: 4px;
+  font-size: 14px;
+  animation: fadeUp 0.35s both;
+}
+.booth.analyst {
+  border-left-color: #8fb4ff;
+}
+.booth-who {
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.booth-text {
+  font-style: italic;
+}
+.scene .traj {
+  position: absolute;
+  left: 16px;
+  bottom: 132px;
+  display: flex;
+  gap: 4px;
+}
+.traj button {
+  pointer-events: auto;
+  background: rgba(8, 12, 26, 0.85);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 13px;
+}
+.traj button.on {
+  background: var(--accent);
+  color: #111;
+  border-color: transparent;
+}
+.traj.locked button {
+  pointer-events: none;
+  opacity: 0.6;
+}
+.traj.locked button.on {
+  opacity: 1;
+}
+.hurry {
+  position: absolute;
+  top: 24%;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+}
+.hurry-n {
+  font-family: var(--display);
+  font-size: 96px;
+  font-weight: 700;
+  line-height: 1;
+  color: #ffdf6b;
+  text-shadow: 0 6px 30px rgba(0, 0, 0, 0.6);
+  animation: slam 0.4s both;
+}
+.hurry-l {
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  background: rgba(8, 12, 26, 0.88);
+  padding: 4px 12px;
+  border-radius: 3px;
+}
+.snap {
+  position: absolute;
+  top: 26%;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  min-width: 280px;
+}
+.snap-big {
+  font-family: var(--display);
+  font-size: 54px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--miss);
+  background: rgba(8, 12, 26, 0.92);
+  padding: 4px 22px;
+  animation: slam 0.35s both;
+}
+.snap-sub {
+  display: inline-block;
+  margin-top: 8px;
+  background: rgba(8, 12, 26, 0.9);
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.snap-saved .snap-sub {
+  color: var(--good);
+}
+.snap-botched .snap-sub {
+  color: var(--miss);
+}
+.snap-bar {
+  height: 8px;
+  margin-top: 8px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.snap-bar div {
+  height: 100%;
+  background: var(--miss);
+  animation: drain linear both;
+}
+@keyframes drain {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+.scene .set-aim {
+  position: absolute;
+  left: 50%;
+  bottom: 112px;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  background: var(--accent);
+  color: #111;
+  border: none;
+  border-radius: 30px;
+  padding: 14px 34px;
+  font-family: var(--display);
+  font-size: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+.replay-tag {
+  position: absolute;
+  top: 70px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(8, 12, 26, 0.9);
+  padding: 6px 12px;
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  border-radius: 3px;
+}
+.rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--miss);
+  animation: blink 1s infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0.2;
+  }
+}
+.scene .tutorial {
+  position: absolute;
+  top: 150px;
+  right: 16px;
+  width: min(320px, calc(100% - 32px));
+  background: rgba(8, 12, 26, 0.94);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 14px;
+  pointer-events: auto;
+  display: grid;
+  gap: 10px;
+}
+.tutorial button {
+  pointer-events: auto;
+  justify-self: start;
+}
+.tut-step {
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 12px;
+  color: var(--accent);
+}
+.tut-text {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.swirl-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: #ffdf6b;
+  color: #111;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+@media (max-width: 700px) {
+  .booth {
+    top: 118px;
+    font-size: 12px;
+  }
+  .scene .traj {
+    bottom: 236px;
+    left: 8px;
+  }
+  .scene .tutorial {
+    top: auto;
+    bottom: 150px;
+    right: 8px;
+  }
+  .hurry-n {
+    font-size: 64px;
+  }
+}
+
+/* Coach asks, press, traits, settings, legacy */
+.ask {
+  margin-top: 10px;
+  padding: 18px;
+  background: var(--panel-solid);
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  animation: slam 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+.ask-who {
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 12px;
+  color: var(--accent);
+}
+.ask-q {
+  font-family: var(--display);
+  font-size: 26px;
+  line-height: 1.15;
+  margin: 4px 0;
+}
+.press {
+  margin-top: 16px;
+}
+.press-q {
+  font-size: 17px;
+  font-style: italic;
+  margin: 8px 0 12px;
+}
+.press-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+}
+.press-choices button {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 12px;
+  font-family: var(--body);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+}
+.press-choices button b {
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 15px;
+  color: var(--accent);
+}
+.traits {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.trait {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  opacity: 0.8;
+}
+.trait.have {
+  opacity: 1;
+  border-color: var(--accent);
+}
+.trait-name {
+  font-family: var(--display);
+  text-transform: uppercase;
+  font-size: 17px;
+}
+.trait-effect {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+.trait .note {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+.nemesis {
+  margin-top: 14px;
+}
+.nemesis-name {
+  font-family: var(--display);
+  font-size: 24px;
+  text-transform: uppercase;
+}
+.settings,
+.legacy {
+  width: min(440px, 100%);
+  margin: 18px auto 0;
+  text-align: left;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settings-l {
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 12px;
+  color: var(--muted);
+}
+.settings .seg {
+  flex: 1;
+}
+.legacy-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-top: 8px;
+}
+.legacy-name {
+  font-family: var(--display);
+  font-size: 18px;
+}
+.legacy-row .note {
+  margin: 0;
+}
+.legacy-verdict {
+  font-family: var(--display);
+  text-transform: uppercase;
+  color: var(--accent);
+  font-size: 13px;
+  text-align: right;
+}
+@media (max-width: 700px) {
+  .scene .set-aim {
+    bottom: 290px;
+  }
+}

@@ -6,7 +6,13 @@ import { goalPlaneY, kickSpotX, sweetSpotHalf, windVectorFtS, type KickSetup, ty
 import { Rng } from '../sim/rng';
 import { at, celebratePose, drawFigure, figureDepth, frame, holderPose, kickerPose, linemanPose, rusherPose, type Figure, type Kit } from './figures';
 
-export type Phase = 'aim' | 'power' | 'accuracy' | 'flight' | 'result';
+export type Phase = 'aim' | 'power' | 'accuracy' | 'snap' | 'flight' | 'result';
+
+export interface Venue {
+  time: 'day' | 'night';
+  dome: boolean;
+  snowField: boolean;
+}
 
 export interface SceneView {
   setup: KickSetup;
@@ -33,6 +39,9 @@ export interface SceneView {
   board: [string, string]; // video board lines
   boardFlash: string | null; // big message on the board during a celebration
   endzone: string; // painted in the end zone
+  venue: Venue;
+  snapT: number | null; // seconds into a bad snap (the ball wobbles)
+  replay: boolean; // end-zone replay camera
   lookBoost: number; // camera tilt-up to follow the ball, ft
   shake: number; // 0..1
   power: number; // current power meter value
@@ -48,6 +57,15 @@ export interface SlowCam {
   blend: number; // 0..1
   focus: Vec3; // where the ball meets the goal plane
   ball: Vec3;
+}
+
+/** End-zone replay camera: from behind the posts, looking back at the ball. */
+export function buildReplayCamera(w: number, h: number, setup: KickSetup, ball: Vec3, crossX: number): Camera {
+  const planeY = goalPlaneY(setup.distanceYd);
+  const span = Math.min(w, h * 1.7);
+  const pos = { x: crossX * 0.35, y: planeY + 34, z: 9 };
+  const target = { x: ball.x * 0.7 + crossX * 0.3, y: Math.min(ball.y, planeY - 8), z: Math.max(8, ball.z * 0.8) };
+  return new Camera(pos, target, span * 0.95, w / 2, h * 0.5);
 }
 
 export function buildCamera(w: number, h: number, setup: KickSetup, lookBoost: number, shake: number, time: number, slow?: SlowCam): Camera {
@@ -172,15 +190,39 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
   const goalLine = planeY - CONFIG.field.endZoneDepthFt;
   const half = CONFIG.field.halfWidthFt;
   const x0 = kickSpotX(setup.level, setup.hash);
-  const camY = cam.pos.y;
+  // Field drawing starts behind the kicker whatever the camera (the replay camera sits behind the posts).
+  const camY = Math.min(cam.pos.y, -24);
 
   // Sky
   const sky = ctx.createLinearGradient(0, 0, 0, h * 0.6);
-  sky.addColorStop(0, '#04060f');
-  sky.addColorStop(0.6, '#0b1430');
-  sky.addColorStop(1, '#1b2850');
+  const day = v.venue.time === 'day' && !v.venue.dome;
+  if (v.venue.dome) {
+    sky.addColorStop(0, '#0d1016');
+    sky.addColorStop(1, '#262b36');
+  } else if (day) {
+    sky.addColorStop(0, '#3f78c8');
+    sky.addColorStop(0.7, '#86b0e3');
+    sky.addColorStop(1, '#c4d8ee');
+  } else {
+    sky.addColorStop(0, '#04060f');
+    sky.addColorStop(0.6, '#0b1430');
+    sky.addColorStop(1, '#1b2850');
+  }
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, w, h);
+  if (v.venue.dome) {
+    // Roof trusses and a ring of lights
+    ctx.strokeStyle = 'rgba(160,170,190,0.18)';
+    ctx.lineWidth = 2;
+    for (let i = -6; i <= 6; i++) {
+      ctx.beginPath();
+      ctx.moveTo(w / 2 + i * w * 0.12, 0);
+      ctx.lineTo(w / 2 + i * w * 0.05, h * 0.35);
+      ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(255,250,235,0.85)';
+    for (let i = 0; i < 24; i++) ctx.fillRect((i / 24) * w + 6, h * 0.04 + Math.sin(i) * 4, 10, 3);
+  }
 
   // Stands grow with the level: bleachers, a college bowl, an NFL stadium.
   const st: StadiumSpec = CONFIG.stadium[setup.level];
@@ -194,7 +236,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
       { x: 280, y: planeY + 50 + D, z: H },
       { x: -280, y: planeY + 50 + D, z: H },
     ]),
-    '#141a2b',
+    day ? '#5a6478' : '#141a2b',
   );
   for (const sgn of [-1, 1]) {
     fillPoly(
@@ -205,7 +247,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
         { x: sgn * (125 + D * st.sides), y: planeY + 50, z: H * st.sides },
         { x: sgn * (125 + D * st.sides), y: -200, z: H * st.sides },
       ]),
-      '#121827',
+      day ? '#525c70' : '#121827',
     );
   }
   const flashRate = 0.0015 + v.pressure * 0.006 + (v.celebrateT !== null ? 0.05 : 0) + (v.phase === 'flight' ? 0.004 : 0);
@@ -244,6 +286,11 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
     const p = cam.project(L);
     if (!p) continue;
     const r = Math.max(12, 30 * cam.scale(p.depth));
+    if (day || v.venue.dome) {
+      ctx.fillStyle = day ? '#d9dde6' : '#fffdf3';
+      ctx.fillRect(p.sx - r * 0.6, p.sy - r * 0.25, r * 1.2, r * 0.5);
+      continue;
+    }
     const g = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, r * 4);
     g.addColorStop(0, 'rgba(255,250,235,0.9)');
     g.addColorStop(0.06, 'rgba(255,245,220,0.3)');
@@ -282,7 +329,11 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
   fillPoly(ctx, quad(cam, -half, half, goalLine, planeY), '#2a6d2e');
   fillPoly(ctx, quad(cam, -half, half, goalLine, planeY), rgba(v.accent, 0.28));
 
-  const white = 'rgba(245,248,245,0.92)';
+  if (v.venue.snowField) {
+    fillPoly(ctx, quad(cam, -half - 6, half + 6, camY - 50, planeY + 30), 'rgba(232,238,244,0.62)');
+    // plowed lanes along the yard lines show green through
+  }
+  const white = v.venue.snowField ? 'rgba(255,255,255,0.75)' : 'rgba(245,248,245,0.92)';
   // Sidelines and border
   for (const sgn of [-1, 1]) fillPoly(ctx, quad(cam, sgn * half, sgn * (half + 6), camY - 50, planeY + 6), white);
   fillPoly(ctx, quad(cam, -half - 6, half + 6, planeY, planeY + 6), white);
@@ -475,7 +526,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, cam: Camera, w: number,
   // Vignette
   const vg = ctx.createRadialGradient(w / 2, h * 0.45, Math.min(w, h) * 0.35, w / 2, h * 0.5, Math.max(w, h) * 0.8);
   vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, 'rgba(0,0,0,0.55)');
+  vg.addColorStop(1, day ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.55)');
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, w, h);
 
@@ -571,8 +622,8 @@ function wallText(ctx: CanvasRenderingContext2D, a: ScreenPt, b: ScreenPt, c: Sc
 /** Video board above the far stands (on poles at a high school). */
 function drawBoard(ctx: CanvasRenderingContext2D, cam: Camera, v: SceneView, planeY: number, st: { height: number; depth: number; lights: number }) {
   const hs = st.lights <= 2;
-  const W = hs ? 44 : st.height > 100 ? 130 : 96;
-  const H = hs ? 16 : st.height > 100 ? 38 : 28;
+  const W = hs ? 40 : st.height > 100 ? 96 : 72;
+  const H = hs ? 14 : st.height > 100 ? 26 : 20;
   // Big venues: a ribbon-style board set into the end zone stands, low enough to stay in frame.
   const y = hs ? planeY + 40 : planeY + 50 + st.depth * 0.3;
   const zb = hs ? 18 : st.height * 0.3 + 2;
@@ -692,7 +743,9 @@ function drawGoalposts(ctx: CanvasRenderingContext2D, cam: Camera, v: SceneView,
 
 function drawFlag(ctx: CanvasRenderingContext2D, cam: Camera, v: SceneView, top: Vec3, seed: number) {
   const { setup } = v;
-  const wv = windVectorFtS(setup.windMph, setup.windToDeg);
+  // Swirling stadiums: the flags wander while you read them.
+  const swirlDeg = setup.swirl ? Math.sin(v.time * 0.55 + seed) * 55 + Math.sin(v.time * 1.7) * 20 : 0;
+  const wv = windVectorFtS(setup.windMph, setup.windToDeg + swirlDeg);
   const sp = Math.hypot(wv.x, wv.y);
   const strength = Math.min(1, setup.windMph / 18);
   const dirx = sp > 0 ? wv.x / sp : 0;
@@ -747,7 +800,7 @@ function drawBall(ctx: CanvasRenderingContext2D, cam: Camera, v: SceneView) {
   if (v.ballHeld) {
     rx = 0.36 * s;
     ry = 0.58 * s;
-    rot = -0.12;
+    rot = -0.12 + (v.snapT !== null ? Math.sin(v.snapT * 38) * 0.9 * Math.max(0, 1 - v.snapT) : 0);
   } else {
     const c = Math.abs(Math.cos(v.ballSpin));
     rx = 0.36 * s;

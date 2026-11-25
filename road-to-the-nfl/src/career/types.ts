@@ -2,6 +2,7 @@ import type { LevelKey, Weather } from '../config';
 import type { KickerRatings } from '../kick/physics';
 import type { RecordBook } from './records';
 import type { Standings } from './standings';
+import type { Counters, Nemesis, Slump, TraitId } from './story';
 
 export type Stage = 'hs' | 'college' | 'draft' | 'nfl' | 'retired';
 export type SkillKey = keyof KickerRatings;
@@ -31,6 +32,7 @@ export interface KickLog {
   q: number;
   clock: string;
   by: 'me' | 'rival';
+  vouched?: boolean; // you told the coach you could make it
 }
 
 export interface GameResult {
@@ -54,6 +56,9 @@ export interface SchedGame {
   windMph: number;
   windToDeg: number;
   tempF: number;
+  time?: 'day' | 'night';
+  dome?: boolean;
+  swirl?: boolean;
   result?: GameResult;
 }
 
@@ -157,6 +162,10 @@ export interface Career {
   recordsBroken?: string[];
   standings?: Standings | null;
   transfers?: number;
+  traits?: TraitId[];
+  counters?: Counters;
+  slump?: Slump | null;
+  nemesis?: Nemesis | null;
 }
 
 export interface CareerSummary {

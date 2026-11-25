@@ -24,6 +24,8 @@ export interface GameSetup {
   rival: Rival | null;
   autoXp: boolean;
   seed: number;
+  /** Name of the other team's kicker when he matters (your old rival). */
+  oppKickerName?: string | null;
 }
 
 export interface TickerLine {
@@ -48,13 +50,29 @@ export interface KickMoment {
   us: number;
   them: number;
   title: string;
+  /** No timeouts and the clock running: aim before the snap. */
+  hurry: boolean;
+  /** You told the coach you could make it. */
+  vouched: boolean;
 }
 
-type Yielded = { line: TickerLine } | { kick: KickMoment };
+/** The coach turns to you: can you make it from here? */
+export interface AskMoment {
+  distance: number;
+  coachRange: number;
+  spot: string;
+  q: number;
+  clock: string;
+  us: number;
+  them: number;
+}
+
+type Yielded = { line: TickerLine } | { kick: KickMoment } | { ask: AskMoment };
 
 export interface SimStep {
   line?: TickerLine;
   kick?: KickMoment;
+  ask?: AskMoment;
   done: boolean;
 }
 
@@ -72,6 +90,7 @@ export class GameSim {
   lines: TickerLine[] = [];
   done = false;
   private waiting: KickMoment | null = null;
+  private asking: AskMoment | null = null;
   private qLen: number;
   private t: number;
   private timeouts = { us: 3, them: 3 };
@@ -89,8 +108,16 @@ export class GameSim {
   next(): SimStep {
     if (this.done) return { done: true };
     if (this.waiting) return { kick: this.waiting, done: false };
+    if (this.asking) return { ask: this.asking, done: false };
     const r = this.gen.next(undefined);
     return this.handle(r);
+  }
+
+  /** Answer the coach: true = "I've got it". */
+  answerAsk(yes: boolean): SimStep {
+    if (!this.asking) return this.next();
+    this.asking = null;
+    return this.handle(this.gen.next(yes));
   }
 
   /** Report the result of the kick moment the sim is waiting on. */
@@ -105,6 +132,10 @@ export class GameSim {
     let step = this.next();
     let guard = 0;
     while (!step.done && guard++ < 5000) {
+      if (step.ask) {
+        step = this.answerAsk(autoMakeProb(this.s.kicker, step.ask.distance, this.s.weather, this.s.windMph, 0.3) > 0.55);
+        continue;
+      }
       if (step.kick) {
         const k = step.kick;
         step = this.answer(this.rng.next() < autoMakeProb(this.s.kicker, k.distance, this.s.weather, this.s.windMph, k.pressure));
@@ -121,6 +152,10 @@ export class GameSim {
     if ('kick' in v) {
       this.waiting = v.kick;
       return { kick: v.kick, done: false };
+    }
+    if ('ask' in v) {
+      this.asking = v.ask;
+      return { ask: v.ask, done: false };
     }
     this.lines.push(v.line);
     return { line: v.line, done: false };
@@ -311,7 +346,7 @@ export class GameSim {
     return final && marginBefore <= 0 && marginBefore >= -3;
   }
 
-  private moment(xp: boolean, distance: number, pressure: number, gw: boolean, margin: number): KickMoment {
+  private moment(xp: boolean, distance: number, pressure: number, gw: boolean, margin: number, hurry = false, vouched = false): KickMoment {
     let iced = false;
     if (!xp && pressure >= CONFIG.icing.minPressure && this.timeouts.them > 0 && this.rng.next() < CONFIG.icing.chanceWhenAvailable) {
       iced = true;
@@ -335,14 +370,17 @@ export class GameSim {
       us: this.us,
       them: this.them,
       title: xp ? 'Extra point' : `${distance}-yard field goal`,
+      hurry,
+      vouched,
     };
   }
 
-  private log(mine: boolean, d: number, made: boolean, xp: boolean, pressure: number, gw: boolean) {
-    const k: KickLog = { d, made, xp, pressure, gw, q: this.ot ? 5 : this.q, clock: this.clock(), by: mine ? 'me' : 'rival' };
+  private log(mine: boolean, d: number, made: boolean, xp: boolean, pressure: number, gw: boolean, vouched = false) {
+    const k: KickLog = { d, made, xp, pressure, gw, q: this.ot ? 5 : this.q, clock: this.clock(), by: mine ? 'me' : 'rival', vouched };
     if (mine) {
       this.myKicks.push(k);
-      this.trust = Math.max(0, Math.min(100, this.trust + trustDelta(k)));
+      const A = CONFIG.story.coachAsk;
+      this.trust = Math.max(0, Math.min(100, this.trust + trustDelta(k) + (vouched ? (made ? A.vouchMake : A.vouchMiss) : 0)));
     } else this.rivalKicks.push(k);
   }
 
@@ -360,8 +398,8 @@ export class GameSim {
       if (dist <= range) {
         if (this.rng.next() < autoMakeProb(k, dist, this.s.weather, this.s.windMph, 0.2)) {
           this.them += 3;
-          yield this.line(`${this.s.them.name} kick a ${dist}-yard field goal.`, 'them');
-        } else yield this.line(`${this.s.them.name} miss a ${dist}-yard field goal.`, 'us');
+          yield this.line(this.s.oppKickerName ? `${this.s.oppKickerName} hits a ${dist}-yarder for ${this.s.them.name}. Your old rival.` : `${this.s.them.name} kick a ${dist}-yard field goal.`, 'them');
+        } else yield this.line(this.s.oppKickerName ? `${this.s.oppKickerName} MISSES from ${dist} for ${this.s.them.name}.` : `${this.s.them.name} miss a ${dist}-yard field goal.`, 'us');
       } else if (yl <= 36 && this.rng.next() < 0.45) {
         if (this.rng.next() < 0.4) {
           this.them += 7;
@@ -376,7 +414,19 @@ export class GameSim {
     const range = coachRangeYd(kicker.skills, this.s.weather, this.s.windMph, trust) + desperation;
     const who = kicker.mine ? this.s.kickerName : this.s.rival?.name ?? 'the starter';
 
-    if (dist > range) {
+    // Close to the edge of his range: the coach asks you.
+    let vouched = false;
+    if (dist > range && kicker.mine && dist <= range + CONFIG.story.coachAsk.windowYd) {
+      const yes = (yield { ask: { distance: dist, coachRange: Math.floor(range), spot, q: this.ot ? 5 : this.q, clock: this.clock(), us: this.us, them: this.them } }) ?? false;
+      if (yes) {
+        vouched = true;
+        yield this.line(`${spot}. Coach asks ${who} if he can make it from ${dist}. "I've got it." Field goal unit on.`, 'coach');
+      } else {
+        this.trust = Math.max(0, this.trust + CONFIG.story.coachAsk.decline);
+        yield this.line(`${who} waves it off from ${dist}. The coach nods, but he'll remember.`, 'coach');
+      }
+    }
+    if (dist > range && !vouched) {
       const goForIt = yl <= 38 && (this.rng.next() < 0.5 || (this.q >= 4 && marginBefore < 0));
       if (kicker.mine) yield this.line(`${spot}. Coach won't trust ${who} from ${dist} (his range today: ${Math.floor(range)}).`, 'coach');
       if (goForIt) {
@@ -391,18 +441,21 @@ export class GameSim {
       return;
     }
 
-    const pressure = this.pressureFor(marginBefore, false);
+    const pressure = Math.min(1, this.pressureFor(marginBefore, false) + (vouched ? 0.15 : 0));
     const gw = this.isGameWinner(marginBefore);
-    if (lastPlay) yield this.line(`${spot}. ${this.q === 2 ? 'Seconds left in the half.' : 'Final seconds.'} Field goal unit on.`, 'coach');
-    else yield this.line(`${spot}. ${kicker.mine ? 'Coach sends you out.' : `${who} trots on.`}`, 'coach');
+    // Last play with the clock running and no timeouts: the unit sprints on.
+    const hurry = lastPlay && this.rng.next() < CONFIG.story.hurry.chance;
+    if (hurry) yield this.line(`${spot}. No timeouts, clock running. The field goal unit SPRINTS on.`, 'coach');
+    else if (lastPlay) yield this.line(`${spot}. ${this.q === 2 ? 'Seconds left in the half.' : 'Final seconds.'} Field goal unit on.`, 'coach');
+    else if (!vouched) yield this.line(`${spot}. ${kicker.mine ? 'Coach sends you out.' : `${who} trots on.`}`, 'coach');
 
     let made: boolean;
     if (kicker.mine) {
-      made = (yield { kick: this.moment(false, dist, pressure, gw, marginBefore) }) ?? false;
+      made = (yield { kick: this.moment(false, dist, pressure, gw, marginBefore, hurry, vouched) }) ?? false;
     } else {
       made = this.rng.next() < autoMakeProb(kicker.skills, dist, this.s.weather, this.s.windMph, pressure);
     }
-    this.log(kicker.mine, dist, made, false, pressure, gw);
+    this.log(kicker.mine, dist, made, false, pressure, gw, vouched);
     if (made) {
       this.us += 3;
       yield this.line(`${who} is GOOD from ${dist}.${gw ? ' Huge kick.' : ''}`, kicker.mine ? 'me' : 'us');

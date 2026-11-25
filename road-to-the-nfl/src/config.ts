@@ -70,6 +70,13 @@ export const CONFIG = {
     effectScale: 1.0, // global multiplier on how hard wind pushes the ball
     gustSigma: 0.08, // hidden kick-to-kick variation in actual wind speed (fraction)
     dirJitterDeg: 5, // hidden variation in wind direction
+    swirl: { gustSigma: 0.3, dirJitterDeg: 40 }, // swirling stadiums: the read can lie
+  },
+
+  trajectory: {
+    normal: { angleDeg: 36, windMult: 1, blockMult: 1, speedMult: 1 },
+    high: { angleDeg: 42, windMult: 1.25, blockMult: 0.3, speedMult: 0.95 }, // hangs in the wind, clears the rush, a little shorter
+    low: { angleDeg: 30, windMult: 0.72, blockMult: 2.6, speedMult: 1.04 }, // knifes through the wind, easier to tip
   },
 
   strike: {
@@ -101,6 +108,7 @@ export const CONFIG = {
   block: {
     baseChance: 0.006,
     perYardOver40: 0.0006,
+    rushMult: 1.5, // at full pressure the edge rush blocks this much more often
   },
 
   practice: {
@@ -308,6 +316,26 @@ export const CONFIG = {
       fireworks: 7,
       durationS: 6,
     },
+  },
+
+  story: {
+    slump: { start: 0.7, decayPerGame: 0.18, composureHit: 18, accuracyHit: 6 },
+    coachAsk: { windowYd: 6, vouchMake: 8, vouchMiss: -12, decline: -1 },
+    hurry: { chance: 0.6, seconds: 4.5 }, // last-play kicks with no timeouts: aim before the snap
+    snap: { chance: 0.035, badWeather: 0.08, windowS: 0.85, recoveredShift: 0.07, botchedShift: 0.38 },
+  },
+
+  venues: {
+    // Open, windy stadiums where the wind swirls (the flags shift between your read and the kick)
+    swirlTeams: ['NYJ', 'NYG', 'CLE', 'BUF', 'CHI', 'PIT', 'NE', 'SF', 'KC', 'BAL'],
+    swirlChance: 0.15, // high school and college venues
+    nightChance: { hs: 1, college: 0.5, nfl: 0.35 },
+  },
+
+  difficulty: {
+    easy: { label: 'Easy', accuracy: 10, composure: 6, windControl: 6, consistency: 6, meterSpeed: 0.85 },
+    normal: { label: 'Normal', accuracy: 0, composure: 0, windControl: 0, consistency: 0, meterSpeed: 1 },
+    hard: { label: 'Hard', accuracy: -8, composure: -4, windControl: -4, consistency: -4, meterSpeed: 1.15 },
   },
 
   audio: {

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { sound } from '../../audio/sound';
 import { CONFIG } from '../../config';
 import { gameSetup, recordGame, type GameSummary } from '../../career/career';
-import { GameSim, type KickMoment, type TickerLine } from '../../career/gamesim';
+import { GameSim, type AskMoment, type KickMoment, type TickerLine } from '../../career/gamesim';
+import { applyPress, effectiveSkills, hasTrait } from '../../career/story';
 import { accentFor, kitFor, oppKitFor } from '../../career/look';
 import type { Career, SchedGame } from '../../career/types';
 import { KickScene } from '../../kick/KickScene';
@@ -21,7 +22,8 @@ const Q = ['', '1st', '2nd', '3rd', '4th', 'OT'];
 export function GameDay({ career, game, onFinish }: Props) {
   const sim = useMemo(() => new GameSim(gameSetup(career, game)), [career, game]);
   const [lines, setLines] = useState<TickerLine[]>([]);
-  const [phase, setPhase] = useState<'pregame' | 'ticker' | 'kickIntro' | 'kick' | 'post'>('pregame');
+  const [phase, setPhase] = useState<'pregame' | 'ticker' | 'ask' | 'kickIntro' | 'kick' | 'post'>('pregame');
+  const [ask, setAsk] = useState<AskMoment | null>(null);
   const [moment, setMoment] = useState<KickMoment | null>(null);
   const [fast, setFast] = useState(career.role !== 'starter');
   const [summary, setSummary] = useState<{ c: Career; s: GameSummary } | null>(null);
@@ -39,6 +41,13 @@ export function GameDay({ career, game, onFinish }: Props) {
       () => {
         const step = sim.next();
         if (step.line) setLines((l) => [...l, step.line!]);
+        if (step.ask) {
+          window.clearInterval(id);
+          setAsk(step.ask);
+          setFast(false);
+          setPhase('ask');
+          return;
+        }
         if (step.kick) {
           setMoment(step.kick);
           setFast(false);
@@ -78,13 +87,24 @@ export function GameDay({ career, game, onFinish }: Props) {
       windMph: Math.max(0, game.windMph + ((kickNo.current * 7) % 5) - 2),
       windToDeg: game.windToDeg,
       weather: game.weather,
+      swirl: !!game.swirl,
     };
+    const s = career.season;
     return (
       <KickScene
         key={`k${kickNo.current}`}
         mode="game"
         setup={setup}
-        kicker={career.skills}
+        kicker={effectiveSkills(career, game.weather)}
+        home={game.home}
+        hurry={moment.hurry}
+        icingImmune={hasTrait(career, 'iceWater')}
+        venue={{ time: game.time ?? 'night', dome: !!game.dome, snowField: game.weather === 'snow' }}
+        booth={{
+          vouched: moment.vouched,
+          seasonLine: s && s.fga ? `${s.fgm} of ${s.fga} on field goals this season` : null,
+          longest: s?.long ?? null,
+        }}
         kickerName={career.kicker.name}
         kickerNumber={career.kicker.number}
         accent={accent}
@@ -94,7 +114,7 @@ export function GameDay({ career, game, onFinish }: Props) {
         iced={moment.iced ? `${game.opp.name} call timeout to ice ${career.kicker.name.split(' ')[0]}.` : null}
         clutch={moment.tag === 'GAME-WINNER' ? 'winner' : moment.tag === 'TO TIE' ? 'tie' : moment.tag === 'GO-AHEAD' ? 'lead' : null}
         recordLong={!moment.xp && career.records ? { value: longestToBeat(career.records) ?? 99, scope: SCOPE_NAME[career.records.scope] } : null}
-        endzone={team.name.split(' ').slice(-1)[0].toUpperCase()}
+        endzone={(game.home ? team : game.opp).name.split(' ').slice(-1)[0].toUpperCase()}
         board={[
           game.home ? `${game.opp.short} ${moment.them}   ${team.short} ${moment.us}` : `${team.short} ${moment.us}   ${game.opp.short} ${moment.them}`,
           moment.q >= 5 ? 'OVERTIME' : `${['', '1ST', '2ND', '3RD', '4TH'][moment.q]} ${moment.clock}`,
@@ -118,7 +138,7 @@ export function GameDay({ career, game, onFinish }: Props) {
     );
   }
 
-  if (phase === 'post' && summary) return <PostGame career={career} summary={summary.s} after={summary.c} onContinue={() => onFinish(summary.c)} />;
+  if (phase === 'post' && summary) return <PostGame career={career} summary={summary.s} after={summary.c} onContinue={(c) => onFinish(c)} />;
 
   const header = (
     <div className="gd-head">
@@ -169,6 +189,41 @@ export function GameDay({ career, game, onFinish }: Props) {
                 </span>
               </div>
             ))}
+            {phase === 'ask' && ask && (
+              <div className="ask">
+                <div className="ask-who">Coach</div>
+                <div className="ask-q">
+                  "{ask.distance} yards. That's past where I'd normally send you. Can you make it?"
+                </div>
+                <p className="note">
+                  {ask.spot} · {ask.q >= 5 ? 'OT' : `${['', '1st', '2nd', '3rd', '4th'][ask.q]} ${ask.clock}`} · {ask.us}-{ask.them}. Say yes and make it: big trust gain. Say yes and miss: it craters. Say no: he punts, and remembers.
+                </p>
+                <div className="btn-row">
+                  <button
+                    className="primary"
+                    onClick={() => {
+                      const step = sim.answerAsk(true);
+                      if (step.line) setLines((l) => [...l, step.line!]);
+                      setAsk(null);
+                      setPhase('ticker');
+                    }}
+                  >
+                    "I've got it"
+                  </button>
+                  <button
+                    className="ghost"
+                    onClick={() => {
+                      const step = sim.answerAsk(false);
+                      if (step.line) setLines((l) => [...l, step.line!]);
+                      setAsk(null);
+                      setPhase('ticker');
+                    }}
+                  >
+                    "Not from there"
+                  </button>
+                </div>
+              </div>
+            )}
             {phase === 'kickIntro' && moment && (
               <div className="tk-moment">
                 <div className="tkm-big">{moment.xp ? 'Extra point' : `${moment.distance}-yard try`}</div>
@@ -191,7 +246,10 @@ export function GameDay({ career, game, onFinish }: Props) {
   );
 }
 
-function PostGame({ career, summary, after, onContinue }: { career: Career; summary: GameSummary; after: Career; onContinue: () => void }) {
+function PostGame({ career, summary, after: after0, onContinue }: { career: Career; summary: GameSummary; after: Career; onContinue: (c: Career) => void }) {
+  const [after, setAfter] = useState(after0);
+  const [answered, setAnswered] = useState<number | null>(null);
+  const press = summary.press;
   const g = summary.game;
   const r = g.result!;
   const won = r.us > r.them;
@@ -265,8 +323,41 @@ function PostGame({ career, summary, after, onContinue }: { career: Career; summ
             )}
           </section>
         </div>
+        {press && (
+          <section className="card press">
+            <div className="eyebrow">Press conference · {press.headline}</div>
+            <p className="press-q">"{press.question}"</p>
+            {answered === null ? (
+              <div className="press-choices">
+                {press.choices.map((ch, i) => (
+                  <button
+                    key={ch.label}
+                    className="ghost"
+                    onClick={() => {
+                      setAfter(applyPress(after, press, i));
+                      setAnswered(i);
+                    }}
+                  >
+                    <b>{ch.label}</b>
+                    <span>"{ch.quote}"</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="note">
+                You said: "{press.choices[answered].quote}"{' '}
+                {press.choices[answered].trust > 0 ? 'The coach liked that.' : press.choices[answered].trust < 0 ? "The coach didn't love that." : ''}
+              </p>
+            )}
+          </section>
+        )}
+        {after.slump && (
+          <p className="note warn">
+            Slump: {after.slump.reason.toLowerCase()}. Composure and touch are down until it fades or you make a big kick.
+          </p>
+        )}
         <div className="btn-row">
-          <button className="primary" onClick={onContinue}>
+          <button className="primary" onClick={() => onContinue(after)}>
             Continue
           </button>
         </div>

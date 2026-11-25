@@ -23,7 +23,13 @@ export interface KickSetup {
   /** Direction the wind blows TOWARD, relative to the field: 0 = at the kicker's back, 90 = left to right, 180 = in the face, 270 = right to left. */
   windToDeg: number;
   weather?: Weather;
+  /** Swirling stadium: the wind shifts between your read and the kick. */
+  swirl?: boolean;
+  /** 0..1 pressure of the moment: the edge rush comes harder. */
+  rush?: number;
 }
+
+export type Trajectory = 'normal' | 'high' | 'low';
 
 export interface KickerRatings {
   power: number;
@@ -40,6 +46,8 @@ export interface KickInputs {
   power: number;
   /** Accuracy meter stop: -1 (left edge) .. +1 (right edge); 0 is dead centre. */
   accuracy: number;
+  /** High kicks clear the rush but hang in the wind; low kicks cut the wind but can be tipped. */
+  trajectory?: Trajectory;
 }
 
 export type Outcome =
@@ -202,8 +210,8 @@ function integrate(start: State, o: FlightOpts): FlightRun {
   return { samples: out, firstGroundIndex };
 }
 
-function launchState(x0: number, dirRad: number, v0: number): State {
-  const e = (CONFIG.physics.launchAngleDeg * Math.PI) / 180;
+function launchState(x0: number, dirRad: number, v0: number, angleDeg = CONFIG.physics.launchAngleDeg): State {
+  const e = (angleDeg * Math.PI) / 180;
   const h = v0 * Math.cos(e);
   return { t: 0, x: x0, y: 0, z: 0, vx: h * Math.sin(dirRad), vy: h * Math.cos(dirRad), vz: v0 * Math.sin(e) };
 }
@@ -277,9 +285,11 @@ export function resolveKick(setup: KickSetup, input: KickInputs, kicker: KickerR
   const x0 = kickSpotX(setup.level, setup.hash);
 
   // Wind: the displayed number is close, not exact.
-  const windActualMph = Math.max(0, setup.windMph * (1 + CONFIG.wind.gustSigma * rng.normal()));
-  const windDir = setup.windToDeg + CONFIG.wind.dirJitterDeg * rng.normal();
-  const windPush = CONFIG.wind.effectScale * rate(kicker.windControl, CONFIG.ratings.windEffect);
+  const T = CONFIG.trajectory[input.trajectory ?? 'normal'];
+  const swirl = setup.swirl ? CONFIG.wind.swirl : null;
+  const windActualMph = Math.max(0, setup.windMph * (1 + (swirl ? swirl.gustSigma : CONFIG.wind.gustSigma) * rng.normal()));
+  const windDir = setup.windToDeg + (swirl ? swirl.dirJitterDeg : CONFIG.wind.dirJitterDeg) * rng.normal();
+  const windPush = CONFIG.wind.effectScale * rate(kicker.windControl, CONFIG.ratings.windEffect) * T.windMult;
   const w = windVectorFtS(windActualMph * windPush, windDir);
 
   // Strike quality from the accuracy meter.
@@ -291,18 +301,19 @@ export function resolveKick(setup: KickSetup, input: KickInputs, kicker: KickerR
   errDeg += rng.normal() * rate(kicker.consistency, CONFIG.ratings.driftSigmaDeg);
   const hookAccel = beyond * S.hookAccelPerUnit;
 
-  const v0 = launchSpeedForRange(weatherRangeYd(kicker, setup.weather)) * powerSpeedFrac(input.power);
+  const v0 = launchSpeedForRange(weatherRangeYd(kicker, setup.weather)) * powerSpeedFrac(input.power) * (CONFIG.trajectory[input.trajectory ?? 'normal'].speedMult);
   const aimDir = Math.atan2(input.aimXFt - x0, planeY);
   const dir = aimDir + (errDeg * Math.PI) / 180;
 
-  const blockChance = CONFIG.block.baseChance + Math.max(0, setup.distanceYd - 40) * CONFIG.block.perYardOver40;
+  const blockChance = (CONFIG.block.baseChance + Math.max(0, setup.distanceYd - 40) * CONFIG.block.perYardOver40) * T.blockMult * (1 + (setup.rush ?? 0) * CONFIG.block.rushMult);
+  const angle = T.angleDeg;
   const blocked = rng.next() < blockChance;
 
   const common = { windActualMph, inSweetSpot, strikeMiss: beyond, slowMo: false };
 
   if (blocked) {
     const blockY = CONFIG.field.snapDepthYd * 3 - 6;
-    const up = integrate(launchState(x0, dir, v0), { windX: w.x, windY: w.y, hookAccel: 0, v0, bounce: false, stopAtY: blockY, maxT: 1 });
+    const up = integrate(launchState(x0, dir, v0, angle), { windX: w.x, windY: w.y, hookAccel: 0, v0, bounce: false, stopAtY: blockY, maxT: 1 });
     const at = up.samples[up.samples.length - 1];
     const deflect: State = { ...at, vx: rng.range(-14, 14), vy: -rng.range(6, 16), vz: rng.range(4, 14) };
     const down = integrate(deflect, { windX: 0, windY: 0, hookAccel: 0, v0, bounce: true, maxT: at.t + 4 });
@@ -321,7 +332,7 @@ export function resolveKick(setup: KickSetup, input: KickInputs, kicker: KickerR
     };
   }
 
-  const flight = integrate(launchState(x0, dir, v0), {
+  const flight = integrate(launchState(x0, dir, v0, angle), {
     windX: w.x,
     windY: w.y,
     hookAccel,

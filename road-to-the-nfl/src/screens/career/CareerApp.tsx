@@ -29,6 +29,7 @@ import {
 import { accentFor } from '../../career/look';
 import { playoffRace, sorted } from '../../career/standings';
 import { SCOPE_NAME } from '../../career/records';
+import { addLegacy, blankCounters, TRAITS } from '../../career/story';
 import { coachRangeYd, levelCost, nextLevelEffect, overall, SKILLS } from '../../career/progression';
 import { saveCareer } from '../../career/save';
 import type { Career, Offer, SkillKey } from '../../career/types';
@@ -155,6 +156,11 @@ function Home({ c, setC, setOverlay, goSkills }: { c: Career; setC: (c: Career) 
           <p className="note">The season hasn't started.</p>
         )}
         <RaceLine c={c} />
+        {c.slump && (
+          <div className="race race-out">
+            In a slump ({c.slump.reason.toLowerCase()}): composure and touch down {Math.round(c.slump.level * 100)}%. A big make ends it.
+          </div>
+        )}
         <h2>Coach trust</h2>
         <TrustMeter value={c.trust} />
         <p className="note">
@@ -476,6 +482,29 @@ function Skills({ c, setC }: { c: Career; setC: (c: Career) => void }) {
         </div>
         <p className="note">Costs: 1 point per level below 60, 2 from 60 to 79, 3 from 80 to 89, 5 from 90 up. Spending is permanent. {c.age >= 33 ? 'From your mid-thirties Power slips each year, so points go toward holding it up.' : ''}</p>
       </div>
+      <h2>Traits</h2>
+      <div className="traits">
+        {TRAITS.map((t) => {
+          const have = (c.traits ?? []).includes(t.id);
+          const [now, goal] = t.progress(c.counters ?? blankCounters());
+          return (
+            <div key={t.id} className={`trait ${have ? 'have' : ''}`}>
+              <div className="trait-name">
+                {have ? '★ ' : ''}
+                {t.name}
+              </div>
+              <div className="trait-effect">{t.effect}</div>
+              <div className="note">{have ? 'Unlocked' : `${t.goal} · ${Math.min(now, goal)}/${goal}`}</div>
+              {!have && (
+                <div className="rec-bar">
+                  <div style={{ width: `${Math.min(100, (now / goal) * 100)}%` }} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <h2>Skills</h2>
       {SKILLS.map(({ key, label, blurb }) => {
         const v = c.skills[key];
         const cost = levelCost(v);
@@ -607,6 +636,15 @@ function Depth({ c }: { c: Career }) {
               ? `${c.rival.name} will push you in camp next season.`
               : 'No one is pushing you right now.'}
       </p>
+      {c.nemesis && (
+        <div className="nemesis card">
+          <div className="eyebrow">Your rival</div>
+          <div className="nemesis-name">{c.nemesis.name}</div>
+          <p className="note">
+            {c.nemesis.note === 'the senior you fought for the job' ? 'The senior you fought for the job in high school.' : `Your old high school rival. Now ${c.nemesis.note}.`}
+          </p>
+        </div>
+      )}
       {c.contract && (
         <p className="note">
           Contract: {c.contract.years} year{c.contract.years === 1 ? '' : 's'} left at ${c.contract.salary.toFixed(2)}M.
@@ -733,6 +771,10 @@ function Stats({ c, hideTotals = false }: { c: Career; hideTotals?: boolean }) {
 
 function Summary({ c, onMenu }: { c: Career; onMenu: () => void }) {
   const s = c.summary!;
+  useEffect(() => {
+    const first = c.history[0]?.year ?? c.year;
+    addLegacy({ name: c.kicker.name, years: `${first}-${c.year}`, verdict: s.verdict, points: s.points, nflPoints: s.nflPoints, longest: s.longest, titles: s.titles.length, honors: s.honors.length });
+  }, []);
   return (
     <div className="screen panel-screen" style={{ '--accent': accentFor(c.team) } as CSSProperties}>
       <div className="panel-wrap">
