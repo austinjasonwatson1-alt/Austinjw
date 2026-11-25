@@ -147,3 +147,18 @@
  @keyframes breathe{0%,100%{opacity:.45}50%{opacity:1}}
 }
 @media(max-width:600px){.brand small{display:none}.gng{height:22px}}
+/* Go/no-go decision */
+.decision{border-top:1px solid var(--edge);margin-top:16px;padding-top:14px}
+.decision h3{font-size:15px;font-weight:600;margin:0}
+.dsub{font-size:13px;color:var(--mut);margin-top:2px}
+.dbtn{background:none;border:1px solid var(--edge);border-radius:10px;padding:10px 14px;min-height:44px}
+.dbtn:hover{border-color:var(--sky)}
+.dbtn[aria-pressed=true]{font-weight:700;color:#0a2540}
+.dGo[aria-pressed=true]{background:var(--sky);border-color:var(--sky)}
+.dCond[aria-pressed=true]{background:#fff;border-color:#fff}
+.dNo[aria-pressed=true]{background:var(--pink);border-color:var(--pink)}
+.decision .pcin{margin-top:4px}
+.preview{border:1px solid var(--edge);border-radius:10px;background:var(--bg);padding:10px 12px;margin-top:10px;font-size:14px;line-height:1.5}
+.preview p{margin:6px 0 0}
+.preview small{display:block}
+.dlink{color:var(--sky)}

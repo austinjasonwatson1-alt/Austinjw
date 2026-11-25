@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { BriefCheck } from '@/lib/agent/verify';
 import { execUpdate } from '@/lib/brief/parse';
 import BriefText from './BriefText';
+import DecisionBar, { type DecisionProps } from './DecisionBar';
 import { cx } from './cx';
 
 export interface Brief {
@@ -48,11 +49,13 @@ export default function BriefPanel({
   running,
   agentAvailable,
   onRun,
+  decision,
 }: {
   brief: Brief;
   running: boolean;
   agentAvailable: boolean;
   onRun: () => void;
+  decision?: DecisionProps;
 }) {
   const [copyLabel, setCopyLabel] = useState('Copy exec update');
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -117,6 +120,7 @@ export default function BriefPanel({
           <p className={cx('stale')}>Tickets may have changed since this brief. Run the agent again for a fresh read.</p>
         )}
       </div>
+      {decision && !running && <DecisionBar key={brief.launchId} d={decision} />}
       <p className={cx('how')}>
         The agent is Claude with three read-only tools over the tracker: list_launches, get_gates and list_issues. It
         reads the live data, then writes the brief. If Claude can&apos;t be reached, a rules engine writes the same brief

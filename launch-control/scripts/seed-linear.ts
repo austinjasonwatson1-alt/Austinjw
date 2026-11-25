@@ -33,6 +33,7 @@ import {
 } from '../lib/tracker/linear-schema';
 import type { Tier } from '../lib/tracker/types';
 import { ALERT_MARKER } from '../lib/readiness/alerts';
+import { DECISION_MARKER } from '../lib/readiness/decision';
 
 try {
   process.loadEnvFile('.env.local');
@@ -253,9 +254,21 @@ async function clearAppComments(linear: LinearClient) {
     found.push(...(res.data?.comments.nodes ?? []).filter((c) => c.body.startsWith(marker)));
   }
   console.log(`Comments posted by Launch Control: ${found.length}${found.length ? ` (${found.map((c) => c.issue?.identifier ?? '?').join(', ')})` : ''}`);
+  // Go/no-go decisions the app posted as project updates: archived (reversible in Linear), not deleted.
+  type U = { projectUpdates: { nodes: { id: string; body: string; project: { name: string } }[] } };
+  const ures: { data?: U } = await linear.client.rawRequest<U, Record<string, unknown>>(
+    `query($key: String!) { projectUpdates(first: 100, filter: { project: { accessibleTeams: { some: { key: { eq: $key } } } } }) { nodes { id body project { name } } } }`,
+    { key: teamKey },
+  );
+  const updates = (ures.data?.projectUpdates.nodes ?? []).filter((u) => u.body.startsWith(DECISION_MARKER));
+  console.log(`Decision updates posted by Launch Control: ${updates.length}${updates.length ? ` (${updates.map((u) => u.project.name).join(', ')})` : ''}`);
   if (!write) return;
   for (const c of found) await linear.deleteComment(c.id);
   if (found.length) console.log(`- deleted ${found.length} comment(s)`);
+  for (const u of updates) {
+    await linear.client.rawRequest(`mutation($id: String!) { projectUpdateArchive(id: $id) { success } }`, { id: u.id });
+  }
+  if (updates.length) console.log(`- archived ${updates.length} decision update(s)`);
 }
 
 main().catch((e) => {

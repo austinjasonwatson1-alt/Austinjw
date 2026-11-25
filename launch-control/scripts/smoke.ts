@@ -92,6 +92,14 @@ async function main() {
     return items.map((t) => t.split(' — ')[0].split('Risk alert')[0].trim()).join('; ');
   });
 
+  await step('decision: preview opens (nothing posted)', async () => {
+    await p.click('[class*=decision] button:has-text("No-go")');
+    const preview = await p.innerText('[class*=preview]');
+    await p.click('[class*=decision] button:has-text("Cancel")');
+    expect(/Go\/no-go decision from Launch Control: NO-GO/.test(preview) && /Readiness at the time/.test(preview), `unexpected preview: ${preview.slice(0, 80)}`);
+    return 'NO-GO preview with readiness numbers';
+  });
+
   await step('copy exec update', async () => {
     await p.click('button:has-text("Copy exec update")');
     await p.waitForSelector('button:has-text("Copied"), button:has-text("Copy blocked")', { timeout: 3000 });

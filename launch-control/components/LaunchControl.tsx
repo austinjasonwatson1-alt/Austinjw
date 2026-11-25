@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { readSse } from '@/lib/agent/sse';
+import { execUpdate } from '@/lib/brief/parse';
 import { verifyBrief } from '@/lib/agent/verify';
 import { localToday } from '@/lib/dates';
 import {
@@ -9,7 +10,13 @@ import {
   boardSummary,
   hygieneChecks,
   MINUTES_PER_SWEEP,
+  callToDecision,
+  DECISION_LABEL,
+  decisionUpdate,
+  HEALTH_LABEL,
   MINUTES_PER_FIX,
+  recommendation,
+  type Decision,
   NEXT_STATUS,
   proposeAlerts,
   proposeFixes,
@@ -22,6 +29,7 @@ import BriefPanel, { type Brief } from './BriefPanel';
 import Calendar from './Calendar';
 import { cx } from './cx';
 import GatesPanel from './GatesPanel';
+import type { Recorded } from './DecisionBar';
 import HygienePanel, { type LogEntry } from './HygienePanel';
 import PasscodeDialog from './PasscodeDialog';
 
@@ -89,6 +97,8 @@ export default function LaunchControl() {
   const [log, setLog] = useState<LogEntry[]>([]);
   /** Alerts sent this session ("source:alert:ISSUE"), hidden from the review list so nobody is chased twice. */
   const [alerted, setAlerted] = useState<Set<string>>(new Set());
+  /** Decisions recorded this session, keyed "source:launchId". */
+  const [decisions, setDecisions] = useState<Record<string, Recorded>>({});
   const [saved, setSaved] = useState(0);
   const loadCtl = useRef<AbortController | null>(null);
 
@@ -438,9 +448,38 @@ export default function LaunchControl() {
     }
   };
 
+  const recordDecision = async (d: Decision, note: string): Promise<{ ok: boolean; message: string }> => {
+    if (!L || !shown) return { ok: false, message: 'No launch selected.' };
+    const key = `${snap.source}:${L.id}`;
+    const exec = execUpdate(shown.text);
+    const label = DECISION_LABEL[d];
+    if (!live) {
+      setDecisions((m) => ({ ...m, [key]: { decision: d, at: clock(), posted: false } }));
+      addLog([{ text: `Recorded go/no-go for ${L.name}: ${label} (demo data: not posted)`, minutes: 0 }]);
+      return { ok: true, message: 'Recorded.' };
+    }
+    try {
+      const res = await postGuarded('/api/decision', { launchId: L.id, asOf: snap.asOf, decision: d, note, execUpdate: exec }, AbortSignal.timeout(30_000));
+      if (!res) return { ok: false, message: 'Nothing was posted: the passcode was not entered.' };
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; health?: keyof typeof HEALTH_LABEL; error?: string; retryAfter?: number };
+      if (!res.ok || !j.ok) {
+        const why = j.error === 'rate_limited' ? `too many posts from this network; try again in ${minutes(j.retryAfter ?? 3600)}` : j.error === 'linear_unavailable' || j.error === 'linear_write_failed' ? 'Linear didn’t accept it' : (j.error ?? `HTTP ${res.status}`);
+        addLog([{ text: `Go/no-go for ${L.name} not posted: ${why}`, minutes: 0 }]);
+        return { ok: false, message: `Nothing was posted: ${why}.` };
+      }
+      setDecisions((m) => ({ ...m, [key]: { decision: d, at: clock(), posted: true, url: j.url } }));
+      addLog([{ text: `Posted go/no-go for ${L.name} to Linear: ${label}${j.health ? ` (health: ${HEALTH_LABEL[j.health]})` : ''}`, minutes: 0 }]);
+      return { ok: true, message: 'Posted.' };
+    } catch {
+      addLog([{ text: `Go/no-go for ${L.name} not posted: the request failed`, minutes: 0 }]);
+      return { ok: false, message: 'Nothing was confirmed as posted: the request failed.' };
+    }
+  };
+
   const reset = () => {
     stopAgent();
     setAlerted(new Set());
+    setDecisions({});
     try {
       snap.launches.forEach((l) => localStorage.removeItem(CACHE_KEY(l.id)));
     } catch {
@@ -540,7 +579,20 @@ export default function LaunchControl() {
                   : undefined
               }
             />
-            <BriefPanel brief={shown} running={running} agentAvailable={agentAvailable} onRun={runAgent} />
+            <BriefPanel
+              brief={shown}
+              running={running}
+              agentAvailable={agentAvailable}
+              onRun={runAgent}
+              decision={{
+                launchName: info.launch.name,
+                suggested: callToDecision(recommendation(info.state)),
+                live,
+                recorded: decisions[`${snap.source}:${info.launch.id}`],
+                preview: (d, note) => decisionUpdate(info.launch, snap, d, { note, execUpdate: execUpdate(shown.text) }),
+                record: recordDecision,
+              }}
+            />
           </div>
         </section>
       )}

@@ -88,3 +88,26 @@ export function linearAlertWriter(apiKey: string): { apply(a: RiskAlert): Promis
     },
   };
 }
+
+/** Posts a recorded go/no-go decision as a project update (with health) on the launch's Linear project. */
+export async function postDecisionToLinear(
+  apiKey: string,
+  projectSlug: string,
+  update: { body: string; health: 'onTrack' | 'atRisk' | 'offTrack' },
+): Promise<{ url?: string }> {
+  const client = new LinearClient({ apiKey });
+  const gql = async <T>(query: string, vars: Record<string, unknown>): Promise<T> => {
+    const res: { data?: T } = await withTimeout(client.client.rawRequest<T, Record<string, unknown>>(query, vars), WRITE_TIMEOUT_MS);
+    if (!res.data) throw new Error('linear_empty_response');
+    return res.data;
+  };
+  const { project } = await gql<{ project: { id: string } | null }>(`query($id: String!) { project(id: $id) { id } }`, { id: projectSlug });
+  if (!project) throw new Error('linear_project_not_found');
+  const r = await gql<{ projectUpdateCreate: { success: boolean; projectUpdate: { url: string } | null } }>(
+    `mutation($input: ProjectUpdateCreateInput!) { projectUpdateCreate(input: $input) { success projectUpdate { url } } }`,
+    { input: { projectId: project.id, body: update.body, health: update.health } },
+  );
+  if (!r.projectUpdateCreate.success) throw new Error('linear_rejected');
+  const url = r.projectUpdateCreate.projectUpdate?.url;
+  return { url: url && /^https:\/\/linear\.app\//.test(url) ? url : undefined };
+}
