@@ -137,7 +137,7 @@ async function main() {
       expect(n > 0, 'empty review list');
       return `${n} fixes proposed`;
     });
-    await p.click('button:has-text("Demo data")');
+    await p.click('button:has-text("Sample data")');
   }
 
   await step('phone width: no horizontal scroll', async () => {

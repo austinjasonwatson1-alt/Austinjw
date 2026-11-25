@@ -77,7 +77,7 @@ async function fetchSnapshot(source: SourceKind, signal: AbortSignal): Promise<T
     return (await res.json()) as TrackerSnapshot;
   } catch (e) {
     if (signal.aborted) throw e;
-    return { ...demoSnapshot(today), notice: 'Couldn’t reach the server, so this is the built-in demo data.' };
+    return { ...demoSnapshot(today), notice: 'Couldn’t reach the server, so this is the built-in sample data.' };
   }
 }
 
@@ -222,7 +222,7 @@ export default function LaunchControl() {
             saved: true,
             meta: { ms: j.ms ?? 0, toolCalls: j.toolCalls ?? 0 },
             check: verifyBrief(text, snap, launch),
-            checkedAgainst: 'demo data',
+            checkedAgainst: 'sample data',
           },
         }));
       })
@@ -379,7 +379,7 @@ export default function LaunchControl() {
             meta: { ms: d.ms ?? 0, toolCalls: d.toolCalls ?? trace.length },
             // In live mode the server read Linear moments ago; the screen's snapshot is the same data.
             check: verifyBrief(d.text, snap, launch),
-            checkedAgainst: live ? 'Linear' : 'demo data',
+            checkedAgainst: live ? 'Linear' : 'sample data',
           });
           try {
             localStorage.setItem(CACHE_KEY(launch.id), JSON.stringify({ text: d.text, at }));
@@ -469,7 +469,7 @@ export default function LaunchControl() {
       const sent = all.filter((a) => ids.includes(a.id));
       addLog(sent.map((a) => ({ text: `Alerted ${a.logText}`, minutes: MINUTES_PER_FIX })));
       mark(sent.map((a) => a.id));
-      return { ok: true, message: `Logged ${sent.length} alert${sent.length === 1 ? '' : 's'} (demo data: nothing was sent).` };
+      return { ok: true, message: `Logged ${sent.length} alert${sent.length === 1 ? '' : 's'} (sample data: nothing was sent).` };
     }
     try {
       const res = await postGuarded('/api/alerts/send', { launchId: L.id, asOf: snap.asOf, alertIds: ids }, AbortSignal.timeout(60_000));
@@ -510,7 +510,7 @@ export default function LaunchControl() {
     const label = DECISION_LABEL[d];
     if (!live) {
       setDecisions((m) => ({ ...m, [key]: { decision: d, at: clock(), posted: false } }));
-      addLog([{ text: `Recorded go/no-go for ${L.name}: ${label} (demo data: not posted)`, minutes: 0 }]);
+      addLog([{ text: `Recorded go/no-go for ${L.name}: ${label} (sample data: not posted)`, minutes: 0 }]);
       return { ok: true, message: 'Recorded.' };
     }
     try {
@@ -569,10 +569,10 @@ export default function LaunchControl() {
             <span id="src-label">Data source</span>
             <span className={cx('toggle')} role="group" aria-labelledby="src-label">
               <button type="button" aria-pressed={source === 'linear'} onClick={() => switchSource('linear')}>
-                Linear
+                Live data (Linear)
               </button>
               <button type="button" aria-pressed={source === 'demo'} onClick={() => switchSource('demo')}>
-                Demo data
+                Sample data
               </button>
             </span>
             {source === 'linear' && (
@@ -596,6 +596,16 @@ export default function LaunchControl() {
               <b>Heads up:</b> {snap.notice}
             </p>
           )}
+          <p className={cx('step')}>
+            <b>1</b> Which launches are at risk
+          </p>
+          <p className={cx('intro')}>
+            {live
+              ? `Live from Linear: ${snap.launches.length} upcoming launches.`
+              : `A sample product org with ${snap.launches.length} upcoming launches.`}{' '}
+            Each launch must pass a set of readiness gates (checkpoints like QA sign-off, security review and docs) before its
+            go/no-go review.
+          </p>
           <div className={cx('top')}>
             <div>
               <h1>{summary.headline}</h1>
@@ -616,6 +626,9 @@ export default function LaunchControl() {
 
       {info && shown && (
         <section className={cx('band', 'bandTight')}>
+          <p className={cx('wrap', 'step')}>
+            <b>2</b> Why, and what to do about it
+          </p>
           <div className={cx('wrap', 'work')}>
             <GatesPanel
               info={info}
@@ -654,6 +667,9 @@ export default function LaunchControl() {
       )}
 
       <section className={cx('band', 'bandTight')}>
+        <p className={cx('wrap', 'step')}>
+          <b>3</b> Keep the tracker data clean, so reports can come straight from it
+        </p>
         <HygienePanel
           checks={checks}
           clean={summary.hygiene}

@@ -14,16 +14,16 @@ Launch Control reads the tracker, scores every launch against its readiness gate
 
 | | |
 | --- | --- |
-| **Launch calendar** | Every launch as a bar from today to its date, built from its gate segments: ready, in progress, at risk. The headline is the finding ("L1 Triage Agent GA is at risk: 3 of 10 gates need action, 16 days out"). |
+| **Launch calendar** | Every launch as a bar from today to its date, built from its gate segments: ready, in progress, at risk. The headline is the finding ("L1 Triage Agent general availability launch is at risk: 3 of 10 gates need action, 16 days out"). |
 | **Readiness gates** | Tier 1 launches have 10 gates, Tier 2 have 7, Tier 3 have 3. A gate is **at risk** if it has no ticket, or any open ticket is blocked, overdue, or due after go/no-go (launch − 2 days). **Ready** when every ticket is done. |
 | **Readiness agent** | Claude (`claude-sonnet-5-5`) with three read-only tools (`list_launches`, `get_gates`, `list_issues`), streamed live with a tool trace. Fixed format: Recommendation · Blocking risks · Before go/no-go · Exec update. ~6 s per brief. |
 | **Brief checks** | Every AI brief is checked against the data it was written from: each cited issue ID must exist, and the go/no-go call must match the rules engine. Shown under the brief with the run time and tool calls. |
 | **Risk alerts** | For each at-risk gate, one message per blocked, overdue or due-after-go/no-go ticket, to its owner (or the team lead / PM if unowned). Review and tick, then send: posted as a comment on the ticket in Linear (the owner is notified), logged only on demo data. The same ticket isn't alerted twice in 24 h. |
 | **Go/no-go decision** | A person records Go, Go with conditions or No-go under the brief. It's previewed, then posted to the launch's Linear project as a status update with a health flag, the readiness numbers at that moment and the exec update. Overriding the rules is allowed and is on the record. |
 | **Rules-engine brief** | Same format with no AI: the default view and the automatic fallback, so the review never stalls. |
-| **Tracker hygiene** | Flags open tickets with no owner, no due date, no update in 14+ days, or no launch. Demo: auto-fix. Linear: review the proposed fixes, then apply the ticked ones. |
+| **Tracker data quality** | Flags open tickets with no owner, no due date, no update in 14+ days, or no launch. Demo: auto-fix. Linear: review the proposed fixes, then apply the ticked ones. |
 | **Manual work removed** | A log of what was automated and an estimate of minutes saved (45 min per readiness sweep, 3 min per ticket fix). |
-| **Linear or demo data** | One switch. Demo data is the default so the app always works. |
+| **Live or sample data** | One switch. Demo data is the default so the app always works. |
 
 ## How it works
 

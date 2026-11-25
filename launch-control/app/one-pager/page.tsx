@@ -63,7 +63,7 @@ export default function OnePager() {
         <section className={s.sec}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className={s.shot} src="/one-pager-shot.png" alt="Launch Control showing L1 Triage Agent at risk with 3 of 10 gates needing action, and the Claude go/no-go brief" />
-          <p className={s.cap}>Live on Linear data or built-in demo data, one switch.</p>
+          <p className={s.cap}>Live on Linear data or built-in sample data, one switch.</p>
         </section>
 
         <section className={`${s.sec} ${s.full}`}>

@@ -89,8 +89,8 @@ export default function Calendar({
           Go/no-go
         </span>
         <span>
-          Each bar runs from today to the launch date and is built from that launch&apos;s gates. Select a launch to
-          inspect it.
+          Each bar runs from today to the launch date and is built from that launch&apos;s gates. Tier 1 launches are the
+          biggest and have the most gates. Click a launch to inspect it.
         </span>
       </div>
     </>

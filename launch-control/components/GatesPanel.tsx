@@ -83,7 +83,7 @@ function RiskAlerts({ a, launchId }: { a: AlertProps; launchId: string }) {
         note={
           (a.live
             ? 'Each alert is posted as a comment on its ticket in Linear, so the owner is notified. Nothing is sent until you confirm.'
-            : 'Demo data: alerts are logged, not sent. In Linear mode they post as comments on each ticket.') +
+            : 'Sample data: alerts are logged, not sent. On live data they post as comments on each ticket.') +
           (n ? ` ${n} at-risk gate${n > 1 ? 's have' : ' has'} no ticket to alert on: someone has to create ${n > 1 ? 'them' : 'it'}.` : '')
         }
         onConfirm={a.send}
@@ -113,6 +113,7 @@ export default function GatesPanel({
           <h2>
             {L.name} · {L.milestone}
           </h2>
+          {L.summary && <p className={cx('about')}>{L.summary}</p>}
           <small>
             Tier {L.tier} · launches {fmtDate(L.launchDate)} · go/no-go {fmtDate(info.goNoGo)} · PM {L.pm ?? 'unassigned'}
           </small>
@@ -124,6 +125,11 @@ export default function GatesPanel({
       <div className={cx('meter')}>
         <i style={{ width: `${(info.ready / info.n) * 100}%` }} />
       </div>
+      <p className={cx('tryit')}>
+        {onCycle
+          ? 'Try it: click a status on any ticket to change it, and watch the gates, the calendar and the brief update.'
+          : 'Live from Linear. To change a ticket, click its ID to open it in Linear, then press Refresh.'}
+      </p>
       {alerts && <RiskAlerts a={alerts} launchId={L.id} />}
       <div>
         {info.gates.map((g) => (
@@ -157,9 +163,8 @@ export default function GatesPanel({
         <p className={cx('collapsedNote')}>Gates in progress are collapsed so the risks stand out. Open any gate to see its tickets.</p>
       )}
       <p className={cx('how')}>
-        {onCycle
-          ? 'Tap a status pill to move an issue along (Backlog → In progress → In review → Done → Blocked). Gates, the calendar and the brief update live.'
-          : 'Live from Linear. Change an issue in Linear (tap its id to open it), then refresh to rescore.'}
+        A gate is a checkpoint a launch must pass before go/no-go. It is at risk if a ticket is blocked, overdue or due after
+        go/no-go, or if nobody has filed a ticket for it. Bigger launches have more gates: Tier 1 has 10, Tier 2 has 7, Tier 3 has 3.
       </p>
     </div>
   );

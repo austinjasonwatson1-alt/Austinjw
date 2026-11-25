@@ -17,6 +17,8 @@ export interface Launch {
   /** ISO calendar date */
   launchDate: string;
   pm: string | null;
+  /** One plain line on what is launching, for readers new to the product. */
+  summary?: string;
 }
 
 export interface Issue {

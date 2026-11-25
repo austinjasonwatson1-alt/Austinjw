@@ -8,7 +8,7 @@ export default function Error({ reset }: { error: Error; reset: () => void }) {
     <section className={s.band}>
       <div className={s.wrap}>
         <h1>Something went wrong loading Launch Control</h1>
-        <p className={s.sub}>Your data is safe; nothing was written. Try again, or reload the page to start from demo data.</p>
+        <p className={s.sub}>Your data is safe; nothing was written. Try again, or reload the page to start from sample data.</p>
         <div className={s.btns}>
           <button type="button" className={s.go} onClick={reset}>
             Try again
@@ -25,7 +25,7 @@ export default function Error({ reset }: { error: Error; reset: () => void }) {
               location.reload();
             }}
           >
-            Reload with demo data
+            Reload with sample data
           </button>
         </div>
       </div>

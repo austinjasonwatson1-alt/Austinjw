@@ -85,13 +85,13 @@ export default function BriefPanel({
           <>
             <span className={cx('pill', 'ai')}>Claude agent</span>
             <span>
-              {brief.saved ? 'saved run from today' : `written ${brief.at}`}
+              {brief.saved ? 'written earlier today (saved run)' : `written ${brief.at}`}
               {brief.meta && ` in ${(brief.meta.ms / 1000).toFixed(1)} s · ${brief.meta.toolCalls} tool call${brief.meta.toolCalls === 1 ? '' : 's'}`}
             </span>
           </>
         ) : (
           <>
-            <span className={cx('pill')}>Rules engine</span>
+            <span className={cx('pill')}>Readiness rules (no AI)</span>
             <span>updates live as tickets move</span>
           </>
         )}

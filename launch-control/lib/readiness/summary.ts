@@ -19,7 +19,8 @@ export interface BoardSummary {
   hygiene: number;
 }
 
-const msShort = (ms: string) => (ms === 'General availability' ? 'GA' : ms.toLowerCase());
+/** "general availability launch", "early access launch", "minor release": spelled out for first-time readers. */
+const msShort = (ms: string) => (/release/i.test(ms) ? ms.toLowerCase() : `${ms.toLowerCase()} launch`);
 
 /** Finding-as-headline plus the 4 KPIs above the launch calendar. */
 export function boardSummary(snap: Pick<TrackerSnapshot, 'launches' | 'issues' | 'asOf'>): BoardSummary {
@@ -37,7 +38,7 @@ export function boardSummary(snap: Pick<TrackerSnapshot, 'launches' | 'issues' |
     sub = 'A launch is a project with a Tier 1, 2 or 3 label and a target date. Add one in the tracker, or switch to Demo data.';
   } else if (hot) {
     headline = `${hot.launch.name} ${msShort(hot.launch.milestone)} is at risk: ${hot.risk} of ${hot.n} gates need action, ${hot.daysOut} days out`;
-    sub = `Go/no-go is ${fmtDate(hot.goNoGo)}. ${infos.filter((x) => x.state !== 'risk').length} of ${infos.length} launches on the calendar are on track or ready.`;
+    sub = `Go/no-go, the review where it is approved or held, is ${fmtDate(hot.goNoGo)}. ${infos.filter((x) => x.state !== 'risk').length} of ${infos.length} launches on the calendar are on track or ready.`;
   } else {
     headline = 'Every launch on the calendar is on track';
     sub = 'No gates are blocked, overdue or missing a ticket.';
@@ -51,7 +52,7 @@ export function boardSummary(snap: Pick<TrackerSnapshot, 'launches' | 'issues' |
     { tone: '', value: String(infos.filter((x) => x.daysOut <= 30).length), label: 'Launches in the next 30 days' },
     { tone: 'ok', value: `${ready}/${total}`, label: 'Gates ready' },
     { tone: atRisk ? 'hot' : 'ok', value: String(atRisk), label: 'Launches at risk' },
-    { tone: hygiene < 85 ? 'hot' : 'ok', value: `${hygiene}%`, label: 'Tracker hygiene' },
+    { tone: hygiene < 85 ? 'hot' : 'ok', value: `${hygiene}%`, label: 'Tracker data quality' },
   ];
   return { infos, hotId: hot?.launch.id ?? null, headline, sub, kpis, hygiene };
 }

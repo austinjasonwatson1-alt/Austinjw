@@ -140,7 +140,7 @@ async function main() {
   await wait(3600);
 
   await scrollTo(p, '[class*=hyg]', 110);
-  await caption(p, 'Tracker hygiene: fixes are proposed, a person reviews, then they are written to Linear.');
+  await caption(p, 'Tracker data quality: fixes are proposed, a person reviews, then they are written to Linear.');
   await click(p, '[class*=hyg] button:has-text("Review")');
   await wait(4200);
   await click(p, '[class*=hyg] button:has-text("Cancel")');

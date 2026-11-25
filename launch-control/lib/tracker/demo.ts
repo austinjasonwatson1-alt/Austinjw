@@ -3,12 +3,12 @@ import type { GateKey, Issue, IssueStatus, Launch, Team, TrackerSnapshot, Tracke
 
 /* Ported verbatim from prototype/index.html. Offsets are days from "today". */
 
-const LAUNCHES: { id: string; name: string; ms: string; tier: Tier; d: number; pm: string }[] = [
-  { id: 'L1', name: 'L1 Triage Agent', ms: 'General availability', tier: 1, d: 16, pm: 'Maya Chen' },
-  { id: 'L2', name: 'Change Risk Insights', ms: 'Early access', tier: 1, d: 23, pm: 'Jordan Ellis' },
-  { id: 'L3', name: 'Knowledge Graph API v2', ms: 'General availability', tier: 2, d: 9, pm: 'Priya Raman' },
-  { id: 'L4', name: 'ServiceNow connector 3.1', ms: 'Minor release', tier: 3, d: 4, pm: 'Sam Ortiz' },
-  { id: 'L5', name: 'Incident timeline refresh', ms: 'Minor release', tier: 3, d: 30, pm: 'Maya Chen' },
+const LAUNCHES: { id: string; name: string; ms: string; tier: Tier; d: number; pm: string; about: string }[] = [
+  { id: 'L1', name: 'L1 Triage Agent', ms: 'General availability', tier: 1, d: 16, pm: 'Maya Chen', about: 'An AI agent that handles first-line incident triage' },
+  { id: 'L2', name: 'Change Risk Insights', ms: 'Early access', tier: 1, d: 23, pm: 'Jordan Ellis', about: 'Flags risky changes before they cause incidents' },
+  { id: 'L3', name: 'Knowledge Graph API v2', ms: 'General availability', tier: 2, d: 9, pm: 'Priya Raman', about: 'A developer API for the service topology graph' },
+  { id: 'L4', name: 'ServiceNow connector 3.1', ms: 'Minor release', tier: 3, d: 4, pm: 'Sam Ortiz', about: 'Two-way sync between incidents and ServiceNow tickets' },
+  { id: 'L5', name: 'Incident timeline refresh', ms: 'Minor release', tier: 3, d: 30, pm: 'Maya Chen', about: 'A redesigned incident timeline view' },
 ];
 
 export const DEMO_TEAM_LEADS: Record<Team, string | null> = {
@@ -80,6 +80,7 @@ export function demoSnapshot(asOf: string): TrackerSnapshot {
     tier: l.tier,
     launchDate: addDays(asOf, l.d),
     pm: l.pm,
+    summary: l.about,
   }));
   const issues: Issue[] = DEMO_ISSUE_ROWS.map(([id, launchId, gate, title, team, owner, s, due, upd]) => ({
     id,

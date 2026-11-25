@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   if (!source) {
     return NextResponse.json({
       ...demoSnapshot(asOf),
-      notice: 'Linear isn’t configured on this server, so this is the built-in demo data.',
+      notice: 'Linear isn’t configured on this server, so this is the built-in sample data.',
     });
   }
   try {
@@ -28,6 +28,6 @@ export async function GET(req: NextRequest) {
   } catch (e) {
     const why = e instanceof Error && e.message === 'linear_timeout' ? 'Linear didn’t answer within 5 seconds' : kind === 'linear' ? 'Couldn’t load data from Linear' : 'Couldn’t load tracker data';
     console.error(`[tracker] ${kind} failed: ${e instanceof Error ? e.message : 'error'}`);
-    return NextResponse.json({ ...demoSnapshot(asOf), notice: `${why}, so this is the built-in demo data.` });
+    return NextResponse.json({ ...demoSnapshot(asOf), notice: `${why}, so this is the built-in sample data.` });
   }
 }

@@ -65,7 +65,7 @@ export default function HygienePanel({
       <div className={cx('panel')}>
         <div className={cx('lhead')}>
           <div>
-            <h2>Tracker hygiene</h2>
+            <h2>Tracker data quality</h2>
             <small>So leadership can report straight from the tool, without cleanup</small>
           </div>
           <small>{clean}% clean</small>

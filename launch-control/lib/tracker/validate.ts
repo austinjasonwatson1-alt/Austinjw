@@ -46,6 +46,7 @@ export function parseSnapshot(raw: unknown): TrackerSnapshot | null {
       tier: tier(l.tier),
       launchDate: date(l.launchDate)!,
       pm: str(l.pm, true),
+      ...(l.summary == null ? {} : { summary: str(l.summary)! }),
     }));
     const issues: Issue[] = r.issues.map((i: Record<string, unknown>) => ({
       id: str(i.id)!,

@@ -89,7 +89,7 @@ export default function DecisionBar({ d }: { d: DecisionProps }) {
           />
           <div className={cx('preview')} aria-label="What will be posted">
             <small>
-              {d.live ? 'Will post to Linear as a project update' : 'Demo data: this would post to Linear as a project update'} · Health:{' '}
+              {d.live ? 'Will post to Linear as a project update' : 'Sample data: on live data this posts to Linear as a project update'} · Health:{' '}
               {HEALTH_LABEL[update.health]}
             </small>
             <Preview body={update.body} />
@@ -122,7 +122,7 @@ export default function DecisionBar({ d }: { d: DecisionProps }) {
       {!picked && d.recorded && (
         <p className={cx('checks')} role="status">
           ✓ {DECISION_LABEL[d.recorded.decision]} recorded {d.recorded.at}
-          {d.recorded.posted ? ' · ' : ' (demo data: logged, not posted)'}
+          {d.recorded.posted ? ' · ' : ' (sample data: logged, not posted)'}
           {d.recorded.posted &&
             (d.recorded.url ? (
               <a className={cx('dlink')} href={d.recorded.url} target="_blank" rel="noopener noreferrer">

@@ -26,7 +26,7 @@ h1 {
   letter-spacing: -0.02em;
   margin: 0;
   text-wrap: balance;
-  max-width: 20ch;
+  max-width: 24ch;
 }
 h2 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 4px; }
 p { margin: 0; }
