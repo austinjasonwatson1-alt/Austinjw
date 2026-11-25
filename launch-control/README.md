@@ -19,6 +19,7 @@ Launch Control reads the tracker, scores every launch against its readiness gate
 | **Readiness agent** | Claude (`claude-sonnet-5-5`) with three read-only tools (`list_launches`, `get_gates`, `list_issues`), streamed live with a tool trace. Fixed format: Recommendation · Blocking risks · Before go/no-go · Exec update. ~6 s per brief. |
 | **Brief checks** | Every AI brief is checked against the data it was written from: each cited issue ID must exist, and the go/no-go call must match the rules engine. Shown under the brief with the run time and tool calls. |
 | **Risk alerts** | For each at-risk gate, one message per blocked, overdue or due-after-go/no-go ticket, to its owner (or the team lead / PM if unowned). Review and tick, then send: posted as a comment on the ticket in Linear (the owner is notified), logged only on demo data. The same ticket isn't alerted twice in 24 h. |
+| **Go/no-go decision** | A person records Go, Go with conditions or No-go under the brief. It's previewed, then posted to the launch's Linear project as a status update with a health flag, the readiness numbers at that moment and the exec update. Overriding the rules is allowed and is on the record. |
 | **Rules-engine brief** | Same format with no AI: the default view and the automatic fallback, so the review never stalls. |
 | **Tracker hygiene** | Flags open tickets with no owner, no due date, no update in 14+ days, or no launch. Demo: auto-fix. Linear: review the proposed fixes, then apply the ticked ones. |
 | **Manual work removed** | A log of what was automated and an estimate of minutes saved (45 min per readiness sweep, 3 min per ticket fix). |
@@ -85,6 +86,7 @@ npm run build                              # production build + type check
 npm run check:linear                       # live Linear readiness vs. demo, launch by launch
 npm run smoke -- <url> --passcode <p>      # walks the demo script in a real browser (see below)
 npm run eval -- --runs 3                   # agent eval, 30 briefs, writes docs/EVAL.md (~$0.40)
+npm run demo:video -- http://localhost:3000   # re-record the captioned walkthrough (see scripts/record-demo.ts)
 ```
 
 `npm run smoke` needs a browser once per machine: `npx playwright install chromium`. Add `--no-agent` to skip the paid Claude call. It never writes to Linear.
@@ -108,6 +110,6 @@ Import the repo, set **Root Directory** to `launch-control`, and add the four en
 
 ## Project docs
 
-[PRD](PRD.md) · [Agent eval](docs/EVAL.md) · [Decisions log](DECISIONS.md) · [Backlog](BACKLOG.md) · [Talk track](docs/TALK_TRACK.md) · [Approved prototype](prototype/index.html)
+[Walkthrough video](public/demo.mp4) · [PRD](PRD.md) · [Agent eval](docs/EVAL.md) · [Hard questions](docs/HARD_QUESTIONS.md) · [Decisions log](DECISIONS.md) · [Backlog](BACKLOG.md) · [Talk track](docs/TALK_TRACK.md) · [Approved prototype](prototype/index.html)
 
 <!-- Deployed on Vercel from this branch (Root Directory: launch-control). -->

@@ -13,7 +13,8 @@
     "seed:linear": "tsx scripts/seed-linear.ts",
     "check:linear": "tsx scripts/check-linear.ts",
     "smoke": "tsx scripts/smoke.ts",
-    "eval": "tsx scripts/eval-agent.ts"
+    "eval": "tsx scripts/eval-agent.ts",
+    "demo:video": "tsx scripts/record-demo.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.13.0",

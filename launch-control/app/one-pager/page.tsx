@@ -50,8 +50,8 @@ export default function OnePager() {
               recommendation, blocking risks with owners and issue IDs, and a three-line exec update.
             </li>
             <li>
-              <strong>Closes the loop:</strong> drafts a risk alert to each owner and fixes tracker hygiene (owners, dates,
-              stale tickets). A person reviews and confirms every change.
+              <strong>Closes the loop:</strong> drafts a risk alert to each owner, fixes tracker hygiene, and posts the
+              go/no-go decision to leadership as a status update. A person reviews and confirms every change.
             </li>
             <li>
               <strong>Never stalls:</strong> a rules engine writes the same brief if Claude or the tracker is unavailable.
@@ -118,6 +118,7 @@ export default function OnePager() {
 
       <nav className={s.links} aria-label="Links">
         <a href="/">Live demo</a>
+        <a href="/demo.mp4">79-second walkthrough (video)</a>
         <a href={REPO}>Code</a>
         <a href={`${REPO}/docs/EVAL.md`}>Agent eval</a>
         <a href={`${REPO}/DECISIONS.md`}>Decisions log</a>
