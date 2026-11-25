@@ -28,7 +28,7 @@ import {
 } from '../../career/career';
 import { accentFor } from '../../career/look';
 import { playoffRace, sorted } from '../../career/standings';
-import { SCOPE_NAME } from '../../career/records';
+import { bookName, type RecordBook } from '../../career/records';
 import { addLegacy, blankCounters, TRAITS } from '../../career/story';
 import { coachRangeYd, levelCost, nextLevelEffect, overall, SKILLS } from '../../career/progression';
 import { saveCareer } from '../../career/save';
@@ -938,8 +938,20 @@ function Schedule({ c }: { c: Career }) {
 }
 
 function RecordBookView({ c }: { c: Career }) {
-  const b = c.records;
-  if (!b) return null;
+  // Current books first; college books stay on display after you leave for the NFL.
+  const books: RecordBook[] = [...(c.records ? [c.records] : []), ...(c.collegeBooks ?? [])];
+  if (!books.length) return null;
+  return (
+    <>
+      {books.map((b) => (
+        <BookView key={b.title} b={b} />
+      ))}
+    </>
+  );
+}
+
+function BookView({ b }: { b: RecordBook }) {
+  const pro = b.scope === 'nfl' || b.scope === 'fbs';
   return (
     <>
       <h2>{b.title}</h2>
@@ -950,15 +962,15 @@ function RecordBookView({ c }: { c: Career }) {
             <div key={e.kind} className={`rec ${e.brokenYear ? 'broken' : ''}`}>
               <div className="rec-top">
                 <span className="rec-label">{e.label}</span>
-                <span className="rec-val">
-                  {e.brokenYear ? `${e.mine} · record since ${e.brokenYear}` : `${e.mine} / ${e.value}`}
-                </span>
+                <span className="rec-val">{e.brokenYear ? `${e.mine} · record since ${e.brokenYear}` : `${e.mine} / ${e.value}`}</span>
               </div>
               <div className="rec-bar">
                 <div style={{ width: `${pct}%` }} />
               </div>
               <div className="note rec-holder">
-                {e.brokenYear ? `You broke the ${SCOPE_NAME[b.scope]} record of ${e.value}${b.scope === 'nfl' ? '' : ` (${e.holder})`}.` : `${SCOPE_NAME[b.scope] === 'NFL' ? 'NFL record' : `Held by ${e.holder}`}: ${e.value}`}
+                {e.brokenYear
+                  ? `You broke the ${bookName(b)} record of ${e.value}${pro ? '' : ` (${e.holder})`}.`
+                  : `${pro ? `${b.scope === 'nfl' ? 'NFL' : 'FBS'} record` : `Held by ${e.holder}`}: ${e.value}`}
               </div>
             </div>
           );

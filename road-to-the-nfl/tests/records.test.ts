@@ -19,10 +19,10 @@ describe('record book', () => {
     const c = newCareer(1, profile, 3);
     const longest = c.records!.entries.find((e) => e.kind === 'longest')!;
     const calls1 = updateRecords(c, [fg(longest.value + 1)], 1);
-    expect(calls1.some((x) => x.includes('longest field goal'))).toBe(true);
+    expect(calls1.some((x) => x.text.includes('longest field goal'))).toBe(true);
     expect(longest.brokenYear).toBe(c.year);
     const calls2 = updateRecords(c, [fg(longest.value + 3)], 2);
-    expect(calls2.some((x) => x.includes('longest'))).toBe(false);
+    expect(calls2.some((x) => x.text.includes('longest'))).toBe(false);
     expect(longest.mine).toBe(longest.value + 3);
   });
 
@@ -74,5 +74,26 @@ describe('save codes', () => {
     expect(back.skills).toEqual(c.skills);
     expect(importCode('nonsense', 1)).toBeNull();
     expect(importCode('RTN1:!!!', 1)).toBeNull();
+  });
+});
+
+describe('college record books', () => {
+  it('a college kicker chases program, conference and FBS records at once', async () => {
+    const { chooseOffer } = await import('../src/career/career');
+    const { COLLEGES } = await import('../src/career/data');
+    const { activeBooks, longTargets } = await import('../src/career/records');
+    let c = newCareer(1, profile, 21);
+    const t = COLLEGES.find((x) => x.tier === 'major')!;
+    c = chooseOffer(c, { id: 'x', kind: 'starter', team: { ...t, strength: 50 }, title: t.name, note: '', rivalOvr: null });
+    const scopes = activeBooks(c).map((b) => b.scope);
+    expect(scopes).toEqual(['program', 'conference', 'fbs']);
+    const fbs = c.collegeBooks!.find((b) => b.scope === 'fbs')!;
+    expect(fbs.entries.find((e) => e.kind === 'longest')!.value).toBe(67);
+    expect(fbs.entries.find((e) => e.kind === 'seasonFg')!.value).toBe(31);
+    expect(longTargets(c)[0].scope).toBe('college football');
+    // A 68-yarder breaks all three longest-FG records, biggest first.
+    const calls = updateRecords(c, [fg(68)], 1);
+    expect(calls[0].scope).toBe('fbs');
+    expect(calls.filter((x) => x.text.includes('longest')).length).toBe(3);
   });
 });

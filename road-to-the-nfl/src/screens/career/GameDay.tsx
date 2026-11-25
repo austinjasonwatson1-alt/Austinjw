@@ -8,7 +8,7 @@ import { accentFor, kitFor, oppKitFor } from '../../career/look';
 import type { Career, SchedGame } from '../../career/types';
 import { KickScene } from '../../kick/KickScene';
 import { describeWind, type KickSetup } from '../../kick/physics';
-import { longestToBeat, SCOPE_NAME } from '../../career/records';
+import { longTargets } from '../../career/records';
 import { ScoreBug } from './ScoreBug';
 
 interface Props {
@@ -113,7 +113,7 @@ export function GameDay({ career, game, onFinish }: Props) {
         pressure={moment.pressure}
         iced={moment.iced ? `${game.opp.name} call timeout to ice ${career.kicker.name.split(' ')[0]}.` : null}
         clutch={moment.tag === 'GAME-WINNER' ? 'winner' : moment.tag === 'TO TIE' ? 'tie' : moment.tag === 'GO-AHEAD' ? 'lead' : null}
-        recordLong={!moment.xp && career.records ? { value: longestToBeat(career.records) ?? 99, scope: SCOPE_NAME[career.records.scope] } : null}
+        recordLong={moment.xp ? null : longTargets(career)}
         endzone={(game.home ? team : game.opp).name.split(' ').slice(-1)[0].toUpperCase()}
         board={[
           game.home ? `${game.opp.short} ${moment.them}   ${team.short} ${moment.us}` : `${team.short} ${moment.us}   ${game.opp.short} ${moment.them}`,

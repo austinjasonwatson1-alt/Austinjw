@@ -41,8 +41,8 @@ interface Props {
   continueLabel?: string;
   /** A made kick here ties or wins the game: celebrate. */
   clutch?: 'winner' | 'tie' | 'lead' | null;
-  /** The longest field goal to beat in the current record book. */
-  recordLong?: { value: number; scope: string } | null;
+  /** Longest-field-goal marks to beat, biggest stage first (school, conference, college football, NFL). */
+  recordLong?: { value: number; scope: string }[] | { value: number; scope: string } | null;
   /** Video board lines. */
   board?: [string, string];
   /** Painted in the end zone. */
@@ -247,7 +247,10 @@ export function KickScene(props: Props) {
   const [muted, setMuted] = useState(sound.muted);
 
   const lastName = kickerName.split(' ').slice(-1)[0].toUpperCase();
-  const isRecord = (r: KickResult) => !!props.recordLong && r.made && !props.cardTitle?.startsWith('Extra') && setup.distanceYd > props.recordLong.value;
+  const targets = props.recordLong ? (Array.isArray(props.recordLong) ? props.recordLong : [props.recordLong]) : [];
+  // The biggest record this distance would break, if any.
+  const recordHit = targets.find((t) => setup.distanceYd > t.value) ?? null;
+  const isRecord = (r: KickResult) => !!recordHit && r.made && !props.cardTitle?.startsWith('Extra');
   let clutch = props.clutch ?? null;
   if (import.meta.env.DEV) {
     const force = (window as unknown as { __rtnForce?: { clutch?: 'winner' | 'tie' | 'lead' } }).__rtnForce;
@@ -733,7 +736,7 @@ export function KickScene(props: Props) {
       : baseCall
         ? { ...baseCall, clutch: false }
         : null;
-  const recordCall = ui.called && ui.result && isRecord(ui.result) ? `New ${props.recordLong!.scope} record · ${setup.distanceYd} yards` : null;
+  const recordCall = ui.called && ui.result && isRecord(ui.result) && recordHit ? `New ${recordHit.scope} record · ${setup.distanceYd} yards` : null;
   const level = CONFIG.levels[setup.level];
 
   return (

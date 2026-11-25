@@ -99,7 +99,7 @@ export const CONFIG = {
   },
 
   ratings: {
-    maxRangeYd: { r40: 40, r99: 66 }, // calm-day full-power range (Power)
+    maxRangeYd: { r40: 40, r99: 68 }, // calm-day full-power range (Power); overdrive and a tailwind add more
     sweetSpotHalf: { r40: 0.065, r99: 0.16 }, // half-width of the sweet spot, in meter units (Accuracy)
     windEffect: { r40: 1.0, r99: 0.6 }, // multiplier on wind push (Wind control)
     driftSigmaDeg: { r40: 0.8, r99: 0.12 }, // random drift on a well-struck kick (Consistency)
@@ -115,7 +115,7 @@ export const CONFIG = {
     kickerName: 'Austin Watson',
     kicker: { power: 70, accuracy: 70, composure: 70, windControl: 70, consistency: 70 },
     minDistanceYd: 18,
-    maxDistanceYd: 70,
+    maxDistanceYd: 75,
     maxWindMph: 30,
     accent: '#f5b82e',
     kickerNumber: '3',
@@ -218,7 +218,7 @@ export const CONFIG = {
       pressureMult: 1.6, // clutch moments move trust more
       // The coach's kicking range: kicker range (in this weather) times this, by trust 0 → 100
       rangeFrac: { low: 0.8, high: 1.04 },
-      desperationBonusYd: 4, // last play of a half/game: will try a longer one
+      desperationBonusYd: 6, // last play of a half/game: will try a longer one
     },
 
     sim: {
@@ -232,7 +232,8 @@ export const CONFIG = {
       nfl: { td: 0.235, fgChance: 0.21, turnover: 0.11, safety: 0.004 },
       strengthEffect: 0.0045, // per point of offense-minus-defense strength
       twoMinuteFgBoost: 0.18, // late-game drives settle for kicks more often
-      stallYardline: [3, 45], // where a stalled drive ends (opponent's yard line)
+      stallYardline: [3, 55], // where a stalled drive ends (opponent's yard line); 55 = a 72-yard try
+      stallShape: 1.5, // higher = long tries rarer
       oppKickerRating: { hs: 45, college: 62, nfl: 78 },
       autoXpRating: true,
     },
@@ -305,10 +306,12 @@ export const CONFIG = {
     hallOfFame: { points: 2300, honors: 8, longFg: 60 },
 
     records: {
-      bonus: { school: 2, program: 3, nfl: 6 }, // skill points for breaking a record
+      bonus: { school: 2, program: 3, conference: 4, fbs: 8, nfl: 6 }, // skill points for breaking a record
       // Real NFL record numbers (no names): longest FG, FGs in a game, in a season, in a career,
       // career points, consecutive FGs made.
       nfl: { longest: 66, gameFg: 8, seasonFg: 44, careerFg: 599, careerPts: 2673, streak: 44 },
+      // Real FBS marks (no names): longest FG, FGs in a game, in a season, in a career, career kicking points.
+      fbs: { longest: 67, gameFg: 7, seasonFg: 31, careerFg: 96, careerPts: 498 },
     },
 
     celebration: {
@@ -320,7 +323,7 @@ export const CONFIG = {
 
   story: {
     slump: { start: 0.7, decayPerGame: 0.18, composureHit: 18, accuracyHit: 6 },
-    coachAsk: { windowYd: 6, vouchMake: 8, vouchMiss: -12, decline: -1 },
+    coachAsk: { windowYd: 7, vouchMake: 8, vouchMiss: -12, decline: -1 },
     hurry: { chance: 0.6, seconds: 4.5 }, // last-play kicks with no timeouts: aim before the snap
     snap: { chance: 0.035, badWeather: 0.08, windowS: 0.85, recoveredShift: 0.07, botchedShift: 0.38 },
   },

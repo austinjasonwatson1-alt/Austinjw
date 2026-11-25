@@ -159,6 +159,7 @@ export interface Career {
   settings: { autoXp: boolean };
   summary: CareerSummary | null;
   records?: RecordBook | null;
+  collegeBooks?: RecordBook[]; // conference and college football (FBS) records
   recordsBroken?: string[];
   standings?: Standings | null;
   transfers?: number;

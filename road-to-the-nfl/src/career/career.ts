@@ -4,7 +4,7 @@ import { CONFIG, type Weather } from '../config';
 import { Rng } from '../sim/rng';
 import { COLLEGES, FIRST, HS_COLORS, LAST, MASCOTS, NFL_TEAMS, TOWNS } from './data';
 import { GameSim, type GameSetup } from './gamesim';
-import { makeRecordBook, updateRecords, type RecordScope } from './records';
+import { makeRecordBook, updateRecords, type RecordBook, type RecordScope } from './records';
 import { advanceStandings, buildStandings, mySeed, sorted } from './standings';
 import { advanceNemesis, blankCounters, easeSlump, effectiveSkills, pressFor, startSlump, trackKicks, type PressConf } from './story';
 import { clampSkill, costToRaise, evenSkills, kickPoints, levelCost, overall, stageLevel } from './progression';
@@ -328,15 +328,13 @@ export function recordGame(c0: Career, sim: GameSim): { career: Career; summary:
   if (c.standings && !g.playoff) advanceStandings(c.standings, rng, g.opp.name, us > them ? true : us < them ? false : null);
 
   // Records
-  const calls = updateRecords(c, kicks, s.fgm);
-  if (calls.length) {
-    const bonus = C().records.bonus[c.records!.scope];
-    c.points += bonus * calls.length;
-    for (const call of calls) {
-      notes.push(call);
-      news(c, call);
-      c.recordsBroken = [...(c.recordsBroken ?? []), `${c.year} ${call.replace(/\.$/, '')}`];
-    }
+  const callObjs = updateRecords(c, kicks, s.fgm);
+  const calls = callObjs.map((x) => x.text);
+  for (const call of callObjs) {
+    c.points += C().records.bonus[call.scope];
+    notes.push(call.text);
+    news(c, call.text);
+    c.recordsBroken = [...(c.recordsBroken ?? []), `${c.year} ${call.text.replace(/\.$/, '')}`];
   }
 
   // Traits
@@ -748,6 +746,14 @@ export function afterDraftResult(c0: Career): Career {
   return c;
 }
 
+/** Conference and college football (FBS) record books for a college team. The FBS book follows you on a transfer. */
+function collegeBooksFor(c: Career, team: Team, rng: Rng): RecordBook[] {
+  const fbs = c.collegeBooks?.find((b) => b.scope === 'fbs') ?? makeRecordBook('fbs', '', undefined, rng, () => '');
+  const oldConf = c.collegeBooks?.find((b) => b.scope === 'conference');
+  const conf = oldConf && oldConf.name === team.conference ? oldConf : makeRecordBook('conference', team.name, team.tier, rng, () => `${genName(rng)} (${rng.pick(COLLEGES.filter((t) => t.conference === team.conference && t.name !== team.name).map((t) => t.short).concat(['—']))})`, team.conference ?? 'Conference');
+  return [conf, fbs];
+}
+
 // ---------------------------------------------------------------------------
 // Transfer portal (college offseasons before the senior year)
 
@@ -820,6 +826,7 @@ export function choosePortal(c0: Career, offer: Offer | null): Career {
   c.transfers = (c.transfers ?? 0) + 1;
   c.trust = C().trust.start.college;
   c.records = makeRecordBook('program', offer.team.name, offer.team.tier, rng, () => genName(rng));
+  c.collegeBooks = collegeBooksFor(c, offer.team, rng);
   news(c, `${c.kicker.name} transfers from ${from} to ${offer.team.name}.`);
   if (offer.rivalOvr === null) {
     c.role = 'starter';
@@ -884,6 +891,7 @@ export function chooseOffer(c0: Career, offer: Offer): Career {
   const resign = offer.id === 'resign';
   const scope: RecordScope = c.stage === 'college' ? 'program' : 'nfl';
   if (fromHs || (scope === 'nfl' && c.records?.scope !== 'nfl')) c.records = makeRecordBook(scope, offer.team.name, offer.team.tier, rng, () => genName(rng));
+  if (fromHs) c.collegeBooks = collegeBooksFor(c, offer.team, rng);
   c.team = { ...offer.team };
   c.level = stageLevel(c.stage);
   c.contract = offer.contract ?? null;
@@ -1094,7 +1102,8 @@ export function campCost(from: number, to: number) {
 
 /** Fill in fields added after a save was made (records, standings). */
 export function migrateCareer(c0: Career): Career {
-  if (c0.records !== undefined && c0.standings !== undefined && c0.counters !== undefined) return c0;
+  const needBooks = c0.collegeBooks === undefined && (c0.stage === 'college' || c0.history.some((h) => h.stage === 'college'));
+  if (c0.records !== undefined && c0.standings !== undefined && c0.counters !== undefined && !needBooks) return c0;
   const c = clone(c0);
   const rng = rngFor(c, 'migrate');
   if (c.records === undefined) {
@@ -1128,6 +1137,25 @@ export function migrateCareer(c0: Career): Career {
     c.traits = [];
     c.slump = null;
     c.nemesis = null;
+  }
+  if (needBooks) {
+    // Build the conference and FBS books and count the college career already played.
+    const colTeam = c.stage === 'college' && c.team ? c.team : null;
+    const lastCollege = [...c.history].reverse().find((h) => h.stage === 'college');
+    const info = colTeam ?? (lastCollege ? COLLEGES.find((t) => t.name === lastCollege.team) : null);
+    const team: Team = info ? { ...info, strength: 50 } : { name: 'College', short: 'COL', primary: '#333333', secondary: '#ffffff', strength: 50, conference: 'Conference' };
+    c.collegeBooks = collegeBooksFor({ ...c, collegeBooks: undefined }, team, rng);
+    const lines = [...c.history, ...(c.inSeason && c.season ? [c.season] : [])].filter((h) => h.stage === 'college');
+    const lastYear = lines.length ? lines[lines.length - 1].year : c.year;
+    for (const b of c.collegeBooks) {
+      for (const e of b.entries) {
+        if (e.kind === 'longest') e.mine = c.log.filter((k) => k.stage === 'college' && k.made && !k.xp).reduce((m, k) => Math.max(m, k.d), 0);
+        if (e.kind === 'seasonFg') e.mine = lines.reduce((m, h) => Math.max(m, h.fgm), 0);
+        if (e.kind === 'careerFg') e.mine = lines.reduce((a, h) => a + h.fgm, 0);
+        if (e.kind === 'careerPts') e.mine = lines.reduce((a, h) => a + h.points, 0);
+        if (e.mine > e.value) e.brokenYear = lastYear;
+      }
+    }
   }
   if (c.standings === undefined) {
     c.standings = c.inSeason && c.role !== 'unsigned' ? buildStandings(c, rng) : null;

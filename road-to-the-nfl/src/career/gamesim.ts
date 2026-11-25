@@ -275,7 +275,7 @@ export class GameSim {
     }
     if (r < td + fg) {
       const [lo, hi] = S.stallYardline;
-      const yl = Math.round(lo + (hi - lo) * Math.pow(this.rng.next(), 1.15));
+      const yl = Math.round(lo + (hi - lo) * Math.pow(this.rng.next(), S.stallShape));
       yield* this.fieldGoalDecision(side, yl, lastPlay);
       return;
     }

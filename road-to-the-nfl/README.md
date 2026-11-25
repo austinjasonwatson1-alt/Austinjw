@@ -50,7 +50,10 @@ slow motion (`slowMo`), sound levels (`audio`) and team kits. The practice kicke
   honors, titles and a Hall of Fame verdict.
 - **Big moments:** game-winning, game-tying and go-ahead kicks get a celebration: the team mobs you, confetti,
   fireworks and your name on the video board.
-- **Records:** school, program and NFL record books (real NFL marks, no names) with callouts when you pass one.
+- **Records:** school, program, conference, college football (FBS) and NFL record books (real FBS and NFL marks, no
+  names), with callouts when you pass one. College kicks count toward all three college books at once.
+- **Long kicks:** drives can stall as far out as a 72-yard try. A big leg with overdrive and a tailwind can make one, and
+  the coach will let you try if he trusts you, asks you, or it is the last play.
 - **Your call:** near the edge of his range the coach asks if you can make it. Back it up and trust soars; miss and it
   craters. Pick a high kick (clears the rush, drifts more) or a low one (cuts the wind, easier to block) with ↑ ↓.
 - **Surprises:** bad snaps you have to save with a quick press, swirling stadiums where the flags shift, hurry-up kicks

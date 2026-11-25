@@ -118,7 +118,7 @@ export function Practice({ onExit }: { onExit: () => void }) {
             onChange={(e) => set('distanceYd', Number(e.target.value))}
           />
           <div className="quick">
-            {[CONFIG.levels[setup.level].xpDistanceYd, 30, 40, 45, 50, 55, 60].map((d) => (
+            {[CONFIG.levels[setup.level].xpDistanceYd, 30, 40, 45, 50, 55, 60, 65, 70].map((d) => (
               <button key={d} className={setup.distanceYd === d ? 'on' : ''} onClick={() => set('distanceYd', d)}>
                 {d === CONFIG.levels[setup.level].xpDistanceYd ? `PAT ${d}` : d}
               </button>
