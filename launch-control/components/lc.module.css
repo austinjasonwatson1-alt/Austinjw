@@ -170,3 +170,13 @@
 .intro{color:var(--mut);max-width:78ch;margin:0 0 22px}
 .about{font-size:15px;margin:0 0 2px}
 .tryit{font-size:13px;color:var(--sky);margin:0 0 14px}
+/* Delivery KPIs */
+.dk{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--edge);border:1px solid var(--edge);border-radius:12px;overflow:hidden}
+.dkItem{background:var(--bg);padding:14px 16px;display:flex;flex-direction:column;gap:4px}
+.dkItem b{font-size:30px;font-weight:300;line-height:1.1;font-variant-numeric:tabular-nums}
+.dkItem.hot b{color:var(--pink)}.dkItem.ok b{color:var(--sky)}
+.dkItem strong{font-size:14px;font-weight:600;line-height:1.3}
+.dkItem small{line-height:1.4}
+.dkTarget{margin-top:auto;padding-top:6px}
+@media(max-width:900px){.dk{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.dk{grid-template-columns:minmax(0,1fr)}}

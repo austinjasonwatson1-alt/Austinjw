@@ -57,6 +57,7 @@ Wherever a mistake is expensive or hard to undo: the go/no-go call, anything cus
 [Answer honestly with your own experience.] The architecture point: the tracker sits behind one interface. Linear is one adapter; DevRev is another adapter plus a mapping of what counts as a launch, a gate and a blocker. The first thing I'd want to understand is which system owns which record, and where the handoff between them drops things.
 
 **21. Which product delivery KPIs would you define?**
+The demo shows four as a starting point (section 4): gates with an owner and a date, launches on track, gates ready a week before go/no-go, and tracker data quality. Beyond those:
 Launch date predictability (days slipped against the committed date). Share of gates ready a week before go/no-go. Risks found before the review versus in it. Share of releases that followed the process. Tracker hygiene. Manual hours removed. I'd start with two, baseline them, and add more only when someone acts on the first two.
 
 **22. A KPI slips. What do you do?**

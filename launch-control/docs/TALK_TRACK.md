@@ -31,6 +31,8 @@ Rehearse out loud; aim for 2:00. Clicks are in **bold**.
 
 See [JOB_MAP.md](JOB_MAP.md) for each line of the posting mapped to what to show or say, and [HARD_QUESTIONS.md](HARD_QUESTIONS.md) for the full question sheet.
 
+If they ask about KPIs, scroll to section 4, "Delivery KPIs": four numbers counted from the tracker, each with a target. Apply a hygiene fix and they move.
+
 ## Likely questions
 - **How do you know the AI is right?** Every brief is checked against its data in the app, plus an eval: 30/30 same call as the rules engine, 0 invented IDs, 21/21 at-risk tickets cited ([EVAL.md](EVAL.md)).
 - **Why keep a rules engine?** It's the floor that never goes down, and it's the benchmark the AI is measured against. The AI adds the judgment and the writing.

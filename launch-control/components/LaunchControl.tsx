@@ -11,6 +11,7 @@ import {
   hygieneChecks,
   MINUTES_PER_SWEEP,
   callToDecision,
+  deliveryKpis,
   DECISION_LABEL,
   decisionUpdate,
   HEALTH_LABEL,
@@ -30,6 +31,7 @@ import Calendar from './Calendar';
 import { cx } from './cx';
 import GatesPanel from './GatesPanel';
 import type { Recorded } from './DecisionBar';
+import DeliveryKpis from './DeliveryKpis';
 import HygienePanel, { type LogEntry } from './HygienePanel';
 import PasscodeDialog from './PasscodeDialog';
 
@@ -231,6 +233,7 @@ export default function LaunchControl() {
   }, [snap, sel, pristine, agentAvailable, samples]);
 
   const summary = useMemo(() => (snap ? boardSummary(snap) : null), [snap]);
+  const kpis = useMemo(() => (snap ? deliveryKpis(snap) : []), [snap]);
   const checks = useMemo(() => (snap ? hygieneChecks(snap.issues, snap.asOf) : []), [snap]);
   const proposed = useMemo(() => (snap ? proposeFixes(snap) : { fixes: [], unlinked: 0 }), [snap]);
   /** Manual work waiting right now, from the data on screen: one sweep per launch, plus each proposed fix and alert. */
@@ -680,6 +683,13 @@ export default function LaunchControl() {
           onReset={live ? undefined : reset}
           live={live ? { fixes: proposed.fixes, apply: applyLinearFixes } : undefined}
         />
+      </section>
+
+      <section className={cx('band', 'bandTight')}>
+        <p className={cx('wrap', 'step')}>
+          <b>4</b> Track delivery, and show leadership the numbers
+        </p>
+        <DeliveryKpis kpis={kpis} />
       </section>
 
       <PasscodeDialog open={dlg != null} error={dlg?.error} onSubmit={(p) => closeDialog(p)} onCancel={() => closeDialog(null)} />
