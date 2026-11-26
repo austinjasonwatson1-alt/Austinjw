@@ -180,3 +180,25 @@
 .dkTarget{margin-top:auto;padding-top:6px}
 @media(max-width:900px){.dk{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:520px){.dk{grid-template-columns:minmax(0,1fr)}}
+/* Visual polish (Nov 26): verdict badge, ticket chips, depth, tighter boxes */
+.verdict{display:flex;flex-direction:column;gap:8px;margin:6px 0 2px}
+.verdict p{font-size:16px;line-height:1.5;margin:0}
+.vbadge{align-self:flex-start;display:inline-flex;align-items:baseline;gap:8px;border-radius:10px;padding:8px 14px;font-size:20px;font-weight:700;letter-spacing:.02em;color:#0a2540}
+.vbadge small{font-size:12px;font-weight:600;color:inherit;opacity:.75;letter-spacing:0}
+.vno{background:var(--pink)}.vyes{background:var(--sky)}.vcond{background:#fff}
+.idchip{display:inline-block;border:1px solid var(--edge);background:rgba(143,211,255,.08);border-radius:6px;padding:2px 6px;margin:0 1px;font-size:12px;line-height:1.3;vertical-align:1px}
+.out li{font-size:15px;line-height:1.55}
+.out ul{padding-left:18px}
+.risklist{list-style:none;padding-left:0 !important}
+.risklist li{border-left:3px solid var(--pink);padding:2px 0 2px 12px;margin:10px 0}
+.rgate{font-weight:600}
+.out h4{letter-spacing:.06em;text-transform:uppercase;font-size:12px;margin-top:20px}
+.panel{box-shadow:0 1px 0 rgba(255,255,255,.04) inset,0 18px 40px -24px rgba(0,0,0,.55)}
+.kpis,.dk{box-shadow:0 18px 40px -24px rgba(0,0,0,.55)}
+.hyg{align-items:start}
+.intro{max-width:112ch}
+.bar{top:3px;height:16px}
+.seg{border-radius:3px}
+.go{box-shadow:0 6px 18px -8px rgba(143,211,255,.55)}
+.go:hover:not(:disabled){filter:brightness(1.06)}
+.row{transition:background .15s}

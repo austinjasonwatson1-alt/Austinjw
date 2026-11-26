@@ -74,7 +74,7 @@ async function main() {
       const aside = await p.innerText('aside');
       expect(/Claude agent/.test(aside), `fell back to rules: ${(await p.innerText('ul[class*=trace]')).trim()}`);
       expect(/get_gates/.test(aside) && /list_issues/.test(aside), 'tool trace missing');
-      expect(/Recommendation/.test(aside) && /Exec update/.test(aside), 'brief format missing');
+      expect(/Recommendation/i.test(aside) && /Exec update/i.test(aside), 'brief format missing');
       const rec = aside.match(/(NO-GO|GO WITH CONDITIONS|GO)\b/)?.[0];
       const risk = Number((await headline(p)).match(/(\d+) of \d+ gates/)?.[1] ?? 0);
       expect(!risk || rec === 'NO-GO', `recommended ${rec} with ${risk} gate(s) at risk`);
