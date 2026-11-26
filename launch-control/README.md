@@ -114,6 +114,6 @@ Import the repo, set **Root Directory** to `launch-control`, and add the four en
 
 ## Project docs
 
-[Walkthrough video](public/demo.mp4) · [PRD](PRD.md) · [Agent eval](docs/EVAL.md) · [Hard questions](docs/HARD_QUESTIONS.md) · [Decisions log](DECISIONS.md) · [Backlog](BACKLOG.md) · [Talk track](docs/TALK_TRACK.md) · [Approved prototype](prototype/index.html)
+[Walkthrough video](public/demo.mp4) · [PRD](PRD.md) · [Agent eval](docs/EVAL.md) · [Decisions log](DECISIONS.md) · [Backlog](BACKLOG.md) · [Approved prototype](prototype/index.html)
 
 <!-- Deployed on Vercel from this branch (Root Directory: launch-control). -->
